@@ -1,0 +1,10 @@
+{
+  "extends": "@yopem/typescript-config/react",
+  "compilerOptions": {
+    "types": [],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src"]
+}

@@ -1,0 +1,42 @@
+{
+  "name": "social-poster",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "alchemy dev",
+    "check": "vp check && vp run workspace-types",
+    "format": "vp fmt",
+    "lint": "vp lint",
+    "typecheck": "vp run workspace-types",
+    "build": "vp run web-build",
+    "e2e": "vp run e2e-check",
+    "deploy": "vp run deploy-app"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261012.1",
+    "@effect/platform-node": "0.108.2",
+    "@playwright/test": "1.64.0",
+    "@types/node": "24.10.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@yopem-ui/oxlint-plugin": "0.1.2",
+    "@yopem/oxlint-config": "0.5.0",
+    "@yopem/typescript-config": "0.2.4",
+    "alchemy": "0.94.0",
+    "auth": "workspace:*",
+    "db": "workspace:*",
+    "effect": "3.22.2",
+    "env": "workspace:*",
+    "eslint": "10.12.0",
+    "rpc": "workspace:*",
+    "server": "workspace:*",
+    "typescript": "7.0.2",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.1.0",
+    "vite-plus": "1.1.0"
+  },
+  "engines": {
+    "node": ">=24.11.0 <25",
+    "pnpm": "12.11.2"
+  },
+  "packageManager": "pnpm@12.11.2"
+}

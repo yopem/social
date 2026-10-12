@@ -1,0 +1,13 @@
+{
+  "name": "rpc",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "@effect/platform": "0.97.2",
+    "@effect/rpc": "0.76.2",
+    "effect": "3.22.2"
+  }
+}

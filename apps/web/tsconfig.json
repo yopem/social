@@ -1,0 +1,10 @@
+{
+  "extends": "@yopem/typescript-config/react",
+  "compilerOptions": {
+    "types": ["vite/client", "@cloudflare/workers-types"],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}

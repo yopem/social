@@ -1,0 +1,7 @@
+{
+  "extends": "@yopem/typescript-config/base",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["vite.config.ts", "alchemy.run.ts", "tests/**/*.ts"]
+}

@@ -1,0 +1,10 @@
+{
+  "extends": "@yopem/typescript-config/base",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types"],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src"]
+}
