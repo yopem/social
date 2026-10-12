@@ -12,7 +12,8 @@ export function step<A>(run: () => Promise<A>) {
     try: run,
     catch: (cause) =>
       new E2EFailure({
-        message: cause instanceof Error ? cause.message : "Browser step failed.",
+        message:
+          cause instanceof Error ? cause.message : "Browser step failed.",
       }),
   })
 }
