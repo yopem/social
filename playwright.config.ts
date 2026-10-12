@@ -9,9 +9,14 @@ export default defineConfig({
   timeout: 60000,
   expect: { timeout: 15000 },
   outputDir: "test-results/artifacts",
-  reporter: [["list"], ["html", { outputFolder: "test-results/html", open: "never" }], ["json", { outputFile: "test-results/results.json" }]],
+  reporter: [
+    ["list"],
+    ["html", { outputFolder: "test-results/html", open: "never" }],
+    ["json", { outputFile: "test-results/results.json" }],
+  ],
   use: {
     baseURL: "http://localhost:3000",
+    extraHTTPHeaders: { Origin: "http://localhost:3000" },
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
