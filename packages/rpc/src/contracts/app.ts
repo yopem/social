@@ -1,5 +1,5 @@
-import { Rpc, RpcGroup } from "@effect/rpc"
 import { Schema } from "effect"
+import { Rpc, RpcGroup } from "effect/rpc"
 
 import { JsonObject } from "rpc/contracts/json"
 import {
@@ -16,7 +16,7 @@ import {
   Platform,
   Post,
   PostContent,
-  Session,
+  PublicSession,
   Workspace,
   WorkspaceKind,
 } from "rpc/contracts/models"
@@ -29,7 +29,11 @@ const PostInput = Schema.Struct({ workspaceId: Id, postId: Id })
 const FeedInput = Schema.Struct({ workspaceId: Id, feedId: Id })
 
 export class AppRpc extends RpcGroup.make(
-  Rpc.make("SessionRead", { success: Session, error: ApiError }),
+  Rpc.make("AccountDelete", {
+    payload: { confirmation: Schema.Literal("DELETE") },
+    success: Schema.Void,
+    error: ApiError,
+  }),
   Rpc.make("WorkspaceCreate", {
     payload: { name: Name, kind: WorkspaceKind, timezone: Name },
     success: Workspace,
@@ -44,7 +48,7 @@ export class AppRpc extends RpcGroup.make(
     payload: {
       workspaceId: Id,
       email: Schema.String,
-      role: Schema.Literal("admin", "editor"),
+      role: Schema.Literals(["admin", "editor"]),
     },
     success: Schema.Struct({ url: Schema.String }),
     error: ApiError,
@@ -52,6 +56,11 @@ export class AppRpc extends RpcGroup.make(
   Rpc.make("WorkspaceAcceptInvite", {
     payload: { token: Id },
     success: Workspace,
+    error: ApiError,
+  }),
+  Rpc.make("WorkspaceTransfer", {
+    payload: { workspaceId: Id, memberId: Id },
+    success: Schema.Void,
     error: ApiError,
   }),
   Rpc.make("WorkspaceRemoveMember", {
@@ -82,7 +91,7 @@ export class AppRpc extends RpcGroup.make(
     payload: {
       workspaceId: Id,
       attemptId: Id,
-      accountIds: Schema.Array(Id).pipe(Schema.minItems(1)),
+      accountIds: Schema.Array(Id).pipe(Schema.check(Schema.isMinLength(1))),
     },
     success: Schema.Array(Channel),
     error: ApiError,
@@ -100,7 +109,7 @@ export class AppRpc extends RpcGroup.make(
   Rpc.make("PostList", {
     payload: {
       workspaceId: Id,
-      filter: Schema.Literal("all", "draft", "queue", "sent"),
+      filter: Schema.Literals(["all", "draft", "queue", "sent"]),
     },
     success: Schema.Array(Post),
     error: ApiError,
@@ -165,4 +174,6 @@ export class AppRpc extends RpcGroup.make(
     success: Analytics,
     error: ApiError,
   }),
-).middleware(Authentication) {}
+)
+  .middleware(Authentication)
+  .add(Rpc.make("SessionRead", { success: PublicSession, error: ApiError })) {}

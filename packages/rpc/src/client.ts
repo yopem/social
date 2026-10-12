@@ -1,13 +1,13 @@
-import type { RpcClientError } from "@effect/rpc"
+import type { RpcClientError } from "effect/rpc"
 
+import { Effect, Layer } from "effect"
 import {
   FetchHttpClient,
   HttpBody,
   HttpClient,
   HttpClientResponse,
-} from "@effect/platform"
-import { RpcClient, RpcSerialization } from "@effect/rpc"
-import { Effect, Layer } from "effect"
+} from "effect/http"
+import { RpcClient, RpcSerialization } from "effect/rpc"
 
 import { AppRpc } from "rpc/contracts/app"
 import { ApiError, Media } from "rpc/contracts/models"
@@ -36,8 +36,8 @@ export function withRpc<A, E>(
   ).pipe(Effect.provide(transport))
 }
 
-export function uploadMedia(workspaceId: string, file: File) {
-  return Effect.gen(function* () {
+export const uploadMedia = Effect.fn("uploadMedia")(
+  function* (workspaceId: string, file: File) {
     const client = yield* HttpClient.HttpClient
 
     const response = yield* client.post(
@@ -54,23 +54,24 @@ export function uploadMedia(workspaceId: string, file: File) {
     const accepted = yield* HttpClientResponse.filterStatusOk(response)
 
     return yield* HttpClientResponse.schemaBodyJson(Media)(accepted)
-  }).pipe(
-    Effect.scoped,
-    Effect.provide(FetchHttpClient.layer),
-    Effect.mapError(
-      () =>
-        new ApiError({
-          code: "upstream-failure",
-          message: "Upload failed. Check the file type, size, and permissions.",
-        }),
-    ),
-  )
-}
+  },
+  Effect.scoped,
+  Effect.provide(FetchHttpClient.layer),
+  Effect.mapError(
+    () =>
+      new ApiError({
+        code: "upstream-failure",
+        message: "Upload failed. Check the file type, size, and permissions.",
+      }),
+  ),
+)
 
-export function logout() {
-  return Effect.gen(function* () {
+export const logout = Effect.fn("logout")(
+  function* () {
     const client = yield* HttpClient.HttpClient
     const response = yield* client.post("/auth/logout")
     yield* HttpClientResponse.filterStatusOk(response)
-  }).pipe(Effect.scoped, Effect.provide(FetchHttpClient.layer))
-}
+  },
+  Effect.scoped,
+  Effect.provide(FetchHttpClient.layer),
+)

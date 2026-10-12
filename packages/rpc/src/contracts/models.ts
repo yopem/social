@@ -2,14 +2,17 @@ import { Schema } from "effect"
 
 import { JsonObject } from "rpc/contracts/json"
 
-export const Id = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(512))
-
-export const Name = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(500),
+export const Id = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(512),
 )
 
-export const Platform = Schema.Literal(
+export const Name = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(500),
+)
+
+export const Platform = Schema.Literals([
   "x",
   "threads",
   "bluesky",
@@ -18,15 +21,15 @@ export const Platform = Schema.Literal(
   "instagram",
   "linkedin",
   "facebook",
-)
+])
 
 export type Platform = typeof Platform.Type
 
-export const Role = Schema.Literal("owner", "admin", "editor")
+export const Role = Schema.Literals(["owner", "admin", "editor"])
 
 export type Role = typeof Role.Type
 
-export const WorkspaceKind = Schema.Literal("personal", "organization")
+export const WorkspaceKind = Schema.Literals(["personal", "organization"])
 
 export const User = Schema.Struct({ id: Id, name: Name, email: Schema.String })
 
@@ -56,6 +59,13 @@ export const Session = Schema.Struct({
 
 export type Session = typeof Session.Type
 
+export const PublicSession = Schema.Struct({
+  user: Schema.NullOr(User),
+  workspaces: Schema.Array(Workspace),
+})
+
+export type PublicSession = typeof PublicSession.Type
+
 export const Channel = Schema.Struct({
   id: Id,
   workspaceId: Id,
@@ -63,7 +73,7 @@ export const Channel = Schema.Struct({
   backend: Id,
   accountId: Id,
   displayName: Name,
-  status: Schema.Literal("connected", "reconnect-required", "disconnected"),
+  status: Schema.Literals(["connected", "reconnect-required", "disconnected"]),
 })
 
 export type Channel = typeof Channel.Type
@@ -84,7 +94,7 @@ export const Media = Schema.Struct({
   workspaceId: Id,
   name: Name,
   mediaType: Schema.String,
-  kind: Schema.Literal("image", "video"),
+  kind: Schema.Literals(["image", "video"]),
   bytes: Schema.Number,
   url: Schema.String,
 })
@@ -93,9 +103,11 @@ export type Media = typeof Media.Type
 
 export const PlatformOverride = Schema.Struct({
   channelId: Id,
-  text: Schema.optional(Schema.String.pipe(Schema.maxLength(100_000))),
-  title: Schema.optional(Schema.String.pipe(Schema.maxLength(500))),
-  visibility: Schema.optional(Schema.Literal("public", "private", "unlisted")),
+  text: Schema.optional(Schema.String.check(Schema.isMaxLength(100_000))),
+  title: Schema.optional(Schema.String.check(Schema.isMaxLength(500))),
+  visibility: Schema.optional(
+    Schema.Literals(["public", "private", "unlisted"]),
+  ),
   madeForKids: Schema.optional(Schema.Boolean),
   privacyLevel: Schema.optional(Schema.String),
   creatorConsent: Schema.optional(Schema.Boolean),
@@ -108,22 +120,22 @@ export const PlatformOverride = Schema.Struct({
   draft: Schema.optional(Schema.Boolean),
   creatorInfo: Schema.optional(JsonObject),
   photoCoverIndex: Schema.optional(
-    Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+    Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
   ),
 })
 
 export type PlatformOverride = typeof PlatformOverride.Type
 
 export const PostContent = Schema.Struct({
-  text: Schema.String.pipe(Schema.maxLength(100_000)),
-  mediaIds: Schema.Array(Id).pipe(Schema.maxItems(20)),
-  channelIds: Schema.Array(Id).pipe(Schema.maxItems(40)),
-  overrides: Schema.Array(PlatformOverride).pipe(Schema.maxItems(40)),
+  text: Schema.String.check(Schema.isMaxLength(100_000)),
+  mediaIds: Schema.Array(Id).check(Schema.isMaxLength(20)),
+  channelIds: Schema.Array(Id).check(Schema.isMaxLength(40)),
+  overrides: Schema.Array(PlatformOverride).check(Schema.isMaxLength(40)),
 })
 
 export type PostContent = typeof PostContent.Type
 
-export const DeliveryState = Schema.Literal(
+export const DeliveryState = Schema.Literals([
   "not-submitted",
   "scheduled",
   "accepted",
@@ -132,7 +144,7 @@ export const DeliveryState = Schema.Literal(
   "failed",
   "cancelled",
   "unknown",
-)
+])
 
 export type DeliveryState = typeof DeliveryState.Type
 
@@ -147,18 +159,18 @@ export const Delivery = Schema.Struct({
   providerPostId: Schema.NullOr(Schema.String),
   observedAt: Schema.String,
   retryDisposition: Schema.NullOr(
-    Schema.Literal(
+    Schema.Literals([
       "never",
       "after-delay",
       "after-reconnect",
       "reconcile-first",
-    ),
+    ]),
   ),
 })
 
 export type Delivery = typeof Delivery.Type
 
-export const PostState = Schema.Literal(
+export const PostState = Schema.Literals([
   "draft",
   "scheduled",
   "pending",
@@ -167,7 +179,7 @@ export const PostState = Schema.Literal(
   "failed",
   "needs-review",
   "cancelled",
-)
+])
 
 export const Post = Schema.Struct({
   id: Id,
@@ -183,7 +195,7 @@ export const Post = Schema.Struct({
 
 export type Post = typeof Post.Type
 
-export const FeedMode = Schema.Literal("draft", "automatic")
+export const FeedMode = Schema.Literals(["draft", "automatic"])
 
 export const Feed = Schema.Struct({
   id: Id,
@@ -204,7 +216,7 @@ export type Feed = typeof Feed.Type
 export const Metric = Schema.Struct({
   name: Name,
   value: Schema.Number,
-  unit: Schema.Literal("count", "percentage", "milliseconds", "seconds"),
+  unit: Schema.Literals(["count", "percentage", "milliseconds", "seconds"]),
 })
 
 export type Metric = typeof Metric.Type
@@ -241,7 +253,7 @@ export const DiscoveredAccount = Schema.Struct({
 export type DiscoveredAccount = typeof DiscoveredAccount.Type
 
 export class ApiError extends Schema.TaggedError<ApiError>()("ApiError", {
-  code: Schema.Literal(
+  code: Schema.Literals([
     "unauthenticated",
     "forbidden",
     "not-found",
@@ -250,6 +262,6 @@ export class ApiError extends Schema.TaggedError<ApiError>()("ApiError", {
     "conflict",
     "upstream-failure",
     "storage-failure",
-  ),
+  ]),
   message: Schema.String,
 }) {}
