@@ -7,7 +7,7 @@
   },
   "dependencies": {
     "@openauthjs/openauth": "0.4.3",
-    "effect": "3.22.2",
+    "effect": "4.0.3",
     "env": "workspace:*"
   }
 }

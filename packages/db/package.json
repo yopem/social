@@ -3,13 +3,12 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./migrations/*.sql": "./src/migrations/*.sql",
     "./*": "./src/*.ts"
   },
   "dependencies": {
-    "@effect/experimental": "0.61.1",
-    "@effect/sql": "0.52.1",
-    "@effect/sql-d1": "0.50.0",
-    "effect": "3.22.2",
+    "drizzle-orm": "0.45.4",
+    "effect": "4.0.3",
     "env": "workspace:*",
     "rpc": "workspace:*"
   }

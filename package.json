@@ -10,12 +10,13 @@
     "typecheck": "vp run workspace-types",
     "build": "vp run web-build",
     "e2e": "vp run e2e-check",
-    "deploy": "vp run deploy-app"
+    "deploy": "vp run deploy-app",
+    "db-generate": "vp run database-generate",
+    "db-studio": "vp run database-studio"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261012.1",
-    "@effect/platform": "0.97.2",
-    "@effect/platform-node": "0.108.2",
+    "@effect/platform-node": "4.0.3",
     "@opencoredev/social-sdk": "0.5.0",
     "@playwright/test": "1.64.0",
     "@types/node": "24.10.1",
@@ -26,15 +27,18 @@
     "@yopem/typescript-config": "0.2.4",
     "alchemy": "0.94.0",
     "auth": "workspace:*",
+    "better-sqlite3": "12.8.0",
     "db": "workspace:*",
-    "effect": "3.22.2",
+    "drizzle-kit": "0.31.11",
+    "effect": "4.0.3",
     "env": "workspace:*",
     "eslint": "10.12.0",
     "rpc": "workspace:*",
     "server": "workspace:*",
     "typescript": "7.0.2",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.1.0",
-    "vite-plus": "1.1.0"
+    "vite-plus": "1.1.0",
+    "web": "workspace:*"
   },
   "engines": {
     "node": ">=24.11.0 <25",
