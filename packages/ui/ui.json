@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "files": {
+    "src/styles/tokens.stylex.ts": "sha256-aIokukBWaQhoorA59NMFJ/eS8pQ1TlmuNCV5ev3NXr4=",
+    "src/styles/styles.css": "sha256-goeDV8xyaAF4tEtBIHstCXM2JPiL2w58gyzOsJmjZgk=",
+    "src/lib/stylex.ts": "sha256-LGorihfdgskJvXQf5t2vxeGrxBP+OwYH1DnBu+oS5n4=",
+    "src/components/ui/spinner.tsx": "sha256-naVAvzc6by60zdyiR8KEt2rK11m5kNLKlNJ/a4B4zZQ=",
+    "src/components/ui/button.tsx": "sha256-X11Tr6JxHiGXwrrZOMx31ff9YFMMW1fPWdR+rnm+Zsw=",
+    "src/components/ui/input.tsx": "sha256-bHQ8UNg5QoeeKGEfwQNxbcYwBi2AuDqg5CoRaznpo5I=",
+    "src/components/ui/textarea.tsx": "sha256-Y+pUDKmGpbBgBdMKJZfUZonunZFLoHy3mhFKzS2ce3E=",
+    "src/components/ui/select.tsx": "sha256-PAxJaVBKR0CUpc7lPjmomddjjhkRhrstRNONevpI2CE=",
+    "src/components/ui/checkbox.tsx": "sha256-ZamKpYHocm4OZj9kOpf+WrRcMrvY0Qik8R8yzYhag3M=",
+    "src/components/ui/scroll-area.tsx": "sha256-NsRgbawA+dlkr0VYE0zXgIanKIbb2ayfCESTg4L8CQA=",
+    "src/components/ui/dialog.tsx": "sha256-4weE9YfspQmAK7RXbuvxRObLMNq48zna4/CjtVX8PDA=",
+    "src/components/ui/popover.tsx": "sha256-DXYE+uXWsVO3Iw5bCESo4UI0NEi5zwhWsHTIvocxFL0=",
+    "src/components/ui/tabs.tsx": "sha256-8JAiDPYA3TjjPYCwCZc8ka+R8lNJ8yUVjl3kYmmKbnc=",
+    "src/components/ui/badge.tsx": "sha256-U5LOCBWgPXnZkCgWMOemrDM2voiRJB+opyvz3T91UZM=",
+    "src/components/ui/field.tsx": "sha256-QurETwlDtSUPHUarOK9VJ/YC4Ke4PKGUey7wbQYRsPs=",
+    "src/components/ui/box.tsx": "sha256-0k2A5g1aG+j3QAb99rO6KFw5NvDtIFLXHyc7qrH2ZSI=",
+    "src/components/ui/stack.tsx": "sha256-n2A54nftzX6qWcj8Vtciq/fifeBUouTywmv4ec56qBM=",
+    "src/components/ui/flex.tsx": "sha256-t+AIgOxJbHFWPjfbO8KYSLytg9wMlTSgC4jkm1kE/yY=",
+    "src/components/ui/heading.tsx": "sha256-77w0iNAXzUpbxHsa+BkBRrhBGk3UULnkJlrYCsjNhT4=",
+    "src/components/ui/text.tsx": "sha256-kZ7LXwDg+s+IZlTqJCEMhoxCuHGvMuPU2ycVVXTVvuo="
+  },
+  "provenance": {
+    "src/styles/tokens.stylex.ts": {
+      "registryUrl": "https://ui.yopem.com/r",
+      "items": {
+        "base": "0.1.0"
+      }
+    },
+    "src/styles/styles.css": {
+      "registryUrl": "https://ui.yopem.com/r",
+      "items": {
+        "base": "0.1.0"
+      }
+    },
+    "src/lib/stylex.ts": {
+      "registryUrl": "https://ui.yopem.com/r",
+      "items": {
+        "base": "0.1.0"
+      }
+    },
+    "src/components/ui/spinner.tsx": {
+      "registryUrl": "https://ui.yopem.com/r",
+      "items": {
+        "spinner": "0.1.0"
+      }
+    },
+    "src/components/ui/button.tsx": {
+      "registryUrl": "https://ui.yopem.com/r",
+      "items": {
+        "button": "0.1.0"
+      }
+    },
+    "src/components/ui/input.tsx": {
+      "registryUrl": "https://ui.yopem.com/r",
+      "items": {
+        "input": "0.1.0"
+      }
+    },
+    "src/components/ui/textarea.tsx": {
+      "registryUrl": "https://ui.yopem.com/r",
+      "items": {
+        "textarea": "0.1.0"
+      }
+    },
+    "src/components/ui/select.tsx": {
+      "registryUrl": "https://ui.yopem.com/r",
+      "items": {
+        "select": "0.1.0"
+      }
+    },
+    "src/components/ui/checkbox.tsx": {
+      "registryUrl": "https://ui.yopem.com/r",
+      "items": {
+        "checkbox": "0.1.0"
+      }
+    },
+    "src/components/ui/scroll-area.tsx": {
+      "registryUrl": "https://ui.yopem.com/r",
+      "items": {
+        "scroll-area": "0.1.0"
+      }
+    },
+    "src/components/ui/dialog.tsx": {
+      "registryUrl": "https://ui.yopem.com/r",
+      "items": {
+        "dialog": "0.1.0"
+      }
+    },
+    "src/components/ui/popover.tsx": {
+      "registryUrl": "https://ui.yopem.com/r",
+      "items": {
+        "popover": "0.1.0"
+      }
+    },
+    "src/components/ui/tabs.tsx": {
+      "registryUrl": "https://ui.yopem.com/r",
+      "items": {
+        "tabs": "0.1.0"
+      }
+    },
+    "src/components/ui/badge.tsx": {
+      "registryUrl": "https://ui.yopem.com/r",
+      "items": {
+        "badge": "0.1.0"
+      }
+    },
+    "src/components/ui/field.tsx": {
+      "registryUrl": "https://ui.yopem.com/r",
+      "items": {
+        "field": "0.1.0"
+      }
+    },
+    "src/components/ui/box.tsx": {
+      "registryUrl": "https://ui.yopem.com/r",
+      "items": {
+        "box": "0.1.0"
+      }
+    },
+    "src/components/ui/stack.tsx": {
+      "registryUrl": "https://ui.yopem.com/r",
+      "items": {
+        "stack": "0.1.0"
+      }
+    },
+    "src/components/ui/flex.tsx": {
+      "registryUrl": "https://ui.yopem.com/r",
+      "items": {
+        "flex": "0.1.0"
+      }
+    },
+    "src/components/ui/heading.tsx": {
+      "registryUrl": "https://ui.yopem.com/r",
+      "items": {
+        "heading": "0.1.0"
+      }
+    },
+    "src/components/ui/text.tsx": {
+      "registryUrl": "https://ui.yopem.com/r",
+      "items": {
+        "text": "0.1.0"
+      }
+    }
+  },
+  "importPrefix": "ui"
+}
