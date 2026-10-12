@@ -1,0 +1,10 @@
+CREATE TABLE social_attempts (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, principal_id TEXT NOT NULL, platform TEXT NOT NULL, state TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, ciphertext TEXT NOT NULL, discovery_claimed INTEGER NOT NULL DEFAULT 0, discovery TEXT, consumed_token TEXT);
+CREATE TABLE social_grants (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, principal_id TEXT NOT NULL, backend TEXT NOT NULL, platform TEXT NOT NULL, account_id TEXT NOT NULL, data TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, UNIQUE(tenant_id, backend, platform, account_id));
+CREATE INDEX social_grants_account ON social_grants(platform, account_id, revoked);
+CREATE TABLE social_credentials (key TEXT PRIMARY KEY, revision TEXT NOT NULL, ciphertext TEXT NOT NULL);
+CREATE TABLE social_refresh_locks (key TEXT PRIMARY KEY, token TEXT NOT NULL, expires_at TEXT NOT NULL);
+CREATE TABLE social_idempotency (id TEXT PRIMARY KEY, scope TEXT NOT NULL, key TEXT NOT NULL, fingerprint TEXT NOT NULL, targets TEXT NOT NULL, UNIQUE(scope, key));
+CREATE TABLE social_outcomes (claim_id TEXT NOT NULL REFERENCES social_idempotency(id), target_key TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(claim_id, target_key));
+CREATE TABLE social_workflows (id TEXT PRIMARY KEY, kind TEXT NOT NULL, data TEXT NOT NULL, claim_token TEXT);
+CREATE TABLE social_upload_sessions (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, channel_id TEXT NOT NULL, ciphertext TEXT NOT NULL);
+CREATE TABLE social_inbox (key TEXT PRIMARY KEY, platform TEXT NOT NULL, data TEXT NOT NULL, tenants TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','quarantined','complete')), received_at TEXT NOT NULL);
