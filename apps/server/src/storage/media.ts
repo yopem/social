@@ -1,27 +1,21 @@
-import {
-  Context,
-  DateTime,
-  Effect,
-  Layer,
-  Option,
-  Ref,
-  Schema,
-  Stream,
-} from "effect"
+import { Context, DateTime, Effect, Layer, Ref, Schema, Stream } from "effect"
 import { Egress } from "server/lib/egress"
+import { OperationGate } from "server/services/operation-gate"
 
 import { CredentialCrypto } from "auth/services/crypto"
 import { CoreDb } from "db/services/core"
 import type { AppConfig, WorkerBindings } from "env/server"
 import { ApiError, Media, Name } from "rpc/contracts/models"
 
-const ImageLimit = 10_000_000
+const ImageLimit = 10000000
 
-const VideoLimit = 100_000_000
+const VideoLimit = 100000000
 
 type UploadBody = Extract<
   Parameters<WorkerBindings["MEDIA"]["put"]>[1],
-  { getReader: unknown }
+  {
+    getReader: unknown
+  }
 >
 
 // Cloudflare and DOM types use different stream declarations.
@@ -121,6 +115,7 @@ function byteRange(value: string | null, size: number) {
 function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
   return Effect.gen(function* () {
     const db = yield* CoreDb
+    const gate = yield* OperationGate
     const secrets = yield* CredentialCrypto
     const egress = yield* Egress
 
@@ -136,7 +131,7 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
         Effect.gen(function* () {
           yield* db.workspaceAccess(userId, workspaceId)
 
-          const safeName = yield* Schema.decodeUnknown(Name)(name).pipe(
+          const safeName = yield* Schema.decodeUnknownEffect(Name)(name).pipe(
             Effect.mapError(
               () =>
                 new ApiError({
@@ -165,7 +160,7 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
                 try: () => resource.cancel(),
                 catch: storageFailure,
               }).pipe(
-                Effect.catchAll(() =>
+                Effect.catch(() =>
                   Effect.logWarning("Media reader could not be closed."),
                 ),
               ),
@@ -225,10 +220,10 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
 
           const size = yield* Ref.make(prefixSize)
 
-          const remaining = Stream.unfoldEffect(undefined, () =>
+          const remaining = Stream.unfold(undefined, () =>
             read().pipe(
               Effect.flatMap((next) => {
-                if (next.done) return Effect.succeed(Option.none())
+                if (next.done) return Effect.succeed(undefined)
 
                 return Ref.updateAndGet(
                   size,
@@ -242,9 +237,7 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
                             message: "The file exceeds the upload size limit.",
                           }),
                         )
-                      : Effect.succeed(
-                          Option.some([next.value, undefined] as const),
-                        ),
+                      : Effect.succeed([next.value, undefined] as const),
                   ),
                 )
               }),
@@ -258,7 +251,7 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
           const id = crypto.randomUUID()
           const objectKey = `${workspaceId}/${id}`
 
-          const uploadBody = yield* Schema.decodeUnknown(WorkerBody)(
+          const uploadBody = yield* Schema.decodeUnknownEffect(WorkerBody)(
             stream,
           ).pipe(Effect.mapError(storageFailure))
 
@@ -273,7 +266,7 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
 
           if (!stored) return yield* Effect.fail(storageFailure())
 
-          const value = yield* Schema.decodeUnknown(Media)({
+          const value = yield* Schema.decodeUnknownEffect(Media)({
             id,
             workspaceId,
             name: safeName,
@@ -297,7 +290,7 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
                 try: () => bindings.MEDIA.delete(objectKey),
                 catch: storageFailure,
               }).pipe(
-                Effect.catchAll(() =>
+                Effect.catch(() =>
                   Effect.logError("Unlinked media could not be removed."),
                 ),
               ),
@@ -307,13 +300,15 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
           return value
         }),
       ).pipe(
-        Effect.timeoutFail({
+        Effect.timeoutOrElse({
           duration: "2 minutes",
-          onTimeout: () =>
-            new ApiError({
-              code: "upstream-failure",
-              message: "The media upload timed out.",
-            }),
+          orElse: () =>
+            Effect.fail(
+              new ApiError({
+                code: "upstream-failure",
+                message: "The media upload timed out.",
+              }),
+            ),
         }),
       )
     }
@@ -371,7 +366,7 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
             new ApiError({ code: "not-found", message: "Media not found." }),
           )
 
-        const responseBody = yield* Schema.decodeUnknown(WebBody)(
+        const responseBody = yield* Schema.decodeUnknownEffect(WebBody)(
           object.body,
         ).pipe(Effect.mapError(storageFailure))
 
@@ -389,7 +384,7 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
       return Effect.gen(function* () {
         const value = yield* secrets.decrypt(token).pipe(
           Effect.flatMap(
-            Schema.decodeUnknown(Schema.parseJson(PublicMediaToken)),
+            Schema.decodeUnknownEffect(Schema.fromJsonString(PublicMediaToken)),
           ),
           Effect.mapError(
             () =>
@@ -430,7 +425,7 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
                 JSON.stringify({
                   mediaId: id,
                   workspaceId,
-                  expiresAt: DateTime.toEpochMillis(now) + 21_600_000,
+                  expiresAt: DateTime.toEpochMillis(now) + 21600000,
                 }),
               )
 
@@ -475,14 +470,20 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
       })
     }
 
-    return { upload, download, publicDownload, publicMedia, importRemote }
+    return {
+      upload: gate.wrap(upload),
+      download,
+      publicDownload,
+      publicMedia: gate.wrap(publicMedia),
+      importRemote: gate.wrap(importRemote),
+    }
   })
 }
 
-export class MediaService extends Context.Tag("social/MediaService")<
+export class MediaService extends Context.Service<
   MediaService,
-  Effect.Effect.Success<ReturnType<typeof makeMedia>>
->() {}
+  Effect.Success<ReturnType<typeof makeMedia>>
+>()("social/MediaService") {}
 
 export function mediaLayer(
   bindings: Pick<WorkerBindings, "MEDIA">,

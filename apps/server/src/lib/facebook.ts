@@ -9,7 +9,7 @@ import {
   defineAdapter,
   platformPostRef,
 } from "@opencoredev/social-sdk"
-import { Effect, Either, Schema } from "effect"
+import { DateTime, Effect, Result, Schema } from "effect"
 
 import type { AppConfig } from "env/server"
 import { ApiError } from "rpc/contracts/models"
@@ -45,7 +45,7 @@ function invalid() {
 }
 
 function graphRequest<A, I>(
-  schema: Schema.Schema<A, I>,
+  schema: Schema.Codec<A, I>,
   url: URL,
   init?: RequestInit,
 ) {
@@ -114,7 +114,7 @@ function graphRequest<A, I>(
       offset += chunk.length
     }
 
-    return yield* Schema.decodeUnknown(Schema.parseJson(schema))(
+    return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(schema))(
       new TextDecoder().decode(bytes),
     ).pipe(Effect.mapError(invalid))
   })
@@ -299,7 +299,7 @@ export function facebookAdapter(
             const base = {
               targetIndex: target.targetIndex,
               account: target.account,
-              observedAt: new Date().toISOString(),
+              observedAt: DateTime.formatIso(yield* DateTime.now),
             }
 
             const media = target.content.media?.[0]
@@ -327,26 +327,26 @@ export function facebookAdapter(
                 body,
                 signal: context.signal,
               },
-            ).pipe(Effect.either)
+            ).pipe(Effect.result)
 
             if (
-              Either.isLeft(result) &&
-              (result.left.code === "forbidden" ||
-                result.left.code === "invalid-input")
+              Result.isFailure(result) &&
+              (result.failure.code === "forbidden" ||
+                result.failure.code === "invalid-input")
             )
               return {
                 ...base,
                 state: "failed",
-                code: result.left.code,
+                code: result.failure.code,
                 message:
                   "Facebook rejected the post; check Page permissions and content",
                 retryDisposition:
-                  result.left.code === "forbidden"
+                  result.failure.code === "forbidden"
                     ? { kind: "after-reconnect" }
                     : { kind: "never" },
               } satisfies DeliveryOutcome
 
-            if (Either.isLeft(result))
+            if (Result.isFailure(result))
               return {
                 ...base,
                 state: "unknown",
@@ -354,7 +354,7 @@ export function facebookAdapter(
                 diagnostic:
                   "Facebook submission outcome is uncertain; inspect Page before retry",
               } satisfies DeliveryOutcome
-            const postId = result.right.post_id ?? result.right.id
+            const postId = result.success.post_id ?? result.success.id
 
             return {
               ...base,
@@ -373,15 +373,15 @@ export function facebookAdapter(
       get(ref) {
         return bridge(
           graphRequest(
-            Schema.Record({
-              key: Schema.String,
-              value: Schema.Union(
+            Schema.Record(
+              Schema.String,
+              Schema.Union([
                 Schema.String,
                 Schema.Number,
                 Schema.Boolean,
                 Schema.Null,
-              ),
-            }),
+              ]),
+            ),
             new URL(
               `https://graph.facebook.com/${config.META_API_VERSION}/${encodeURIComponent(ref.postId)}?fields=id,message,permalink_url`,
             ),

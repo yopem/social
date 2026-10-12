@@ -10,7 +10,7 @@ import {
   verifyXWebhook,
   verifyYouTubeWebhook,
 } from "@opencoredev/social-sdk/server"
-import { Effect, Schema } from "effect"
+import { DateTime, Effect, Schema } from "effect"
 
 import { CredentialCrypto } from "auth/services/crypto"
 import { SocialDb } from "db/services/social"
@@ -23,7 +23,7 @@ const EventSchema = Schema.Struct({
   id: Schema.String,
   backend: Schema.String,
   provider: Platform,
-  type: Schema.Literal(
+  type: Schema.Literals([
     "publication.updated",
     "post.removed",
     "backend-record.deleted",
@@ -31,14 +31,14 @@ const EventSchema = Schema.Struct({
     "message.received",
     "comment.received",
     "unknown",
-  ),
-  identity: Schema.Literal("provider-event-id", "body-digest"),
+  ]),
+  identity: Schema.Literals(["provider-event-id", "body-digest"]),
   originalType: Schema.String,
   occurredAt: Schema.optional(Schema.String),
   receivedAt: Schema.String,
   accountIds: Schema.Array(Schema.String),
   backendRecordId: Schema.optional(Schema.String),
-  data: Schema.Record({ key: Schema.String, value: JsonValueSchema }),
+  data: Schema.Record(Schema.String, JsonValueSchema),
 })
 
 export type SocialWebhookEvent = typeof EventSchema.Type
@@ -103,7 +103,12 @@ function readBody(request: Request) {
     }
 
     return bytes
-  }).pipe(Effect.timeoutFail({ duration: "10 seconds", onTimeout: invalid }))
+  }).pipe(
+    Effect.timeoutOrElse({
+      duration: "10 seconds",
+      orElse: () => Effect.fail(invalid()),
+    }),
+  )
 }
 
 export function socialWebhook(
@@ -114,7 +119,7 @@ export function socialWebhook(
   return Effect.gen(function* () {
     const url = new URL(request.url)
 
-    const platform = yield* Schema.decodeUnknown(Platform)(
+    const platform = yield* Schema.decodeUnknownEffect(Platform)(
       url.pathname.split("/")[2],
     ).pipe(Effect.mapError(invalid))
 
@@ -221,13 +226,11 @@ export function socialWebhook(
     let event: SocialWebhookEvent
 
     if (platform === "facebook") {
-      const data = yield* Schema.decodeUnknown(
-        Schema.parseJson(
-          Schema.Record({ key: Schema.String, value: JsonValueSchema }),
-        ),
+      const data = yield* Schema.decodeUnknownEffect(
+        Schema.fromJsonString(Schema.Record(Schema.String, JsonValueSchema)),
       )(new TextDecoder().decode(body)).pipe(Effect.mapError(invalid))
 
-      const meta = yield* Schema.decodeUnknown(
+      const meta = yield* Schema.decodeUnknownEffect(
         Schema.Struct({
           object: Schema.Literal("page"),
           entry: Schema.Array(Schema.Struct({ id: Schema.String })),
@@ -251,7 +254,7 @@ export function socialWebhook(
         type: "unknown",
         identity: "body-digest",
         originalType: "page",
-        receivedAt: new Date().toISOString(),
+        receivedAt: DateTime.formatIso(yield* DateTime.now),
         accountIds: [...new Set(meta.entry.map((entry) => entry.id))],
         data,
       }
@@ -265,7 +268,7 @@ export function socialWebhook(
         }),
       )
 
-      event = yield* Schema.decodeUnknown(EventSchema)(decoded).pipe(
+      event = yield* Schema.decodeUnknownEffect(EventSchema)(decoded).pipe(
         Effect.mapError(invalid),
       )
     }
@@ -313,7 +316,7 @@ export function drainSocialInbox<E, R>(
     for (const row of pending) {
       const event = yield* cipher.decrypt(row.data).pipe(
         Effect.flatMap((data) =>
-          Schema.decodeUnknown(Schema.parseJson(EventSchema))(data),
+          Schema.decodeUnknownEffect(Schema.fromJsonString(EventSchema))(data),
         ),
         Effect.mapError(
           () =>
@@ -324,8 +327,8 @@ export function drainSocialInbox<E, R>(
         ),
       )
 
-      const tenants = yield* Schema.decodeUnknown(
-        Schema.parseJson(Schema.Array(Schema.String)),
+      const tenants = yield* Schema.decodeUnknownEffect(
+        Schema.fromJsonString(Schema.Array(Schema.String)),
       )(row.tenants).pipe(
         Effect.mapError(
           () =>

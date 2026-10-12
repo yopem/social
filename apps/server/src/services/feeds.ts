@@ -1,6 +1,7 @@
-import { Context, Effect, Layer, Either, Schema } from "effect"
+import { Context, Effect, Layer, Result, Schema } from "effect"
 import { XMLParser, XMLValidator } from "fast-xml-parser"
 import { Egress, publicUrl, readBounded } from "server/lib/egress"
+import { OperationGate } from "server/services/operation-gate"
 import { SocialService } from "server/services/social"
 import { MediaService } from "server/storage/media"
 
@@ -11,7 +12,7 @@ import { WorkerResources } from "env/server"
 import type { Feed, PostContent } from "rpc/contracts/models"
 import { ApiError } from "rpc/contracts/models"
 
-const XmlLimit = 2_000_000
+const XmlLimit = 2000000
 
 const BatchSize = 5
 
@@ -24,7 +25,12 @@ const Entry = Schema.Struct({
   ),
 })
 
-type Cursor = Extract<JobMessage, { type: "feed" }>["cursor"]
+type Cursor = Extract<
+  JobMessage,
+  {
+    type: "feed"
+  }
+>["cursor"]
 
 type FeedConfig = Omit<Feed, "id" | "workspaceId" | "lastCheckedAt" | "error">
 
@@ -38,14 +44,14 @@ interface XmlObject {
   readonly [key: string]: XmlValue
 }
 
-const XmlValue: Schema.Schema<XmlValue> = Schema.suspend(() =>
-  Schema.Union(Schema.String, XmlObject, Schema.Array(XmlValue)),
+const XmlValue: Schema.Codec<XmlValue> = Schema.suspend(() =>
+  Schema.Union([Schema.String, XmlObject, Schema.Array(XmlValue)]),
 )
 
-const XmlObject: Schema.Schema<XmlObject> = Schema.Record({
-  key: Schema.String,
-  value: XmlValue,
-})
+const XmlObject: Schema.Codec<XmlObject> = Schema.Record(
+  Schema.String,
+  XmlValue,
+)
 
 function record(value: XmlValue | undefined): XmlObject {
   return Schema.is(XmlObject)(value) ? value : {}
@@ -110,7 +116,7 @@ function parse(xml: string, base: string, name: string) {
       catch: () => invalid("Feed XML is invalid."),
     })
 
-    const root = yield* Schema.decodeUnknown(XmlObject)(document).pipe(
+    const root = yield* Schema.decodeUnknownEffect(XmlObject)(document).pipe(
       Effect.mapError(() => invalid("Feed XML is invalid.")),
     )
 
@@ -157,7 +163,7 @@ function parse(xml: string, base: string, name: string) {
             }),
           )
 
-          return yield* Schema.decodeUnknown(Entry)({
+          return yield* Schema.decodeUnknownEffect(Entry)({
             identity:
               text(item.guid) || text(item.id) || link || JSON.stringify(raw),
             title:
@@ -175,6 +181,7 @@ function parse(xml: string, base: string, name: string) {
 function makeFeeds() {
   return Effect.gen(function* () {
     const db = yield* CoreDb
+    const gate = yield* OperationGate
     const cryptoService = yield* CredentialCrypto
     const egress = yield* Egress
     const media = yield* MediaService
@@ -351,7 +358,7 @@ function makeFeeds() {
                     enclosure.type.includes("/") ? enclosure.type : undefined,
                   )
                   .pipe(
-                    Effect.catchAll((error) => {
+                    Effect.catch((error) => {
                       if (
                         ["storage-failure", "upstream-failure"].includes(
                           error.code,
@@ -415,20 +422,20 @@ function makeFeeds() {
                     Effect.flatMap((files) =>
                       social.prepare(userId, workspaceId, result.post, files),
                     ),
-                    Effect.either,
+                    Effect.result,
                   )
 
-                if (Either.isLeft(prepared)) {
+                if (Result.isFailure(prepared)) {
                   if (
                     ["upstream-failure", "storage-failure"].includes(
-                      prepared.left.code,
+                      prepared.failure.code,
                     )
                   )
-                    return yield* Effect.fail(prepared.left)
+                    return yield* Effect.fail(prepared.failure)
                   yield* db.holdPost(
                     workspaceId,
                     result.post.id,
-                    prepared.left.message,
+                    prepared.failure.message,
                   )
                 } else
                   yield* send({
@@ -441,7 +448,7 @@ function makeFeeds() {
             }).pipe(
               Effect.onError(() =>
                 discard(workspaceId, ids).pipe(
-                  Effect.catchAll(() =>
+                  Effect.catch(() =>
                     Effect.logError("Unused feed media cleanup failed."),
                   ),
                 ),
@@ -494,13 +501,14 @@ function makeFeeds() {
       )
     }
 
-    return {
-      list(userId: string, workspaceId: string) {
+    const operations = {
+      list(this: void, userId: string, workspaceId: string) {
         return db
           .workspaceAccess(userId, workspaceId)
-          .pipe(Effect.zipRight(db.listFeeds(workspaceId)))
+          .pipe(Effect.andThen(db.listFeeds(workspaceId)))
       },
       save(
+        this: void,
         userId: string,
         workspaceId: string,
         config: FeedConfig,
@@ -532,7 +540,12 @@ function makeFeeds() {
         })
       },
       refresh,
-      refreshJob(workspaceId: string, feedId: string, cursor?: Cursor) {
+      refreshJob(
+        this: void,
+        workspaceId: string,
+        feedId: string,
+        cursor?: Cursor,
+      ) {
         return Effect.gen(function* () {
           const owner = yield* db.automationPrincipal(workspaceId)
           const feed = yield* db.getFeed(workspaceId, feedId)
@@ -542,18 +555,25 @@ function makeFeeds() {
             : { imported: 0 }
         })
       },
-      remove(userId: string, workspaceId: string, id: string) {
+      remove(this: void, userId: string, workspaceId: string, id: string) {
         return db
           .workspaceAccess(userId, workspaceId)
-          .pipe(Effect.zipRight(db.deleteFeed(workspaceId, id)))
+          .pipe(Effect.andThen(db.deleteFeed(workspaceId, id)))
       },
+    }
+
+    return {
+      ...operations,
+      refresh: gate.wrap(refresh),
+      save: gate.wrap(operations.save),
+      remove: gate.wrap(operations.remove),
     }
   })
 }
 
-export class FeedService extends Context.Tag("social/FeedService")<
+export class FeedService extends Context.Service<
   FeedService,
-  Effect.Effect.Success<ReturnType<typeof makeFeeds>>
->() {}
+  Effect.Success<ReturnType<typeof makeFeeds>>
+>()("social/FeedService") {}
 
 export const feedLayer = Layer.effect(FeedService, makeFeeds())

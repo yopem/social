@@ -3,21 +3,25 @@ import type {
   ScheduledController,
 } from "@cloudflare/workers-types"
 import type { Egress } from "server/lib/egress"
+import type { AccountDeletion } from "server/services/deletion"
 import type { FeedService } from "server/services/feeds"
+import type { OperationGate } from "server/services/operation-gate"
 import type { SocialService } from "server/services/social"
 
-import { HttpServer } from "@effect/platform"
-import { RpcSerialization, RpcServer } from "@effect/rpc"
-import { Effect, Layer, Schema, Stream } from "effect"
+import { Effect, Layer, Schema, Scope, Stream } from "effect"
+import { HttpEffect, HttpServer } from "effect/http"
+import { RpcSerialization, RpcServer } from "effect/rpc"
 import {
   socialCallback,
   socialClientMetadata,
 } from "server/handlers/social-callback"
 import { drainSocialInbox, socialWebhook } from "server/handlers/webhooks"
-import { JobService, jobLayer } from "server/jobs/handler"
+import { JobService, jobLayer, processQueue } from "server/jobs/handler"
 import { egressLayer, readStream, requestBytes } from "server/lib/egress"
 import { rpcHandlers } from "server/rpc/app"
+import { accountDeletionLayer } from "server/services/deletion"
 import { feedLayer } from "server/services/feeds"
+import { operationGateLayer } from "server/services/operation-gate"
 import { PostService, postLayer } from "server/services/posts"
 import { socialLayer } from "server/services/social"
 import { MediaService, mediaLayer } from "server/storage/media"
@@ -26,22 +30,26 @@ import type { CredentialCrypto } from "auth/services/crypto"
 import { credentialCryptoLayer } from "auth/services/crypto"
 import { AuthSession, authSessionLayer } from "auth/services/session"
 import { CoreDb, coreDbLayer } from "db/services/core"
+import { DeletionDb, deletionDbLayer } from "db/services/deletion"
+import { RetentionDb, retentionDbLayer } from "db/services/retention"
+import type { SessionDb } from "db/services/session"
+import { sessionDbLayer } from "db/services/session"
 import type { SocialDb } from "db/services/social"
 import { socialDbLayer } from "db/services/social"
 import type { AppConfig, WorkerBindings, WorkerResources } from "env/server"
-import {
-  ConfigService,
-  JobMessage,
-  loadConfig,
-  resourceLayer,
-} from "env/server"
+import { ConfigService, loadConfig, resourceLayer } from "env/server"
 import { AppRpc } from "rpc/contracts/app"
 import { ApiError } from "rpc/contracts/models"
-import { Authentication } from "rpc/middleware"
+import { Authentication, CurrentUser, RequestIdentity } from "rpc/middleware"
 
 export type ApplicationDependencies =
   | AuthSession
   | CoreDb
+  | DeletionDb
+  | SessionDb
+  | RetentionDb
+  | AccountDeletion
+  | OperationGate
   | SocialDb
   | CredentialCrypto
   | SocialService
@@ -54,11 +62,15 @@ export type ApplicationDependencies =
   | Egress
 
 export interface ApplicationOverrides {
-  readonly auth?: Layer.Layer<AuthSession, ApiError, CoreDb | CredentialCrypto>
+  readonly auth?: Layer.Layer<
+    AuthSession,
+    ApiError,
+    CoreDb | SessionDb | CredentialCrypto
+  >
   readonly social?: Layer.Layer<
     SocialService,
     ApiError,
-    CoreDb | SocialDb | CredentialCrypto
+    CoreDb | SocialDb | CredentialCrypto | OperationGate
   >
   readonly egress?: Layer.Layer<Egress, ApiError>
 }
@@ -72,20 +84,27 @@ export function applicationLayer(
     resourceLayer(bindings),
     Layer.succeed(ConfigService, config),
     coreDbLayer(bindings),
+    deletionDbLayer(bindings.DB),
+    sessionDbLayer(bindings.DB),
+    retentionDbLayer(bindings.DB),
     socialDbLayer(bindings.DB),
     credentialCryptoLayer(config),
     overrides.egress ?? egressLayer,
   )
 
+  const guarded = operationGateLayer.pipe(Layer.provideMerge(base))
+
   const services = Layer.mergeAll(
     overrides.auth ?? authSessionLayer(config),
     overrides.social ?? socialLayer(config),
     mediaLayer(bindings, config),
-  ).pipe(Layer.provideMerge(base))
+  ).pipe(Layer.provideMerge(guarded))
 
-  const domain = Layer.mergeAll(postLayer, feedLayer).pipe(
-    Layer.provideMerge(services),
-  )
+  const domain = Layer.mergeAll(
+    postLayer,
+    feedLayer,
+    accountDeletionLayer,
+  ).pipe(Layer.provideMerge(services))
 
   return jobLayer().pipe(Layer.provideMerge(domain))
 }
@@ -137,11 +156,6 @@ function rpcRequest(request: Request, config: AppConfig) {
     const session = yield* auth.authenticate(request)
 
     const result = yield* Effect.gen(function* () {
-      if (!session.user)
-        return yield* Effect.fail(
-          failure("unauthenticated", "Sign in required"),
-        )
-
       if (request.method !== "POST")
         return new Response(null, { status: 405, headers: { Allow: "POST" } })
       yield* checkOrigin(request, config)
@@ -152,20 +166,58 @@ function rpcRequest(request: Request, config: AppConfig) {
           failure("invalid-input", "Unsupported RPC content type"),
         )
       const body = yield* requestBytes(request, 1048576)
+
+      if (!session.user) {
+        const messages = yield* Effect.try({
+          try: () => RpcSerialization.ndjson.makeUnsafe().decode(body),
+          catch: () => failure("invalid-input", "Invalid RPC request"),
+        })
+
+        const requests = yield* Schema.decodeUnknownEffect(
+          Schema.Array(Schema.Struct({ tag: Schema.optional(Schema.String) })),
+        )(messages).pipe(
+          Effect.mapError(() =>
+            failure("invalid-input", "Invalid RPC request"),
+          ),
+        )
+
+        for (const message of requests) {
+          const rpc = Array.from(AppRpc.requests.values()).find(
+            (rpc) => rpc._tag === message.tag,
+          )
+
+          if (rpc && rpc.middlewares.size > 0)
+            return yield* Effect.fail(
+              failure("unauthenticated", "Sign in required"),
+            )
+        }
+      }
+
       const context = yield* Effect.context<ApplicationDependencies>()
 
       const layer = rpcHandlers(config).pipe(
         Layer.provide(Layer.succeedContext(context)),
+        Layer.provide(Layer.succeed(RequestIdentity, session.user)),
         Layer.merge(
-          Layer.succeed(Authentication, () => Effect.succeed(session.user)),
+          Layer.succeed(Authentication, (effect) =>
+            session.user
+              ? Effect.provideService(effect, CurrentUser, session.user)
+              : Effect.fail(failure("unauthenticated", "Sign in required")),
+          ),
         ),
         Layer.merge(RpcSerialization.layerNdjson),
-        Layer.merge(HttpServer.layerContext),
+        Layer.merge(HttpServer.layerServices),
+        Layer.merge(Layer.effect(Scope.Scope, Scope.Scope)),
       )
 
       return yield* Effect.acquireUseRelease(
         Effect.sync(() =>
-          RpcServer.toWebHandler(AppRpc, { layer, disableTracing: true }),
+          HttpEffect.toWebHandlerLayerWith(layer, {
+            toHandler: (context) =>
+              RpcServer.toHttpEffect(AppRpc, { disableTracing: true }).pipe(
+                Effect.provideContext(context),
+              ),
+          }),
         ),
         (handler) =>
           Effect.gen(function* () {
@@ -182,16 +234,17 @@ function rpcRequest(request: Request, config: AppConfig) {
             })
 
             const bytes = yield* readStream(
-              Stream.fromReadableStream(
-                () =>
+              Stream.fromReadableStream({
+                evaluate: () =>
                   response.body ??
                   new ReadableStream<Uint8Array>({
                     start(controller) {
                       controller.close()
                     },
                   }),
-                () => failure("upstream-failure", "RPC response failed"),
-              ),
+                onError: () =>
+                  failure("upstream-failure", "RPC response failed"),
+              }),
               16 * 1048576,
             )
 
@@ -200,15 +253,24 @@ function rpcRequest(request: Request, config: AppConfig) {
               headers: response.headers,
             })
           }).pipe(
-            Effect.timeoutFail({
+            Effect.timeoutOrElse({
               duration: "120 seconds",
-              onTimeout: () =>
-                failure("upstream-failure", "RPC request timed out"),
+              orElse: () =>
+                Effect.fail(
+                  failure("upstream-failure", "RPC request timed out"),
+                ),
             }),
           ),
         (handler) => Effect.promise(() => handler.dispose()),
       )
-    }).pipe(Effect.catchAll((error) => Effect.succeed(errorResponse(error))))
+    }).pipe(Effect.catch((error) => Effect.succeed(errorResponse(error))))
+
+    if (session.user) {
+      const db = yield* DeletionDb
+      const exists = yield* db.userExists(session.user.id)
+
+      if (!exists) return withCookies(result, auth.clearCookies())
+    }
 
     return withCookies(result, session.cookies)
   })
@@ -219,7 +281,8 @@ export function apiRequest(request: Request, config: AppConfig) {
     const url = new URL(request.url)
     const path = url.pathname
 
-    if (path === "/rpc") return yield* rpcRequest(request, config)
+    if (path === "/rpc" || path === "/rpc/")
+      return yield* rpcRequest(request, config)
 
     if (path.startsWith("/rpc/"))
       return errorResponse(failure("not-found", "RPC route not found"))
@@ -242,7 +305,11 @@ export function apiRequest(request: Request, config: AppConfig) {
     }
 
     if (path.startsWith("/webhooks/"))
-      return yield* socialWebhook(request, config)
+      return yield* socialWebhook(request, config, {
+        metaVerifyToken: config.FACEBOOK_WEBHOOK_VERIFY_TOKEN,
+        youtubeSecret: config.YOUTUBE_WEBHOOK_SECRET,
+        youtubeTopics: config.YOUTUBE_WEBHOOK_TOPICS,
+      })
 
     if (path.startsWith("/social/callback/"))
       return yield* socialCallback(request, config)
@@ -318,12 +385,14 @@ export function apiRequest(request: Request, config: AppConfig) {
           return yield* media.download(session.user.id, path.slice(7), request)
 
         return errorResponse(failure("not-found", "Media route not found"))
-      }).pipe(Effect.catchAll((error) => Effect.succeed(errorResponse(error))))
+      }).pipe(Effect.catch((error) => Effect.succeed(errorResponse(error))))
 
       return withCookies(response, session.cookies)
     }
 
-    if (path.startsWith("/api/") || path.startsWith("/social/"))
+    if (
+      /^\/(?:api|rpc|auth|social|media|webhooks|__fixtures)(?:\/|$)/.test(path)
+    )
       return errorResponse(failure("not-found", "API route not found"))
 
     return null
@@ -364,6 +433,63 @@ function drainInbox() {
       )
     }),
   )
+}
+
+// Cloudflare and DOM types use different Response declarations.
+const AssetResponse = Schema.declare(
+  (value: unknown): value is Response => value instanceof Response,
+)
+
+function frontendRequest(
+  request: Request,
+  bindings: WorkerBindings,
+  frontend: ApplicationWorkerOptions["frontend"],
+) {
+  return Effect.gen(function* () {
+    if (!["GET", "HEAD"].includes(request.method))
+      return new Response(null, {
+        status: 405,
+        headers: { Allow: "GET, HEAD" },
+      })
+    const path = new URL(request.url).pathname
+
+    if (
+      frontend &&
+      [
+        "/",
+        "/drafts",
+        "/calendar",
+        "/channels",
+        "/rss",
+        "/analytics",
+        "/settings",
+        "/tos",
+        "/privacy-policy",
+      ].includes(path)
+    )
+      return yield* Effect.tryPromise({
+        try: () => frontend(request, bindings),
+        catch: () => failure("upstream-failure", "Frontend request failed"),
+      })
+
+    const assets = bindings.ASSETS
+
+    if (!assets) return errorResponse(failure("not-found", "Route not found"))
+
+    return yield* Effect.tryPromise({
+      try: () =>
+        assets.fetch(request.url, {
+          method: request.method,
+          headers: Object.fromEntries(request.headers.entries()),
+        }),
+      catch: () => failure("upstream-failure", "Asset request failed"),
+    }).pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(AssetResponse)),
+      Effect.mapError(() =>
+        failure("upstream-failure", "Asset request failed"),
+      ),
+    )
+  })
 }
 
 export interface ApplicationWorkerOptions {
@@ -410,17 +536,10 @@ export function createApplicationWorker(
 
             if (response) return response
 
-            if (options.frontend)
-              return yield* Effect.tryPromise({
-                try: () => options.frontend!(request, bindings),
-                catch: () =>
-                  failure("upstream-failure", "Frontend request failed"),
-              })
-
-            return errorResponse(failure("not-found", "Route not found"))
+            return yield* frontendRequest(request, bindings, options.frontend)
           }),
         ).pipe(
-          Effect.catchAll((error) =>
+          Effect.catch((error) =>
             Effect.succeed(
               errorResponse(
                 error instanceof ApiError
@@ -439,25 +558,7 @@ export function createApplicationWorker(
       return Effect.runPromise(
         run(bindings, () =>
           Effect.gen(function* () {
-            const jobs = yield* JobService
-            yield* Effect.forEach(
-              batch.messages,
-              (message) =>
-                Schema.decodeUnknown(JobMessage)(message.body).pipe(
-                  Effect.flatMap(jobs.handle),
-                  Effect.match({
-                    onSuccess: () => message.ack(),
-                    onFailure: () =>
-                      message.retry({
-                        delaySeconds: Math.min(
-                          300,
-                          2 ** Math.min(message.attempts, 8),
-                        ),
-                      }),
-                  }),
-                ),
-              { concurrency: 4, discard: true },
-            )
+            yield* processQueue(batch.messages)
             yield* drainInbox()
           }),
         ),
@@ -466,9 +567,13 @@ export function createApplicationWorker(
     scheduled(_controller: ScheduledController, bindings: WorkerBindings) {
       return Effect.runPromise(
         run(bindings, () =>
-          Effect.flatMap(JobService, (jobs) => jobs.enqueueDue()).pipe(
-            Effect.zipRight(drainInbox()),
-          ),
+          Effect.gen(function* () {
+            const retention = yield* RetentionDb
+            yield* retention.cleanup()
+            const jobs = yield* JobService
+            yield* jobs.enqueueDue()
+            yield* drainInbox()
+          }),
         ),
       )
     },

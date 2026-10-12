@@ -1,5 +1,8 @@
+import type { Message } from "@cloudflare/workers-types"
+
 import { Context, Effect, Layer, Schema } from "effect"
 import { FeedService } from "server/services/feeds"
+import { OperationGate } from "server/services/operation-gate"
 import { PostService } from "server/services/posts"
 
 import { CoreDb } from "db/services/core"
@@ -10,6 +13,7 @@ import { ApiError } from "rpc/contracts/models"
 function makeJobs(bindings?: Pick<ResourceBindings, "JOBS">) {
   return Effect.gen(function* () {
     const db = yield* CoreDb
+    const gate = yield* OperationGate
     const feeds = yield* FeedService
     const posts = yield* PostService
     const resources = yield* WorkerResources
@@ -74,7 +78,7 @@ function makeJobs(bindings?: Pick<ResourceBindings, "JOBS">) {
     }
 
     function handle(message: JobMessage) {
-      return Schema.decodeUnknown(JobMessage)(message).pipe(
+      return Schema.decodeUnknownEffect(JobMessage)(message).pipe(
         Effect.mapError(
           () =>
             new ApiError({
@@ -82,22 +86,30 @@ function makeJobs(bindings?: Pick<ResourceBindings, "JOBS">) {
               message: "Queue message is invalid.",
             }),
         ),
-        Effect.flatMap((job) => {
-          switch (job.type) {
-            case "publish":
-              return posts
-                .publishJob(job.workspaceId, job.postId, job.operationKey)
-                .pipe(Effect.asVoid)
-            case "feed":
-              return feeds
-                .refreshJob(job.workspaceId, job.feedId, job.cursor)
-                .pipe(Effect.asVoid)
-            case "reconcile":
-              return posts
-                .reconcile(job.workspaceId, job.postId)
-                .pipe(Effect.asVoid)
-          }
-        }),
+        Effect.flatMap((job) =>
+          Effect.flatMap(db.automationPrincipal(job.workspaceId), (owner) =>
+            gate.run(
+              owner.id,
+              job.workspaceId,
+              Effect.suspend(() => {
+                switch (job.type) {
+                  case "publish":
+                    return posts
+                      .publishJob(job.workspaceId, job.postId, job.operationKey)
+                      .pipe(Effect.asVoid)
+                  case "feed":
+                    return feeds
+                      .refreshJob(job.workspaceId, job.feedId, job.cursor)
+                      .pipe(Effect.asVoid)
+                  case "reconcile":
+                    return posts
+                      .reconcile(job.workspaceId, job.postId)
+                      .pipe(Effect.asVoid)
+                }
+              }),
+            ),
+          ),
+        ),
         Effect.catchIf(
           (error) => error.code === "not-found",
           () => Effect.void,
@@ -109,11 +121,45 @@ function makeJobs(bindings?: Pick<ResourceBindings, "JOBS">) {
   })
 }
 
-export class JobService extends Context.Tag("social/JobService")<
+export class JobService extends Context.Service<
   JobService,
-  Effect.Effect.Success<ReturnType<typeof makeJobs>>
->() {}
+  Effect.Success<ReturnType<typeof makeJobs>>
+>()("social/JobService") {}
 
 export function jobLayer(bindings?: Pick<ResourceBindings, "JOBS">) {
   return Layer.effect(JobService, makeJobs(bindings))
+}
+
+export function processQueue(messages: readonly Message<unknown>[]) {
+  return Effect.gen(function* () {
+    const jobs = yield* JobService
+    yield* Effect.forEach(
+      messages,
+      (message) =>
+        Schema.decodeUnknownEffect(JobMessage)(message.body).pipe(
+          Effect.flatMap(jobs.handle),
+          Effect.matchEffect({
+            onSuccess: () => Effect.sync(() => message.ack()),
+            onFailure: (error) =>
+              Effect.logWarning("Queue work failed").pipe(
+                Effect.annotateLogs(
+                  "failure_code",
+                  error instanceof ApiError ? error.code : "invalid-input",
+                ),
+                Effect.andThen(
+                  Effect.sync(() =>
+                    message.retry({
+                      delaySeconds: Math.min(
+                        300,
+                        2 ** Math.min(message.attempts, 8),
+                      ),
+                    }),
+                  ),
+                ),
+              ),
+          }),
+        ),
+      { concurrency: 4, discard: true },
+    )
+  })
 }

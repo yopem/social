@@ -14,11 +14,6 @@ import type {
 } from "@opencoredev/social-sdk/server"
 
 import {
-  FetchHttpClient,
-  HttpClient,
-  HttpClientResponse,
-} from "@effect/platform"
-import {
   connectedAccountRef,
   createSocial,
   platformPostRef,
@@ -47,7 +42,8 @@ import { threads } from "@opencoredev/social-sdk/threads"
 import { tiktok } from "@opencoredev/social-sdk/tiktok"
 import { x } from "@opencoredev/social-sdk/x"
 import { youtube } from "@opencoredev/social-sdk/youtube"
-import { Context, DateTime, Effect, Either, Layer, Match, Schema } from "effect"
+import { Context, DateTime, Effect, Result, Layer, Match, Schema } from "effect"
+import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/http"
 import { readBounded } from "server/lib/egress"
 import { facebookAdapter, facebookProvider } from "server/lib/facebook"
 import {
@@ -55,6 +51,7 @@ import {
   makeSdkStores,
   pendingCredentialKey,
 } from "server/lib/sdk-stores"
+import { OperationGate } from "server/services/operation-gate"
 
 import { CredentialCrypto } from "auth/services/crypto"
 import { CredentialSchema } from "db/schema/social"
@@ -84,9 +81,9 @@ const TikTokSettings = Schema.Struct({
   disableComment: Schema.Boolean,
   disableDuet: Schema.Boolean,
   disableStitch: Schema.Boolean,
-  creatorInfo: Schema.Record({ key: Schema.String, value: JsonValueSchema }),
+  creatorInfo: Schema.Record(Schema.String, JsonValueSchema),
   photoCoverIndex: Schema.optional(
-    Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+    Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   ),
 })
 
@@ -120,6 +117,57 @@ function sdkError<E>(error: E) {
 
 function external<A>(request: (signal: AbortSignal) => Promise<A>) {
   return Effect.tryPromise({ try: request, catch: sdkError })
+}
+
+export function reconcileOutcomes(
+  userId: string,
+  workspaceId: string,
+  post: Post,
+  channels: readonly Channel[],
+  client: Pick<ReturnType<typeof createSocial>, "posts">,
+) {
+  return Effect.gen(function* () {
+    const outcomes: DeliveryOutcome[] = []
+
+    for (const delivery of post.deliveries) {
+      if (
+        !delivery.providerPostId ||
+        !["unknown", "processing", "accepted", "scheduled"].includes(
+          delivery.state,
+        )
+      )
+        continue
+      const channel = channels.find((item) => item.id === delivery.channelId)
+
+      if (!channel)
+        return yield* Effect.fail(
+          new ApiError({
+            code: "storage-failure",
+            message: "Delivery channel unavailable",
+          }),
+        )
+      outcomes.push(
+        yield* external((signal) =>
+          client.posts.getDelivery(
+            {
+              kind: "delivery",
+              version: 1,
+              backend: channel.backend,
+              platform: channel.platform,
+              accountId: channel.accountId,
+              deliveryId: delivery.providerPostId ?? "",
+            },
+            {
+              signal,
+              authorization: { principalId: userId, tenantId: workspaceId },
+            },
+          ),
+        ),
+      )
+    }
+
+    return outcomes
+  })
 }
 
 export function platformAvailability(
@@ -182,8 +230,8 @@ function dnsTxt(hostname: string) {
 
     const bytes = yield* readBounded(response, 65536)
 
-    const result = yield* Schema.decodeUnknown(
-      Schema.parseJson(
+    const result = yield* Schema.decodeUnknownEffect(
+      Schema.fromJsonString(
         Schema.Struct({
           Status: Schema.Literal(0),
           Answer: Schema.optional(
@@ -224,13 +272,14 @@ export function blueskyMetadata(config: AppConfig) {
 function makeSocial(config: AppConfig) {
   return Effect.gen(function* () {
     const core = yield* CoreDb
+    const gate = yield* OperationGate
     const db = yield* SocialDb
     const encryption = yield* CredentialCrypto
 
     function decodeCredential(data: string) {
-      return Schema.decodeUnknown(Schema.parseJson(CredentialSchema))(
-        data,
-      ).pipe(
+      return Schema.decodeUnknownEffect(
+        Schema.fromJsonString(CredentialSchema),
+      )(data).pipe(
         Effect.mapError(
           () =>
             new ApiError({
@@ -258,7 +307,7 @@ function makeSocial(config: AppConfig) {
 
     function provider(
       platform: Platform,
-      stores: Effect.Effect.Success<ReturnType<typeof makeSdkStores>>,
+      stores: Effect.Success<ReturnType<typeof makeSdkStores>>,
     ): ConnectionProvider {
       const sink: OAuthCredentialSink = {
         save(input) {
@@ -388,7 +437,7 @@ function makeSocial(config: AppConfig) {
     function credential(
       workspaceId: string,
       channel: Channel,
-      stores: Effect.Effect.Success<ReturnType<typeof makeSdkStores>>,
+      stores: Effect.Success<ReturnType<typeof makeSdkStores>>,
     ) {
       return Effect.gen(function* () {
         const key = credentialKey(
@@ -414,7 +463,8 @@ function makeSocial(config: AppConfig) {
 
         if (
           !value.expiresAt ||
-          Date.parse(value.expiresAt) > Date.now() + 60000
+          Date.parse(value.expiresAt) >
+            DateTime.toEpochMillis(yield* DateTime.now) + 60000
         )
           return value
 
@@ -447,7 +497,8 @@ function makeSocial(config: AppConfig) {
               Effect.gen(function* () {
                 if (
                   current.expiresAt &&
-                  Date.parse(current.expiresAt) > Date.now() + 60000
+                  Date.parse(current.expiresAt) >
+                    DateTime.toEpochMillis(yield* DateTime.now) + 60000
                 )
                   return current
                 yield* Effect.sync(() => {
@@ -455,8 +506,8 @@ function makeSocial(config: AppConfig) {
                 })
 
                 if (channel.platform === "bluesky") {
-                  const sessionData = yield* Schema.decodeUnknown(
-                    Schema.parseJson(JsonValueSchema),
+                  const sessionData = yield* Schema.decodeUnknownEffect(
+                    Schema.fromJsonString(JsonValueSchema),
                   )(current.metadata?.session ?? "").pipe(
                     Effect.mapError(sdkError),
                   )
@@ -519,21 +570,23 @@ function makeSocial(config: AppConfig) {
               }).pipe(
                 Effect.onInterrupt(() =>
                   reconnectRequired().pipe(
-                    Effect.catchAll(() =>
+                    Effect.catch(() =>
                       Effect.logError(
                         "Credential recovery state write failed; reconnect account",
                       ),
                     ),
                   ),
                 ),
-                Effect.timeoutFail({
+                Effect.timeoutOrElse({
                   duration: "60 seconds",
-                  onTimeout: () =>
-                    new ApiError({
-                      code: "upstream-failure",
-                      message:
-                        "Credential refresh timed out; reconnect before retry",
-                    }),
+                  orElse: () =>
+                    Effect.fail(
+                      new ApiError({
+                        code: "upstream-failure",
+                        message:
+                          "Credential refresh timed out; reconnect before retry",
+                      }),
+                    ),
                 }),
               ),
             ),
@@ -549,7 +602,7 @@ function makeSocial(config: AppConfig) {
     function adapter(
       workspaceId: string,
       channel: Channel,
-      stores: Effect.Effect.Success<ReturnType<typeof makeSdkStores>>,
+      stores: Effect.Success<ReturnType<typeof makeSdkStores>>,
     ) {
       return Effect.gen(function* () {
         yield* requirePlatform(channel.platform)
@@ -603,11 +656,11 @@ function makeSocial(config: AppConfig) {
                 }),
               )
 
-            const validated = yield* Schema.decodeUnknown(
-              Schema.Union(
-                Schema.TemplateLiteral("urn:li:person:", Schema.String),
-                Schema.TemplateLiteral("urn:li:organization:", Schema.String),
-              ),
+            const validated = yield* Schema.decodeUnknownEffect(
+              Schema.Union([
+                Schema.TemplateLiteral(["urn:li:person:", Schema.String]),
+                Schema.TemplateLiteral(["urn:li:organization:", Schema.String]),
+              ]),
             )(author).pipe(Effect.mapError(sdkError))
 
             return linkedin({
@@ -625,8 +678,8 @@ function makeSocial(config: AppConfig) {
               stores.bridge,
             )
           case "bluesky": {
-            const sessionData = yield* Schema.decodeUnknown(
-              Schema.parseJson(JsonValueSchema),
+            const sessionData = yield* Schema.decodeUnknownEffect(
+              Schema.fromJsonString(JsonValueSchema),
             )(value.metadata?.session ?? "").pipe(Effect.mapError(sdkError))
 
             const session = yield* Effect.try({
@@ -657,7 +710,12 @@ function makeSocial(config: AppConfig) {
     ) {
       return Effect.gen(function* () {
         yield* core.workspaceAccess(userId, workspaceId)
-        const stores = yield* makeSdkStores()
+
+        const stores = yield* makeSdkStores({
+          tenantId: workspaceId,
+          principalId: userId,
+        })
+
         const backends: Record<string, SocialAdapter<unknown>> = {}
 
         for (const channel of channels) {
@@ -805,7 +863,12 @@ function makeSocial(config: AppConfig) {
               message: "TikTok publishing grant is required",
             }),
           )
-        const stores = yield* makeSdkStores()
+
+        const stores = yield* makeSdkStores({
+          tenantId: workspaceId,
+          principalId: userId,
+        })
+
         const value = yield* credential(workspaceId, channel, stores)
 
         const backend = tiktok({
@@ -1025,16 +1088,16 @@ function makeSocial(config: AppConfig) {
                 }),
               )
 
-            const parsed = yield* Schema.decodeUnknown(
-              Schema.Literal(
+            const parsed = yield* Schema.decodeUnknownEffect(
+              Schema.Literals([
                 "SELF_ONLY",
                 "MUTUAL_FOLLOW_FRIENDS",
                 "FOLLOWER_OF_CREATOR",
                 "PUBLIC_TO_EVERYONE",
-              ),
+              ]),
             )(privacy).pipe(Effect.mapError(sdkError))
 
-            const settings = yield* Schema.decodeUnknown(TikTokSettings)(
+            const settings = yield* Schema.decodeUnknownEffect(TikTokSettings)(
               override,
             ).pipe(
               Effect.mapError(
@@ -1166,12 +1229,13 @@ function makeSocial(config: AppConfig) {
       })
     }
 
-    return {
+    const operations = {
       tiktokCreatorInfo,
-      availability() {
+      availability(this: void) {
         return Effect.succeed(platformAvailability(config))
       },
       begin(
+        this: void,
         userId: string,
         workspaceId: string,
         platform: Platform,
@@ -1180,7 +1244,12 @@ function makeSocial(config: AppConfig) {
         return Effect.gen(function* () {
           yield* core.workspaceAccess(userId, workspaceId, true)
           yield* requirePlatform(platform)
-          const stores = yield* makeSdkStores()
+
+          const stores = yield* makeSdkStores({
+            tenantId: workspaceId,
+            principalId: userId,
+          })
+
           const redirectUri = `${config.APP_ORIGIN}/social/callback/${platform}`
 
           const result = yield* external(() =>
@@ -1206,6 +1275,7 @@ function makeSocial(config: AppConfig) {
         })
       },
       discover(
+        this: void,
         userId: string,
         workspaceId: string,
         attemptId: string,
@@ -1227,7 +1297,11 @@ function makeSocial(config: AppConfig) {
               }),
             )
           yield* requirePlatform(row.platform)
-          const stores = yield* makeSdkStores()
+
+          const stores = yield* makeSdkStores({
+            tenantId: workspaceId,
+            principalId: userId,
+          })
 
           const url = yield* Effect.try({
             try: () => new URL(callbackUrl),
@@ -1248,7 +1322,9 @@ function makeSocial(config: AppConfig) {
             }),
           )
 
-          return yield* Schema.decodeUnknown(Schema.Array(DiscoveredAccount))(
+          return yield* Schema.decodeUnknownEffect(
+            Schema.Array(DiscoveredAccount),
+          )(
             accounts.map((account) => ({
               accountId: account.ref.accountId,
               platform: account.ref.platform,
@@ -1257,7 +1333,12 @@ function makeSocial(config: AppConfig) {
           ).pipe(Effect.mapError(sdkError))
         })
       },
-      discovered(userId: string, workspaceId: string, attemptId: string) {
+      discovered(
+        this: void,
+        userId: string,
+        workspaceId: string,
+        attemptId: string,
+      ) {
         return Effect.gen(function* () {
           yield* core.workspaceAccess(userId, workspaceId, true)
           const row = yield* db.attempt(attemptId)
@@ -1274,13 +1355,19 @@ function makeSocial(config: AppConfig) {
                 message: "Connection attempt unavailable",
               }),
             )
-          const stores = yield* makeSdkStores()
+
+          const stores = yield* makeSdkStores({
+            tenantId: workspaceId,
+            principalId: userId,
+          })
 
           const accounts = yield* external(() =>
             stores.connections.getDiscoveredAccounts(attemptId),
           )
 
-          return yield* Schema.decodeUnknown(Schema.Array(DiscoveredAccount))(
+          return yield* Schema.decodeUnknownEffect(
+            Schema.Array(DiscoveredAccount),
+          )(
             (accounts ?? []).map((account) => ({
               accountId: account.ref.accountId,
               platform: account.ref.platform,
@@ -1290,6 +1377,7 @@ function makeSocial(config: AppConfig) {
         })
       },
       select(
+        this: void,
         userId: string,
         workspaceId: string,
         attemptId: string,
@@ -1297,7 +1385,11 @@ function makeSocial(config: AppConfig) {
       ) {
         return Effect.gen(function* () {
           yield* core.workspaceAccess(userId, workspaceId, true)
-          const stores = yield* makeSdkStores()
+
+          const stores = yield* makeSdkStores({
+            tenantId: workspaceId,
+            principalId: userId,
+          })
 
           const accounts = yield* external(() =>
             stores.connections.getDiscoveredAccounts(attemptId),
@@ -1316,7 +1408,7 @@ function makeSocial(config: AppConfig) {
             grants,
             (grant) =>
               Effect.gen(function* () {
-                const channel = yield* Schema.decodeUnknown(Channel)({
+                const channel = yield* Schema.decodeUnknownEffect(Channel)({
                   id: `${workspaceId}:${grant.account.platform}:${grant.account.accountId}`,
                   workspaceId,
                   platform: grant.account.platform,
@@ -1336,7 +1428,12 @@ function makeSocial(config: AppConfig) {
           )
         })
       },
-      disconnect(userId: string, workspaceId: string, channelId: string) {
+      disconnect(
+        this: void,
+        userId: string,
+        workspaceId: string,
+        channelId: string,
+      ) {
         return Effect.gen(function* () {
           yield* core.workspaceAccess(userId, workspaceId, true)
           const channel = yield* core.channel(workspaceId, channelId)
@@ -1358,6 +1455,7 @@ function makeSocial(config: AppConfig) {
         })
       },
       prepare(
+        this: void,
         userId: string,
         workspaceId: string,
         post: Post,
@@ -1366,6 +1464,7 @@ function makeSocial(config: AppConfig) {
         return preparePost(userId, workspaceId, post, media).pipe(Effect.asVoid)
       },
       publish(
+        this: void,
         userId: string,
         workspaceId: string,
         post: Post,
@@ -1407,7 +1506,7 @@ function makeSocial(config: AppConfig) {
           return deliveries
         })
       },
-      analytics(userId: string, workspaceId: string) {
+      analytics(this: void, userId: string, workspaceId: string) {
         return Effect.gen(function* () {
           yield* core.workspaceAccess(userId, workspaceId)
           const channels = yield* core.listChannels(workspaceId)
@@ -1422,12 +1521,12 @@ function makeSocial(config: AppConfig) {
                   workspaceId,
                   [channel],
                   "analytics.account.read",
-                ).pipe(Effect.either)
+                ).pipe(Effect.result)
 
                 const accountMetrics = yield* (
-                  Either.isRight(ready)
+                  Result.isSuccess(ready)
                     ? external((signal) =>
-                        ready.right.client.analytics.getAccountMetrics(
+                        ready.success.client.analytics.getAccountMetrics(
                           connectedAccountRef({
                             backend: channel.backend,
                             platform: channel.platform,
@@ -1442,12 +1541,12 @@ function makeSocial(config: AppConfig) {
                           },
                         ),
                       )
-                    : Effect.fail(ready.left)
-                ).pipe(Effect.either)
+                    : Effect.fail(ready.failure)
+                ).pipe(Effect.result)
 
                 const available =
-                  Either.isRight(accountMetrics) &&
-                  accountMetrics.right.length > 0
+                  Result.isSuccess(accountMetrics) &&
+                  accountMetrics.success.length > 0
 
                 const account = {
                   channelId: channel.id,
@@ -1456,8 +1555,8 @@ function makeSocial(config: AppConfig) {
                   reason: available
                     ? null
                     : "Account analytics unavailable: permission, configuration, or adapter support missing",
-                  metrics: Either.isRight(accountMetrics)
-                    ? accountMetrics.right.map((metric) => ({
+                  metrics: Result.isSuccess(accountMetrics)
+                    ? accountMetrics.success.map((metric) => ({
                         name: metric.name,
                         value: metric.value,
                         unit: metric.unit,
@@ -1478,9 +1577,9 @@ function makeSocial(config: AppConfig) {
                   ({ post, delivery }) =>
                     Effect.gen(function* () {
                       const result = yield* (
-                        Either.isRight(ready)
+                        Result.isSuccess(ready)
                           ? external((signal) =>
-                              ready.right.client.analytics.getPostMetrics(
+                              ready.success.client.analytics.getPostMetrics(
                                 platformPostRef({
                                   backend: channel.backend,
                                   platform: channel.platform,
@@ -1496,11 +1595,11 @@ function makeSocial(config: AppConfig) {
                                 },
                               ),
                             )
-                          : Effect.fail(ready.left)
-                      ).pipe(Effect.either)
+                          : Effect.fail(ready.failure)
+                      ).pipe(Effect.result)
 
                       const available =
-                        Either.isRight(result) && result.right.length > 0
+                        Result.isSuccess(result) && result.success.length > 0
 
                       return {
                         postId: post.id,
@@ -1509,8 +1608,8 @@ function makeSocial(config: AppConfig) {
                         reason: available
                           ? null
                           : "Post analytics unavailable: permission, configuration, or adapter support missing",
-                        metrics: Either.isRight(result)
-                          ? result.right.map((metric) => ({
+                        metrics: Result.isSuccess(result)
+                          ? result.success.map((metric) => ({
                               name: metric.name,
                               value: metric.value,
                               unit: metric.unit,
@@ -1526,13 +1625,13 @@ function makeSocial(config: AppConfig) {
             { concurrency: 2 },
           )
 
-          return yield* Schema.decodeUnknown(Analytics)({
+          return yield* Schema.decodeUnknownEffect(Analytics)({
             channels: results.map((result) => result.account),
             posts: results.flatMap((result) => result.posts),
           }).pipe(Effect.mapError(sdkError))
         })
       },
-      reconcile(userId: string, workspaceId: string, post: Post) {
+      reconcile(this: void, userId: string, workspaceId: string, post: Post) {
         return Effect.gen(function* () {
           yield* core.workspaceAccess(userId, workspaceId)
 
@@ -1557,40 +1656,13 @@ function makeSocial(config: AppConfig) {
             "posts.read",
           )
 
-          const outcomes: DeliveryOutcome[] = []
-
-          for (const delivery of post.deliveries) {
-            if (
-              !delivery.providerPostId ||
-              !["unknown", "processing", "accepted"].includes(delivery.state)
-            )
-              continue
-
-            const channel = channels.find(
-              (item) => item.id === delivery.channelId,
-            )
-
-            if (!channel) continue
-
-            const result = yield* external((signal) =>
-              client.posts.getDelivery(
-                {
-                  kind: "delivery",
-                  version: 1,
-                  backend: channel.backend,
-                  platform: channel.platform,
-                  accountId: channel.accountId,
-                  deliveryId: delivery.providerPostId ?? "",
-                },
-                {
-                  signal,
-                  authorization: { principalId: userId, tenantId: workspaceId },
-                },
-              ),
-            ).pipe(Effect.either)
-
-            if (Either.isRight(result)) outcomes.push(result.right)
-          }
+          const outcomes = yield* reconcileOutcomes(
+            userId,
+            workspaceId,
+            post,
+            channels,
+            client,
+          )
 
           const updated = yield* saveOutcomes(post, channels, outcomes)
 
@@ -1602,13 +1674,27 @@ function makeSocial(config: AppConfig) {
         })
       },
     }
+
+    return {
+      ...operations,
+      tiktokCreatorInfo: gate.wrap(operations.tiktokCreatorInfo),
+      begin: gate.wrap(operations.begin),
+      discover: gate.wrap(operations.discover),
+      discovered: gate.wrap(operations.discovered),
+      select: gate.wrap(operations.select),
+      disconnect: gate.wrap(operations.disconnect),
+      prepare: gate.wrap(operations.prepare),
+      publish: gate.wrap(operations.publish),
+      analytics: gate.wrap(operations.analytics),
+      reconcile: gate.wrap(operations.reconcile),
+    }
   })
 }
 
-export class SocialService extends Context.Tag("social/SocialService")<
+export class SocialService extends Context.Service<
   SocialService,
-  Effect.Effect.Success<ReturnType<typeof makeSocial>>
->() {}
+  Effect.Success<ReturnType<typeof makeSocial>>
+>()("social/SocialService") {}
 
 export function socialLayer(config: AppConfig) {
   return Layer.effect(SocialService, makeSocial(config))

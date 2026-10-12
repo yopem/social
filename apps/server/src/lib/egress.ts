@@ -1,11 +1,11 @@
-import type { HttpClientResponse } from "@effect/platform"
+import type { HttpClientResponse } from "effect/http"
 
+import { Context, Effect, Layer, Schema, Stream } from "effect"
 import {
   FetchHttpClient,
   HttpClient,
   HttpClientResponse as ClientResponse,
-} from "@effect/platform"
-import { Context, Effect, Layer, Schema, Stream } from "effect"
+} from "effect/http"
 
 import { ApiError } from "rpc/contracts/models"
 
@@ -99,22 +99,26 @@ export function readStream<E, R>(
   return Effect.gen(function* () {
     const chunks: Uint8Array[] = []
 
-    const size = yield* Stream.runFoldEffect(stream, 0, (total, chunk) => {
-      const next = total + chunk.byteLength
+    const size = yield* Stream.runFoldEffect(
+      stream,
+      () => 0,
+      (total, chunk) => {
+        const next = total + chunk.byteLength
 
-      return next > limit
-        ? Effect.fail(
-            new ApiError({
-              code: "invalid-input",
-              message: "The body exceeds the size limit.",
-            }),
-          )
-        : Effect.sync(() => {
-            chunks.push(chunk)
+        return next > limit
+          ? Effect.fail(
+              new ApiError({
+                code: "invalid-input",
+                message: "The body exceeds the size limit.",
+              }),
+            )
+          : Effect.sync(() => {
+              chunks.push(chunk)
 
-            return next
-          })
-    })
+              return next
+            })
+      },
+    )
 
     const body = new Uint8Array(size)
     let offset = 0
@@ -134,13 +138,15 @@ export function readStream<E, R>(
             message: "The remote file could not be read.",
           }),
     ),
-    Effect.timeoutFail({
+    Effect.timeoutOrElse({
       duration: "15 seconds",
-      onTimeout: () =>
-        new ApiError({
-          code: "upstream-failure",
-          message: "The remote file did not respond in time.",
-        }),
+      orElse: () =>
+        Effect.fail(
+          new ApiError({
+            code: "upstream-failure",
+            message: "The remote file did not respond in time.",
+          }),
+        ),
     }),
   )
 }
@@ -156,29 +162,30 @@ export function requestBytes(request: Request, limit: number) {
   if (!request.body) return Effect.succeed(new Uint8Array())
 
   return readStream(
-    Stream.fromReadableStream(
-      () => request.body!,
-      () =>
+    Stream.fromReadableStream({
+      evaluate: () => request.body!,
+      onError: () =>
         new ApiError({
           code: "invalid-input",
           message: "The request body could not be read.",
         }),
-    ),
+    }),
     limit,
   )
 }
 
-export class Egress extends Context.Tag("social/Egress")<
+export class Egress extends Context.Service<
   Egress,
   {
-    readonly open: (
-      url: string,
-    ) => Effect.Effect<
-      { url: string; response: HttpClientResponse.HttpClientResponse },
+    readonly open: (url: string) => Effect.Effect<
+      {
+        url: string
+        response: HttpClientResponse.HttpClientResponse
+      },
       ApiError
     >
   }
->() {}
+>()("social/Egress") {}
 
 export const egressLayer = Layer.effect(
   Egress,
@@ -290,13 +297,15 @@ export const egressLayer = Layer.effect(
           new ApiError({ code: "invalid-input", message: "Invalid redirect." }),
         )
       }).pipe(
-        Effect.timeoutFail({
+        Effect.timeoutOrElse({
           duration: "20 seconds",
-          onTimeout: () =>
-            new ApiError({
-              code: "upstream-failure",
-              message: "The remote file did not respond in time.",
-            }),
+          orElse: () =>
+            Effect.fail(
+              new ApiError({
+                code: "upstream-failure",
+                message: "The remote file did not respond in time.",
+              }),
+            ),
         }),
       )
     }

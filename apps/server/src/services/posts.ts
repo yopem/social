@@ -1,4 +1,5 @@
 import { Context, DateTime, Effect, Layer, Option } from "effect"
+import { OperationGate } from "server/services/operation-gate"
 import { SocialService } from "server/services/social"
 import { MediaService } from "server/storage/media"
 
@@ -34,6 +35,7 @@ export function publicationState(
 function makePosts() {
   return Effect.gen(function* () {
     const db = yield* CoreDb
+    const gate = yield* OperationGate
     const social = yield* SocialService
     const media = yield* MediaService
 
@@ -149,7 +151,7 @@ function makePosts() {
             Effect.flatMap((deliveries) =>
               persist(workspaceId, postId, deliveries),
             ),
-            Effect.catchAll((error) =>
+            Effect.catch((error) =>
               db
                 .setPostState(
                   workspaceId,
@@ -158,12 +160,12 @@ function makePosts() {
                   "Publication needs reconciliation. Do not publish again without checking the platform.",
                 )
                 .pipe(
-                  Effect.catchAll(() =>
+                  Effect.catch(() =>
                     Effect.logError(
                       "Uncertain publication state could not be saved.",
                     ),
                   ),
-                  Effect.zipRight(Effect.fail(error)),
+                  Effect.andThen(Effect.fail(error)),
                 ),
             ),
           )
@@ -179,7 +181,7 @@ function makePosts() {
         const owner = yield* db.automationPrincipal(workspaceId)
 
         return yield* publish(owner.id, workspaceId, postId, operationKey).pipe(
-          Effect.catchAll((error) => {
+          Effect.catch((error) => {
             if (
               ["invalid-input", "not-configured", "forbidden"].includes(
                 error.code,
@@ -187,7 +189,7 @@ function makePosts() {
             ) {
               return db
                 .holdPost(workspaceId, postId, error.message)
-                .pipe(Effect.zipRight(db.getPost(workspaceId, postId)))
+                .pipe(Effect.andThen(db.getPost(workspaceId, postId)))
             }
 
             return Effect.fail(error)
@@ -211,13 +213,13 @@ function makePosts() {
     function cancel(userId: string, workspaceId: string, postId: string) {
       return db
         .workspaceAccess(userId, workspaceId)
-        .pipe(Effect.zipRight(db.cancelPost(workspaceId, postId)))
+        .pipe(Effect.andThen(db.cancelPost(workspaceId, postId)))
     }
 
     function remove(userId: string, workspaceId: string, postId: string) {
       return db
         .workspaceAccess(userId, workspaceId)
-        .pipe(Effect.zipRight(db.deletePost(workspaceId, postId)))
+        .pipe(Effect.andThen(db.deletePost(workspaceId, postId)))
     }
 
     function list(
@@ -227,16 +229,24 @@ function makePosts() {
     ) {
       return db
         .workspaceAccess(userId, workspaceId)
-        .pipe(Effect.zipRight(db.listPosts(workspaceId, filter)))
+        .pipe(Effect.andThen(db.listPosts(workspaceId, filter)))
     }
 
-    return { save, publish, publishJob, reconcile, cancel, remove, list }
+    return {
+      save: gate.wrap(save),
+      publish: gate.wrap(publish),
+      publishJob,
+      reconcile,
+      cancel: gate.wrap(cancel),
+      remove: gate.wrap(remove),
+      list,
+    }
   })
 }
 
-export class PostService extends Context.Tag("social/PostService")<
+export class PostService extends Context.Service<
   PostService,
-  Effect.Effect.Success<ReturnType<typeof makePosts>>
->() {}
+  Effect.Success<ReturnType<typeof makePosts>>
+>()("social/PostService") {}
 
 export const postLayer = Layer.effect(PostService, makePosts())

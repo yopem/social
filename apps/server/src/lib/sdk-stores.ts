@@ -13,7 +13,7 @@ import type {
 import type { ThreadsWorkflowStore } from "@opencoredev/social-sdk/threads"
 import type { YouTubeOptions } from "@opencoredev/social-sdk/youtube"
 
-import { Effect, Runtime, Schema } from "effect"
+import { Effect, Schema } from "effect"
 
 import { CredentialCrypto } from "auth/services/crypto"
 import {
@@ -56,12 +56,12 @@ const Base = {
 const Issue = Schema.Struct({
   code: Schema.String,
   message: Schema.String,
-  severity: Schema.Literal("error", "warning"),
+  severity: Schema.Literals(["error", "warning"]),
   path: Schema.optional(Schema.String),
   targetIndex: Schema.optional(Schema.Number),
 })
 
-export const OutcomeSchema = Schema.Union(
+export const OutcomeSchema = Schema.Union([
   Schema.Struct({
     ...Base,
     state: Schema.Literal("published"),
@@ -69,9 +69,7 @@ export const OutcomeSchema = Schema.Union(
       ...RefBase,
       kind: Schema.Literal("platform-post"),
       postId: Schema.String,
-      native: Schema.optional(
-        Schema.Record({ key: Schema.String, value: JsonValueSchema }),
-      ),
+      native: Schema.optional(Schema.Record(Schema.String, JsonValueSchema)),
     }),
     url: Schema.optional(Schema.String),
   }),
@@ -84,26 +82,29 @@ export const OutcomeSchema = Schema.Union(
       jobId: Schema.String,
     }),
   }),
-  Schema.Struct({ ...Base, state: Schema.Literal("accepted", "processing") }),
+  Schema.Struct({
+    ...Base,
+    state: Schema.Literals(["accepted", "processing"]),
+  }),
   Schema.Struct({
     ...Base,
     state: Schema.Literal("failed"),
     code: Schema.String,
     message: Schema.String,
-    retryDisposition: Schema.Union(
+    retryDisposition: Schema.Union([
       Schema.Struct({
-        kind: Schema.Literal("never", "after-reconnect", "reconcile-first"),
+        kind: Schema.Literals(["never", "after-reconnect", "reconcile-first"]),
       }),
       Schema.Struct({
         kind: Schema.Literal("after-delay"),
         delayMs: Schema.Number,
       }),
-    ),
+    ]),
   }),
   Schema.Struct({
     ...Base,
     state: Schema.Literal("unknown"),
-    reason: Schema.Literal("ambiguous-submission", "unmapped-state"),
+    reason: Schema.Literals(["ambiguous-submission", "unmapped-state"]),
     diagnostic: Schema.optional(Schema.String),
   }),
   Schema.Struct({
@@ -114,15 +115,15 @@ export const OutcomeSchema = Schema.Union(
   Schema.Struct({
     ...Base,
     state: Schema.Literal("not-submitted"),
-    reason: Schema.Literal(
+    reason: Schema.Literals([
       "validation",
       "unauthorized",
       "idempotency-conflict",
       "capacity",
-    ),
+    ]),
     issues: Schema.optional(Schema.Array(Issue)),
   }),
-)
+])
 
 export function credentialKey(
   tenantId: string,
@@ -144,22 +145,25 @@ function storageFailure() {
   })
 }
 
-export function makeSdkStores() {
+export function makeSdkStores(provenance?: {
+  readonly tenantId: string
+  readonly principalId: string
+}) {
   return Effect.gen(function* () {
     const db = yield* SocialDb
     const core = yield* CoreDb
     const encryption = yield* CredentialCrypto
-    const runtime = yield* Effect.runtime<never>()
+    const context = yield* Effect.context<never>()
 
     // SDK protocols require Promises; execute captured Effects only at these callback boundaries.
     function bridge<A>(effect: Effect.Effect<A, ApiError>) {
-      return Runtime.runPromise(runtime)(effect)
+      return Effect.runPromiseWith(context)(effect)
     }
 
-    function decode<A, I>(schema: Schema.Schema<A, I>, data: string) {
-      return Schema.decodeUnknown(Schema.parseJson(schema))(data).pipe(
-        Effect.mapError(storageFailure),
-      )
+    function decode<A, I>(schema: Schema.Codec<A, I>, data: string) {
+      return Schema.decodeUnknownEffect(Schema.fromJsonString(schema))(
+        data,
+      ).pipe(Effect.mapError(storageFailure))
     }
 
     const connections: ConnectionStore = {
@@ -168,7 +172,7 @@ export function makeSdkStores() {
           Effect.gen(function* () {
             const platform = attempt.platforms[0]
 
-            const validated = yield* Schema.decodeUnknown(
+            const validated = yield* Schema.decodeUnknownEffect(
               ConnectionAttemptSchema,
             )(attempt).pipe(Effect.mapError(storageFailure))
 
@@ -216,7 +220,7 @@ export function makeSdkStores() {
       },
       saveDiscoveredAccounts(id, accounts) {
         return bridge(
-          Schema.decodeUnknown(Schema.Array(ConnectionAccountSchema))(
+          Schema.decodeUnknownEffect(Schema.Array(ConnectionAccountSchema))(
             accounts,
           ).pipe(
             Effect.mapError(storageFailure),
@@ -300,7 +304,9 @@ export function makeSdkStores() {
                 : [],
             )
 
-            const channels = yield* Schema.decodeUnknown(Schema.Array(Channel))(
+            const channels = yield* Schema.decodeUnknownEffect(
+              Schema.Array(Channel),
+            )(
               grants.map((grant) => ({
                 id: `${grant.tenantId}:${grant.account.platform}:${grant.account.accountId}`,
                 workspaceId: grant.tenantId,
@@ -371,7 +377,7 @@ export function makeSdkStores() {
       },
       compareAndSet(input) {
         return bridge(
-          Schema.decodeUnknown(CredentialSchema)(input.value).pipe(
+          Schema.decodeUnknownEffect(CredentialSchema)(input.value).pipe(
             Effect.mapError(storageFailure),
             Effect.flatMap((value) =>
               encryption.encrypt(JSON.stringify(value)),
@@ -407,6 +413,7 @@ export function makeSdkStores() {
               input.key,
               input.fingerprint,
               input.targetKeys,
+              provenance,
             )
 
             if (
@@ -488,7 +495,9 @@ export function makeSdkStores() {
 
     function workflowStore<A, I>(
       kind: string,
-      schema: Schema.Schema<A, I> & { readonly Type: A },
+      schema: Schema.Codec<A, I> & {
+        readonly Type: A
+      },
     ) {
       const claims = new Map<string, string>()
 
@@ -508,16 +517,21 @@ export function makeSdkStores() {
         create(input: Omit<A, "id">) {
           return bridge(
             Effect.gen(function* () {
-              const value = yield* Schema.decodeUnknown(schema)({
+              const value = yield* Schema.decodeUnknownEffect(schema)({
                 ...input,
                 id: crypto.randomUUID(),
               }).pipe(Effect.mapError(storageFailure))
 
-              const id = yield* Schema.decodeUnknown(
+              const id = yield* Schema.decodeUnknownEffect(
                 Schema.Struct({ id: Schema.String }),
               )(value).pipe(Effect.mapError(storageFailure))
 
-              yield* db.createWorkflow(id.id, kind, JSON.stringify(value))
+              yield* db.createWorkflow(
+                id.id,
+                kind,
+                JSON.stringify(value),
+                provenance,
+              )
 
               return value
             }),
@@ -533,7 +547,7 @@ export function makeSdkStores() {
 
               if (!existing) return yield* Effect.fail(storageFailure())
 
-              const value = yield* Schema.decodeUnknown(schema)({
+              const value = yield* Schema.decodeUnknownEffect(schema)({
                 ...existing,
                 ...update,
                 id,
@@ -577,8 +591,8 @@ export function makeSdkStores() {
 
     const threadsSchema = Schema.Struct({
       ...WorkflowSchema.fields,
-      options: Schema.Record({ key: Schema.String, value: JsonValueSchema }),
-      stage: Schema.Literal("children", "parent", "published", "unknown"),
+      options: Schema.Record(Schema.String, JsonValueSchema),
+      stage: Schema.Literals(["children", "parent", "published", "unknown"]),
     })
 
     const threadWorkflows: ThreadsWorkflowStore = workflowStore(

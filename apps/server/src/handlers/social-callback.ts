@@ -21,7 +21,7 @@ export function socialCallback(request: Request, config: AppConfig) {
         }),
     })
 
-    const platform = yield* Schema.decodeUnknown(Platform)(
+    const platform = yield* Schema.decodeUnknownEffect(Platform)(
       url.pathname.split("/")[3],
     ).pipe(
       Effect.mapError(
