@@ -112,10 +112,10 @@ function makeCrypto(config: AppConfig) {
   })
 }
 
-export class CredentialCrypto extends Context.Tag("social/CredentialCrypto")<
+export class CredentialCrypto extends Context.Service<
   CredentialCrypto,
-  Effect.Effect.Success<ReturnType<typeof makeCrypto>>
->() {}
+  Effect.Success<ReturnType<typeof makeCrypto>>
+>()("social/CredentialCrypto") {}
 
 export function credentialCryptoLayer(config: AppConfig) {
   return Layer.effect(CredentialCrypto, makeCrypto(config))

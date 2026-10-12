@@ -1,8 +1,9 @@
-import { Context, DateTime, Effect, Either, Layer } from "effect"
+import { Context, DateTime, Effect, Result, Layer, Schema } from "effect"
 
 import { authClient } from "auth/client"
 import { subjects } from "auth/subjects"
 import { CoreDb } from "db/services/core"
+import { SessionDb } from "db/services/session"
 import type { AppConfig } from "env/server"
 import { ApiError } from "rpc/contracts/models"
 
@@ -31,9 +32,38 @@ function readCookie(request: Request, name: string) {
     ?.slice(name.length + 1)
 }
 
+const NativeTokens = Schema.Struct({
+  access: Schema.String.check(Schema.isMinLength(1)),
+  refresh: Schema.String.check(Schema.isMinLength(1)),
+  expiresIn: Schema.Number.check(Schema.isFinite(), Schema.isGreaterThan(0)),
+})
+
+export function readAuthTokens(value: typeof NativeTokens.Type, now: number) {
+  return Schema.decodeUnknownEffect(NativeTokens)(value).pipe(
+    Effect.mapError(upstreamError),
+    Effect.map((tokens) => ({
+      ...tokens,
+      accessExpiresAt: now + Math.min(tokens.expiresIn, 86400) * 1000,
+    })),
+  )
+}
+
+export function checkAuthentication<A, R>(
+  operation: Effect.Effect<A, ApiError, R>,
+) {
+  return operation.pipe(
+    Effect.catch((error) =>
+      error.code === "unauthenticated"
+        ? Effect.succeed(null)
+        : Effect.fail(error),
+    ),
+  )
+}
+
 function makeSession(config: AppConfig) {
   return Effect.gen(function* () {
     const db = yield* CoreDb
+    const sessions = yield* SessionDb
     const cipher = yield* CredentialCrypto
     const client = authClient(config)
 
@@ -62,8 +92,8 @@ function makeSession(config: AppConfig) {
 
     function verified(access: string, refresh?: string) {
       return Effect.tryPromise({
-        try: () =>
-          client.verify(subjects, access, {
+        try: (signal) =>
+          authClient(config, signal).verify(subjects, access, {
             audience: config.AUTH_CLIENT_ID,
             refresh,
           }),
@@ -92,56 +122,104 @@ function makeSession(config: AppConfig) {
     }
 
     return {
+      clearCookies: clear,
       authenticate(request: Request) {
         return Effect.gen(function* () {
           const access = readCookie(request, "access_token")
           const refresh = readCookie(request, "refresh_token")
 
           if (!access && !refresh) return { user: null, cookies: [] }
-          let active = access
-          let rotated: { access: string; refresh: string } | undefined
+          const now = DateTime.toEpochMillis(yield* DateTime.now)
 
-          if (!active && refresh) {
-            const result = yield* Effect.tryPromise({
-              try: () => client.refresh(refresh),
-              catch: upstreamError,
+          const hashes = {
+            accessHash: access ? yield* cipher.hash(access) : undefined,
+            refreshHash: refresh ? yield* cipher.hash(refresh) : undefined,
+            now,
+          }
+
+          const checked = yield* Effect.gen(function* () {
+            const session = yield* sessions.find(hashes)
+
+            if (session?.rotationStartedAt !== null) return null
+
+            let rotated:
+              | Effect.Success<ReturnType<typeof readAuthTokens>>
+              | undefined
+
+            const identity = yield* Effect.gen(function* () {
+              if (access && session.accessExpiresAt > now) {
+                const verification = yield* verified(access).pipe(Effect.result)
+
+                if (Result.isSuccess(verification)) return verification.success
+
+                if (verification.failure.code !== "unauthenticated")
+                  return yield* Effect.fail(verification.failure)
+              }
+
+              if (!refresh || session.refreshExpiresAt <= now) return null
+
+              if (!(yield* sessions.claimRotation(session, now))) return null
+
+              const refreshed = yield* Effect.tryPromise({
+                try: (signal) => authClient(config, signal).refresh(refresh),
+                catch: upstreamError,
+              })
+
+              if (refreshed.err || !refreshed.tokens) return null
+              rotated = yield* readAuthTokens(
+                refreshed.tokens,
+                DateTime.toEpochMillis(yield* DateTime.now),
+              )
+
+              return yield* verified(refreshed.tokens.access)
             })
 
-            if (result.err || !result.tokens)
-              return { user: null, cookies: clear() }
-            rotated = result.tokens
-            active = result.tokens.access
-          }
+            if (!identity) return null
 
-          if (!active) return { user: null, cookies: clear() }
+            const user = yield* db.getUser(
+              config.AUTH_ISSUER,
+              identity.subject.properties.id,
+            )
 
-          const verification = yield* verified(active, refresh).pipe(
-            Effect.either,
+            if (!user || user.id !== session.userId) return null
+
+            if (rotated) {
+              const saved = yield* sessions.rotate(session, {
+                ...session,
+                accessHash: yield* cipher.hash(rotated.access),
+                refreshHash: yield* cipher.hash(rotated.refresh),
+                accessExpiresAt: rotated.accessExpiresAt,
+                refreshExpiresAt: now + 604800000,
+                rotationStartedAt: null,
+                priorAccessHash: session.accessHash,
+                priorRefreshHash: session.refreshHash,
+                priorExpiresAt:
+                  DateTime.toEpochMillis(yield* DateTime.now) + 30000,
+              })
+
+              if (!saved) return null
+            }
+
+            return {
+              user,
+              cookies: rotated ? tokens(rotated.access, rotated.refresh) : [],
+            }
+          }).pipe(
+            Effect.timeoutOrElse({
+              duration: "20 seconds",
+              orElse: () => Effect.fail(upstreamError()),
+            }),
+            checkAuthentication,
           )
 
-          if (Either.isLeft(verification)) {
-            if (verification.left.code !== "unauthenticated")
-              return yield* Effect.fail(verification.left)
+          if (checked) return checked
 
-            return { user: null, cookies: clear() }
-          }
+          const preserve = yield* sessions.preserveCookies({
+            ...hashes,
+            now: DateTime.toEpochMillis(yield* DateTime.now),
+          })
 
-          const result = verification.right
-          const updated = result.tokens ?? rotated
-
-          const user = yield* db.getUser(
-            config.AUTH_ISSUER,
-            result.subject.properties.id,
-          )
-
-          return {
-            user,
-            cookies: user
-              ? updated
-                ? tokens(updated.access, updated.refresh)
-                : []
-              : clear(),
-          }
+          return { user: null, cookies: preserve ? [] : clear() }
         })
       },
       startLogin(request: Request) {
@@ -205,11 +283,11 @@ function makeSession(config: AppConfig) {
 
           const attempt = yield* db
             .consumeAuthAttempt(state, yield* cipher.hash(nonce))
-            .pipe(Effect.either)
+            .pipe(Effect.result)
 
-          if (Either.isLeft(attempt)) {
-            if (attempt.left.code === "storage-failure")
-              return yield* Effect.fail(attempt.left)
+          if (Result.isFailure(attempt)) {
+            if (attempt.failure.code === "storage-failure")
+              return yield* Effect.fail(attempt.failure)
 
             return new Response("Invalid OAuth callback", {
               status: 400,
@@ -217,11 +295,15 @@ function makeSession(config: AppConfig) {
             })
           }
 
-          const verifier = yield* cipher.decrypt(attempt.right.verifier)
+          const verifier = yield* cipher.decrypt(attempt.success.verifier)
 
           const exchanged = yield* Effect.tryPromise({
-            try: () =>
-              client.exchange(code, config.AUTH_CALLBACK_URL, verifier),
+            try: (signal) =>
+              authClient(config, signal).exchange(
+                code,
+                config.AUTH_CALLBACK_URL,
+                verifier,
+              ),
             catch: upstreamError,
           })
 
@@ -230,44 +312,74 @@ function makeSession(config: AppConfig) {
               status: 400,
               headers: { "set-cookie": cleared, "cache-control": "no-store" },
             })
-          const identity = yield* verified(exchanged.tokens.access)
-          yield* db.provisionUser(
+
+          const issued = yield* readAuthTokens(
+            exchanged.tokens,
+            DateTime.toEpochMillis(yield* DateTime.now),
+          )
+
+          const identity = yield* verified(issued.access)
+
+          const user = yield* db.provisionUser(
             config.AUTH_ISSUER,
             identity.subject.properties,
           )
 
+          const now = DateTime.toEpochMillis(yield* DateTime.now)
+          yield* sessions.create({
+            rotationStartedAt: null,
+            priorAccessHash: null,
+            priorRefreshHash: null,
+            priorExpiresAt: null,
+            id: crypto.randomUUID(),
+            userId: user.id,
+            accessHash: yield* cipher.hash(issued.access),
+            refreshHash: yield* cipher.hash(issued.refresh),
+            accessExpiresAt: issued.accessExpiresAt,
+            refreshExpiresAt: now + 604800000,
+          })
+
           return response(config.APP_ORIGIN, [
             cleared,
-            ...tokens(exchanged.tokens.access, exchanged.tokens.refresh),
+            ...tokens(issued.access, issued.refresh),
           ])
         })
       },
       logout(request: Request) {
         return checkOrigin(request).pipe(
-          Effect.map(() => {
-            const headers = new Headers({
-              "content-type": "application/json",
-              "cache-control": "no-store",
-            })
+          Effect.flatMap(() =>
+            Effect.gen(function* () {
+              const access = readCookie(request, "access_token")
+              const refresh = readCookie(request, "refresh_token")
+              yield* sessions.revoke({
+                accessHash: access ? yield* cipher.hash(access) : undefined,
+                refreshHash: refresh ? yield* cipher.hash(refresh) : undefined,
+              })
 
-            for (const value of [
-              ...clear(),
-              cookie("oauth_challenge", "", 0, "/auth"),
-            ])
-              headers.append("set-cookie", value)
+              const headers = new Headers({
+                "content-type": "application/json",
+                "cache-control": "no-store",
+              })
 
-            return new Response('{"ok":true}', { headers })
-          }),
+              for (const value of [
+                ...clear(),
+                cookie("oauth_challenge", "", 0, "/auth"),
+              ])
+                headers.append("set-cookie", value)
+
+              return new Response('{"ok":true}', { headers })
+            }),
+          ),
         )
       },
     }
   })
 }
 
-export class AuthSession extends Context.Tag("social/AuthSession")<
+export class AuthSession extends Context.Service<
   AuthSession,
-  Effect.Effect.Success<ReturnType<typeof makeSession>>
->() {}
+  Effect.Success<ReturnType<typeof makeSession>>
+>()("social/AuthSession") {}
 
 export function authSessionLayer(config: AppConfig) {
   return Layer.effect(AuthSession, makeSession(config))
