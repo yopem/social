@@ -1,17 +1,20 @@
 import * as stylex from "@stylexjs/stylex"
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import { useRef, useState } from "react"
 
 import { withRpc } from "rpc/client"
+import type { JsonObject } from "rpc/contracts/json"
 import {
   ApiError,
   type Media,
   type Post,
   type PostContent,
+  type PlatformOverride,
   type Workspace,
 } from "rpc/contracts/models"
+import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
 import {
   Dialog,
@@ -21,18 +24,20 @@ import {
   DialogTitle,
 } from "ui/components/ui/dialog"
 import { Field, FieldLabel } from "ui/components/ui/field"
+import { Heading } from "ui/components/ui/heading"
 import { Input } from "ui/components/ui/input"
+import { Text } from "ui/components/ui/text"
 import { Textarea } from "ui/components/ui/textarea"
 
+import { Check, Failure, FormErrors, deskStyles } from "@/components/desk-ui"
+import { validatePublishing } from "@/features/desk/publishing"
 import {
-  Check,
-  Failure,
-  FormErrors,
-  deskStyles,
-} from "../../../components/desk-ui"
-import { validatePublishing } from "../publishing"
-import { effectMutation, mediaMutation, workspaceQuery } from "../queries"
-import { ComposerForm, scheduleTime } from "../schema"
+  effectMutation,
+  mediaMutation,
+  workspaceQuery,
+} from "@/features/desk/queries"
+import { ComposerForm, scheduleTime } from "@/features/desk/schema"
+
 import { TargetOptions } from "./target-options"
 
 export function Composer({
@@ -46,95 +51,115 @@ export function Composer({
 }) {
   const workspaceId = workspace.id
   const client = useQueryClient()
+
   const channels = useQuery(
     workspaceQuery(workspaceId, "channels", (rpc) =>
       rpc.ChannelList({ workspaceId }),
     ),
   )
+
   const [media, setMedia] = useState<readonly Media[]>([])
   const [scheduled, setScheduled] = useState("")
   const actionRef = useRef<"draft" | "publish" | "schedule">("draft")
+
   const operation = useRef<{
     postId?: string
     key?: string
     publishStarted: boolean
     uncertainSave: boolean
   }>({
-    ...(post ? { postId: post.id } : {}),
+    postId: post?.id,
     publishStarted: false,
     uncertainSave: false,
   })
+
   const upload = useMutation(mediaMutation(workspaceId))
   const [publishStarted, setPublishStarted] = useState(false)
   const [uncertainSave, setUncertainSave] = useState(false)
+
   const mutation = useMutation({
-    ...effectMutation((content: PostContent) =>
-      Effect.gen(function* () {
-        const action = actionRef.current
-        if (operation.current.uncertainSave)
-          return yield* Effect.fail(
-            new ApiError({
-              code: "conflict",
-              message:
-                "Save outcome is unknown. Reload and review the draft list before creating another post.",
-            }),
-          )
-        if (action !== "draft")
-          yield* validatePublishing(
-            content,
-            channels.data?.channels ?? [],
-            media,
-          )
-        const scheduledAt =
-          action === "schedule"
-            ? yield* scheduleTime(scheduled, workspace.timezone)
-            : null
-        const saved =
-          operation.current.publishStarted && operation.current.postId
-            ? null
-            : yield* withRpc((rpc) =>
-                rpc.PostSave({
-                  workspaceId,
-                  ...(operation.current.postId
-                    ? { postId: operation.current.postId }
-                    : {}),
-                  content,
-                  scheduledAt,
-                }),
-              ).pipe(
-                Effect.tapError((error) =>
-                  Effect.sync(() => {
-                    if (
-                      !(error instanceof ApiError) &&
-                      !operation.current.postId
-                    ) {
-                      operation.current.uncertainSave = true
-                      setUncertainSave(true)
-                    }
+    ...effectMutation(
+      ({
+        content,
+        action,
+        current,
+      }: {
+        content: PostContent
+        action: "draft" | "publish" | "schedule"
+        current: {
+          postId?: string
+          key?: string
+          publishStarted: boolean
+          uncertainSave: boolean
+        }
+      }) =>
+        Effect.gen(function* () {
+          if (current.uncertainSave)
+            return yield* Effect.fail(
+              new ApiError({
+                code: "conflict",
+                message:
+                  "Save outcome is unknown. Reload and review the draft list before creating another post.",
+              }),
+            )
+
+          if (action !== "draft")
+            yield* validatePublishing(
+              content,
+              channels.data?.channels ?? [],
+              media,
+            )
+
+          const scheduledAt =
+            action === "schedule"
+              ? yield* scheduleTime(scheduled, workspace.timezone)
+              : null
+
+          const saved =
+            current.publishStarted && current.postId
+              ? null
+              : yield* withRpc((rpc) =>
+                  rpc.PostSave({
+                    workspaceId,
+                    postId: current.postId,
+                    content,
+                    scheduledAt,
                   }),
-                ),
-              )
-        if (saved) operation.current.postId = saved.id
-        if (action !== "publish") return saved
-        const postId = operation.current.postId
-        if (!postId)
-          return yield* Effect.fail(
-            new ApiError({
-              code: "conflict",
-              message: "Save the post before publishing.",
+                ).pipe(
+                  Effect.tapError((error) =>
+                    Effect.sync(() => {
+                      if (!(error instanceof ApiError) && !current.postId) {
+                        current.uncertainSave = true
+                        setUncertainSave(true)
+                      }
+                    }),
+                  ),
+                )
+
+          if (saved) current.postId = saved.id
+
+          if (action !== "publish") return saved
+          const postId = current.postId
+
+          if (!postId)
+            return yield* Effect.fail(
+              new ApiError({
+                code: "conflict",
+                message: "Save the post before publishing.",
+              }),
+            )
+          current.key ??= crypto.randomUUID()
+          current.publishStarted = true
+          setPublishStarted(true)
+
+          return yield* withRpc((rpc) =>
+            rpc.PostPublish({
+              workspaceId,
+              postId,
+              idempotencyKey: current.key ?? "",
             }),
           )
-        operation.current.key ??= crypto.randomUUID()
-        operation.current.publishStarted = true
-        setPublishStarted(true)
-        return yield* withRpc((rpc) =>
-          rpc.PostPublish({
-            workspaceId,
-            postId,
-            idempotencyKey: operation.current.key ?? "",
-          }),
-        )
-      }),
+        }),
     ),
     retry: false,
     onSuccess: async () => {
@@ -142,23 +167,54 @@ export function Composer({
       onClose()
     },
   })
-  const initial: PostContent = post?.content ?? {
-    text: "",
-    mediaIds: [],
-    channelIds: [],
-    overrides: [],
+
+  const [creatorSnapshots, setCreatorSnapshots] = useState<
+    Record<string, JsonObject>
+  >({})
+
+  const initial: Omit<PostContent, "overrides"> & {
+    overrides: readonly Omit<PlatformOverride, "creatorInfo">[]
+  } = {
+    text: post?.content.text ?? "",
+    mediaIds: post?.content.mediaIds ?? [],
+    channelIds: post?.content.channelIds ?? [],
+    overrides:
+      post?.content.overrides.map(
+        ({ creatorInfo: _creatorInfo, ...override }) => ({
+          ...override,
+          creatorConsent: false,
+        }),
+      ) ?? [],
   }
+
   const form = useForm({
     defaultValues: initial,
-    validators: { onBlur: ComposerForm, onSubmit: ComposerForm },
-    onSubmit: ({ value }) => mutation.mutate(value),
+    validators: {
+      onBlur: Schema.standardSchemaV1(ComposerForm),
+      onSubmit: Schema.standardSchemaV1(ComposerForm),
+    },
+    onSubmit: ({ value }) =>
+      mutation.mutate({
+        content: {
+          ...value,
+          overrides: value.overrides.map((override) => ({
+            ...override,
+            creatorInfo: creatorSnapshots[override.channelId],
+          })),
+        },
+        action: actionRef.current,
+        current: operation.current,
+      }),
   })
+
   function resetConsent() {
     form.setFieldValue("overrides", (overrides) =>
       overrides.map((override) => ({ ...override, creatorConsent: false })),
     )
   }
+
   const locked = mutation.isPending || publishStarted || uncertainSave
+
   return (
     <Dialog
       open
@@ -196,15 +252,20 @@ export function Composer({
                 </Field>
               )}
             </form.Field>
-            <label {...stylex.props(deskStyles.label)}>
+            <label
+              htmlFor="composer-field-1"
+              {...stylex.props(deskStyles.label)}
+            >
               Add images or video
               <Input
+                id="composer-field-1"
                 nativeInput
                 type="file"
                 accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
                 disabled={locked || upload.isPending}
                 onChange={(event) => {
                   const file = event.target.files?.[0]
+
                   if (file)
                     upload.mutate(file, {
                       onSuccess: (uploaded) => {
@@ -220,9 +281,11 @@ export function Composer({
               />
             </label>
             <Failure error={upload.error} />
-            {upload.isPending && <p role="status">Uploading media…</p>}
+            {upload.isPending && (
+              <Box render={<output />}>Uploading media…</Box>
+            )}
             {media.map((item) => (
-              <div key={item.id} {...stylex.props(deskStyles.row)}>
+              <Box key={item.id} xstyle={deskStyles.row}>
                 <a href={item.url} target="_blank" rel="noreferrer">
                   {item.name}
                 </a>
@@ -239,13 +302,13 @@ export function Composer({
                 >
                   Remove {item.name}
                 </Button>
-              </div>
+              </Box>
             ))}
             {post && post.content.mediaIds.length > 0 && (
-              <p>
+              <Text>
                 {post.content.mediaIds.length} saved attachment(s). Existing
                 attachments stay attached.
-              </p>
+              </Text>
             )}
             <Failure error={channels.error} />
             {channels.data?.channels
@@ -253,7 +316,7 @@ export function Composer({
               .map((channel) => (
                 <form.Field key={channel.id} name="channelIds">
                   {(field) => (
-                    <div {...stylex.props(deskStyles.stack)}>
+                    <Box xstyle={deskStyles.stack}>
                       <Check
                         label={channel.displayName}
                         checked={field.state.value.includes(channel.id)}
@@ -266,6 +329,7 @@ export function Composer({
                                   (id) => id !== channel.id,
                                 ),
                           )
+
                           if (!checked)
                             form.setFieldValue("overrides", (overrides) =>
                               overrides.filter(
@@ -286,7 +350,12 @@ export function Composer({
                                 ) ?? { channelId: channel.id }
                               }
                               media={media}
-                              onChange={(value) =>
+                              onChange={({ creatorInfo, ...value }) => {
+                                if (creatorInfo)
+                                  setCreatorSnapshots((snapshots) => ({
+                                    ...snapshots,
+                                    [channel.id]: creatorInfo,
+                                  }))
                                 overrides.handleChange([
                                   ...overrides.state.value.filter(
                                     (override) =>
@@ -294,62 +363,67 @@ export function Composer({
                                   ),
                                   value,
                                 ])
-                              }
+                              }}
                             />
                           )}
                         </form.Field>
                       )}
-                    </div>
+                    </Box>
                   )}
                 </form.Field>
               ))}
             {channels.data?.channels.length === 0 && (
-              <p>
+              <Text>
                 Connect a channel to publish. You can save a draft without a
                 channel.
-              </p>
+              </Text>
             )}
-            <label {...stylex.props(deskStyles.label)}>
+            <label
+              htmlFor="composer-field-2"
+              {...stylex.props(deskStyles.label)}
+            >
               Publish at
               <Input
+                id="composer-field-2"
                 nativeInput
                 type="datetime-local"
-                role="textbox"
+
                 value={scheduled}
                 disabled={locked}
                 onChange={(event) => setScheduled(event.target.value)}
               />
             </label>
-            <p {...stylex.props(deskStyles.muted)}>
+            <Text xstyle={deskStyles.muted}>
               Publish time uses {workspace.timezone}. Daylight-saving gaps and
               repeated times are rejected.
-            </p>
+            </Text>
             <form.Subscribe selector={(state) => state.values}>
               {(value) => (
-                <section
+                <Box
+                  render={<section />}
                   aria-label="Post preview"
-                  {...stylex.props(deskStyles.preview)}
+                  xstyle={deskStyles.preview}
                 >
-                  <h3>Preview</h3>
-                  <p>{value.text || "Media post"}</p>
-                  <p>{value.mediaIds.length} attachment(s)</p>
+                  <Heading render={<h3>Preview</h3>} />
+                  <Text>{value.text || "Media post"}</Text>
+                  <Text>{value.mediaIds.length} attachment(s)</Text>
                   {value.channelIds.map((id) => (
-                    <p key={id}>
+                    <Text key={id}>
                       {
                         channels.data?.channels.find(
                           (channel) => channel.id === id,
                         )?.displayName
                       }
-                    </p>
+                    </Text>
                   ))}
-                </section>
+                </Box>
               )}
             </form.Subscribe>
             <form.Subscribe selector={(state) => state.errors}>
               {(errors) => <FormErrors errors={errors} />}
             </form.Subscribe>
             <Failure error={mutation.error} />
-            <div {...stylex.props(deskStyles.row)}>
+            <Box xstyle={deskStyles.row}>
               <Button
                 type="submit"
                 variant="outline"
@@ -381,12 +455,12 @@ export function Composer({
               >
                 Schedule post
               </Button>
-            </div>
+            </Box>
             {publishStarted && mutation.error && (
-              <p>
+              <Text>
                 Publish outcome may be uncertain. Check uses the same post and
                 operation key; it does not create another post.
-              </p>
+              </Text>
             )}
           </form>
         </DialogPanel>

@@ -1,9 +1,11 @@
 import * as stylex from "@stylexjs/stylex"
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Match, Schema } from "effect"
 import { useState } from "react"
 
 import type { Feed, Workspace } from "rpc/contracts/models"
+import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
 import {
   Dialog,
@@ -13,7 +15,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "ui/components/ui/dialog"
+import { Heading } from "ui/components/ui/heading"
 import { Input } from "ui/components/ui/input"
+import { Text } from "ui/components/ui/text"
 
 import {
   Check,
@@ -22,37 +26,43 @@ import {
   FormErrors,
   PageHeading,
   deskStyles,
-} from "../../../components/desk-ui"
-import { rpcMutation, workspaceQuery } from "../queries"
-import { FeedForm } from "../schema"
+} from "@/components/desk-ui"
+import { rpcMutation, workspaceQuery } from "@/features/desk/queries"
+import { FeedForm } from "@/features/desk/schema"
 
 export function Feeds({ workspace }: { workspace: Workspace }) {
   const workspaceId = workspace.id
   const client = useQueryClient()
+
   const query = useQuery(
     workspaceQuery(workspaceId, "feeds", (rpc) =>
       rpc.FeedList({ workspaceId }),
     ),
   )
+
   const refresh = useMutation(
     rpcMutation(client, workspaceId, (rpc, feedId: string) =>
       rpc.FeedRefresh({ workspaceId, feedId }),
     ),
   )
+
   const remove = useMutation(
     rpcMutation(client, workspaceId, (rpc, feedId: string) =>
       rpc.FeedDelete({ workspaceId, feedId }),
     ),
   )
+
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Feed>()
+
   return (
-    <div {...stylex.props(deskStyles.stack)}>
+    <Box xstyle={deskStyles.stack}>
       <PageHeading title="RSS automation">
         <Dialog
           open={open}
           onOpenChange={(next) => {
             setOpen(next)
+
             if (!next) setEditing(undefined)
           }}
         >
@@ -75,37 +85,50 @@ export function Feeds({ workspace }: { workspace: Workspace }) {
           </DialogPopup>
         </Dialog>
       </PageHeading>
-      <p>
+      <Text>
         Automatic mode publishes eligible items only. Missing media, consent,
         permissions, or platform choices hold items for review.
-      </p>
+      </Text>
       <Failure error={query.error ?? refresh.error ?? remove.error} />
-      {query.isPending && <p role="status">Loading feeds…</p>}
+      {query.isPending && <Box render={<output />}>Loading feeds…</Box>}
       {query.data?.length === 0 && (
-        <p>Add a feed to import articles into this workspace.</p>
+        <Text>Add a feed to import articles into this workspace.</Text>
       )}
       {refresh.data && (
-        <p role="status">Imported {refresh.data.imported} new item(s).</p>
+        <Box render={<output />}>
+          Imported {refresh.data.imported} new item(s).
+        </Box>
       )}
       {query.data?.map((feed) => (
-        <article key={feed.id} {...stylex.props(deskStyles.flat)}>
-          <h2>{feed.name}</h2>
-          <p>{feed.url}</p>
-          <p>
+        <Box render={<article />} key={feed.id} xstyle={deskStyles.flat}>
+          <Heading
+            render={
+              <h2>
+                <>{feed.name}</>
+              </h2>
+            }
+          />
+          <Text>{feed.url}</Text>
+          <Text>
             {feed.mode === "automatic"
               ? "Automatic publishing"
               : "Draft review"}{" "}
             · {feed.enabled ? "Enabled" : "Paused"}
-          </p>
-          <p>
+          </Text>
+          <Text>
             Images: {feed.includeImages ? "Included" : "Excluded"} · Videos:{" "}
             {feed.includeVideos ? "Included" : "Excluded"}
-          </p>
-          {feed.error && <p role="alert">{feed.error}</p>}
+          </Text>
+          {feed.error && <Text role="alert">{feed.error}</Text>}
           {feed.lastCheckedAt && (
-            <p>Last checked: {new Date(feed.lastCheckedAt).toLocaleString()}</p>
+            <Text>
+              Last checked:{" "}
+              {new Date(feed.lastCheckedAt).toLocaleString("en-US", {
+                timeZone: workspace.timezone,
+              })}
+            </Text>
           )}
-          <div {...stylex.props(deskStyles.row)}>
+          <Box xstyle={deskStyles.row}>
             <Button
               variant="outline"
               loading={refresh.isPending && refresh.variables === feed.id}
@@ -136,10 +159,10 @@ export function Feeds({ workspace }: { workspace: Workspace }) {
             >
               Delete feed
             </Button>
-          </div>
-        </article>
+          </Box>
+        </Box>
       ))}
-    </div>
+    </Box>
   )
 }
 
@@ -153,33 +176,42 @@ export function FeedFields({
   onSaved: () => void
 }) {
   const client = useQueryClient()
+
   const channels = useQuery(
     workspaceQuery(workspaceId, "channels", (rpc) =>
       rpc.ChannelList({ workspaceId }),
     ),
   )
+
   const save = useMutation(
     rpcMutation(client, workspaceId, (rpc, value: typeof FeedForm.Type) =>
       rpc.FeedSave({
         workspaceId,
-        ...(feed ? { feedId: feed.id } : {}),
+        feedId: feed?.id,
         ...value,
       }),
     ),
   )
+
+  const initial: typeof FeedForm.Type = {
+    url: feed?.url ?? "",
+    name: feed?.name ?? "",
+    mode: feed?.mode ?? "draft",
+    channelIds: feed?.channelIds ?? [],
+    includeImages: feed?.includeImages ?? true,
+    includeVideos: feed?.includeVideos ?? true,
+    enabled: feed?.enabled ?? true,
+  }
+
   const form = useForm({
-    defaultValues: {
-      url: feed?.url ?? "",
-      name: feed?.name ?? "",
-      mode: feed?.mode ?? "draft",
-      channelIds: feed?.channelIds ?? ([] as readonly string[]),
-      includeImages: feed?.includeImages ?? true,
-      includeVideos: feed?.includeVideos ?? true,
-      enabled: feed?.enabled ?? true,
+    defaultValues: initial,
+    validators: {
+      onBlur: Schema.standardSchemaV1(FeedForm),
+      onSubmit: Schema.standardSchemaV1(FeedForm),
     },
-    validators: { onBlur: FeedForm, onSubmit: FeedForm },
     onSubmit: ({ value }) => save.mutate(value, { onSuccess: onSaved }),
   })
+
   return (
     <form
       {...stylex.props(deskStyles.stack)}
@@ -191,14 +223,16 @@ export function FeedFields({
     >
       <form.Field name="url">
         {(field) => (
-          <label {...stylex.props(deskStyles.label)}>
+          <label htmlFor="feeds-field-1" {...stylex.props(deskStyles.label)}>
             Feed URL
             <Input
+              id="feeds-field-1"
               type="url"
               value={field.state.value}
               onBlur={field.handleBlur}
               onChange={(event) => {
                 field.handleChange(event.target.value)
+
                 if (URL.canParse(event.target.value))
                   form.setFieldValue(
                     "name",
@@ -211,9 +245,10 @@ export function FeedFields({
       </form.Field>
       <form.Field name="name">
         {(field) => (
-          <label {...stylex.props(deskStyles.label)}>
+          <label htmlFor="feeds-field-2" {...stylex.props(deskStyles.label)}>
             Feed name
             <Input
+              id="feeds-field-2"
               value={field.state.value}
               onBlur={field.handleBlur}
               onChange={(event) => field.handleChange(event.target.value)}
@@ -242,20 +277,18 @@ export function FeedFields({
         <form.Field key={name} name={name}>
           {(field) => (
             <Check
-              label={
-                name === "includeImages"
-                  ? "Include images"
-                  : name === "includeVideos"
-                    ? "Include videos"
-                    : "Enable feed"
-              }
+              label={Match.value(name).pipe(
+                Match.when("includeImages", () => "Include images"),
+                Match.when("includeVideos", () => "Include videos"),
+                Match.orElse(() => "Enable feed"),
+              )}
               checked={field.state.value}
               onChange={field.handleChange}
             />
           )}
         </form.Field>
       ))}
-      <h3>Target channels</h3>
+      <Heading render={<h3>Target channels</h3>} />
       <Failure error={channels.error} />
       <form.Field name="channelIds">
         {(field) => (
@@ -279,10 +312,10 @@ export function FeedFields({
           </>
         )}
       </form.Field>
-      <p>
+      <Text>
         TikTok and other destinations with missing required choices need manual
         review.
-      </p>
+      </Text>
       <form.Subscribe selector={(state) => state.errors}>
         {(errors) => <FormErrors errors={errors} />}
       </form.Subscribe>

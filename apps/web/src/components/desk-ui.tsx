@@ -1,7 +1,10 @@
 import * as stylex from "@stylexjs/stylex"
+import { Schema } from "effect"
 import { useId, type ReactNode } from "react"
 
+import { Box } from "ui/components/ui/box"
 import { Checkbox } from "ui/components/ui/checkbox"
+import { Heading } from "ui/components/ui/heading"
 import {
   Select,
   SelectItem,
@@ -9,9 +12,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "ui/components/ui/select"
+import { Text } from "ui/components/ui/text"
 import { tokens } from "ui/styles/tokens.stylex"
 
-import { errorMessage } from "../features/desk/queries"
+import { errorMessage } from "@/features/desk/queries"
 
 export const deskStyles = stylex.create({
   stack: { display: "grid", gap: 16, minWidth: 0 },
@@ -55,15 +59,18 @@ export function Choice({
   disabled?: boolean
 }) {
   const id = useId()
+
   return (
-    <div {...stylex.props(deskStyles.label)}>
-      <label id={id}>{label}</label>
+    <Box xstyle={deskStyles.label}>
+      <label id={`${id}-label`} htmlFor={id}>
+        {label}
+      </label>
       <Select
         value={value || null}
         onValueChange={(next) => onChange(next ?? "")}
         disabled={disabled}
       >
-        <SelectTrigger aria-labelledby={id} onBlur={onBlur}>
+        <SelectTrigger id={id} aria-labelledby={`${id}-label`} onBlur={onBlur}>
           <SelectValue placeholder="Choose…" />
         </SelectTrigger>
         <SelectPopup>
@@ -78,7 +85,7 @@ export function Choice({
           ))}
         </SelectPopup>
       </Select>
-    </div>
+    </Box>
   )
 }
 
@@ -108,9 +115,13 @@ export function Check({
 
 export function Failure({ error }: { error: unknown }) {
   return error ? (
-    <p role="alert" {...stylex.props(deskStyles.error)}>
-      {errorMessage(error)}
-    </p>
+    <Text role="alert" xstyle={deskStyles.error}>
+      {errorMessage(
+        error instanceof Error
+          ? error
+          : new Error("Request failed. Try again."),
+      )}
+    </Text>
   ) : null
 }
 
@@ -118,16 +129,13 @@ export function FormErrors({ errors }: { errors: readonly unknown[] }) {
   return (
     <>
       {errors.map((error, index) => (
-        <p role="alert" key={index} {...stylex.props(deskStyles.error)}>
-          {typeof error === "string"
+        <Text role="alert" key={index} xstyle={deskStyles.error}>
+          {Schema.is(Schema.String)(error)
             ? error
-            : error !== null &&
-                typeof error === "object" &&
-                "message" in error &&
-                typeof error.message === "string"
+            : Schema.is(Schema.Struct({ message: Schema.String }))(error)
               ? error.message
               : "Check the form fields."}
-        </p>
+        </Text>
       ))}
     </>
   )
@@ -141,9 +149,16 @@ export function PageHeading({
   children?: ReactNode
 }) {
   return (
-    <header {...stylex.props(deskStyles.row)}>
-      <h1 {...stylex.props(deskStyles.title)}>{title}</h1>
+    <Box render={<header />} xstyle={deskStyles.row}>
+      <Heading
+        render={
+          <h1>
+            <>{title}</>
+          </h1>
+        }
+        xstyle={deskStyles.title}
+      />
       {children}
-    </header>
+    </Box>
   )
 }

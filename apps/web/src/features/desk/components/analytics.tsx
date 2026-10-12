@@ -1,6 +1,10 @@
 import { useQuery } from "@tanstack/react-query"
 
-import { errorMessage, workspaceQuery } from "../queries"
+import { Box } from "ui/components/ui/box"
+import { Heading } from "ui/components/ui/heading"
+import { Text } from "ui/components/ui/text"
+
+import { errorMessage, workspaceQuery } from "@/features/desk/queries"
 
 export function Analytics({ workspaceId }: { workspaceId: string }) {
   const query = useQuery(
@@ -8,58 +12,75 @@ export function Analytics({ workspaceId }: { workspaceId: string }) {
       client.AnalyticsRead({ workspaceId }),
     ),
   )
-  if (query.isPending) return <p role="status">Loading analytics…</p>
-  if (query.error) return <p role="alert">{errorMessage(query.error)}</p>
+
+  if (query.isPending) return <Box render={<output />}>Loading analytics…</Box>
+
+  if (query.error) return <Text role="alert">{errorMessage(query.error)}</Text>
+
   return (
-    <section aria-labelledby="analytics-title">
-      <h1 id="analytics-title">Analytics</h1>
+    <Box render={<section />} aria-labelledby="analytics-title">
+      <Heading render={<h1>Analytics</h1>} id="analytics-title" />
       {query.data.channels.length === 0 && (
-        <p>Connect a channel to view available metrics.</p>
+        <Text>Connect a channel to view available metrics.</Text>
       )}
       {query.data.channels.map((channel) => (
-        <section
+        <Box
+          render={<section />}
           key={channel.channelId}
           aria-label={`${channel.platform} metrics`}
         >
-          <h2>{channel.platform}</h2>
+          <Heading
+            render={
+              <h2>
+                <>{channel.platform}</>
+              </h2>
+            }
+          />
           {!channel.available || channel.metrics.length === 0 ? (
-            <p>Metrics unavailable. {channel.reason}</p>
+            <Text>Metrics unavailable. {channel.reason}</Text>
           ) : (
-            <dl>
+            <Box render={<dl />}>
               {channel.metrics.map((metric) => (
-                <div key={metric.name}>
-                  <dt>{metric.name}</dt>
-                  <dd>
+                <Box key={metric.name}>
+                  <Box render={<dt />}>{metric.name}</Box>
+                  <Box render={<dd />}>
                     {metric.value} {metric.unit}
-                  </dd>
-                </div>
+                  </Box>
+                </Box>
               ))}
-            </dl>
+            </Box>
           )}
-        </section>
+        </Box>
       ))}
       {query.data.posts.map((post) => (
-        <section
+        <Box
+          render={<section />}
           key={`${post.postId}-${post.channelId}`}
           aria-label={`Post ${post.postId} metrics`}
         >
-          <h2>Post {post.postId}</h2>
-          {post.metrics.length === 0 ? (
-            <p>Metrics unavailable.</p>
+          <Heading
+            render={
+              <h2>
+                <>Post {post.postId}</>
+              </h2>
+            }
+          />
+          {!post.available || post.metrics.length === 0 ? (
+            <Text>Metrics unavailable. {post.reason}</Text>
           ) : (
-            <dl>
+            <Box render={<dl />}>
               {post.metrics.map((metric) => (
-                <div key={metric.name}>
-                  <dt>{metric.name}</dt>
-                  <dd>
+                <Box key={metric.name}>
+                  <Box render={<dt />}>{metric.name}</Box>
+                  <Box render={<dd />}>
                     {metric.value} {metric.unit}
-                  </dd>
-                </div>
+                  </Box>
+                </Box>
               ))}
-            </dl>
+            </Box>
           )}
-        </section>
+        </Box>
       ))}
-    </section>
+    </Box>
   )
 }

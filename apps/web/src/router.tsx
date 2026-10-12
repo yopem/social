@@ -10,6 +10,7 @@ export function getRouter() {
       mutations: { retry: false },
     },
   })
+
   return createRouter({
     routeTree,
     context: { queryClient },

@@ -4,11 +4,15 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { useState } from "react"
 
 import { ApiError, type Workspace } from "rpc/contracts/models"
+import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
+import { Heading } from "ui/components/ui/heading"
+import { Text } from "ui/components/ui/text"
 import { tokens } from "ui/styles/tokens.stylex"
 
-import { Failure } from "../../../components/desk-ui"
-import { sessionQuery, logoutMutation } from "../queries"
+import { Failure } from "@/components/desk-ui"
+import { sessionQuery, logoutMutation } from "@/features/desk/queries"
+
 import { Analytics } from "./analytics"
 import { Channels } from "./channels"
 import { Feeds } from "./feeds"
@@ -90,6 +94,7 @@ export type DeskView =
   | "rss"
   | "analytics"
   | "settings"
+
 const navigation = [
   { to: "/", label: "Queue" },
   { to: "/drafts", label: "Drafts" },
@@ -107,25 +112,29 @@ export function Desk({ view }: { view: DeskView }) {
   const client = useQueryClient()
   const signOut = useMutation(logoutMutation(client))
   const [menuOpen, setMenuOpen] = useState(false)
+
   const workspace =
     session.data?.workspaces.find((item) => item.id === search.workspace) ??
     session.data?.workspaces[0]
+
   const unauthorized =
     session.error instanceof ApiError &&
     session.error.code === "unauthenticated"
+
   if (session.isPending)
     return (
-      <main {...stylex.props(styles.login)} aria-busy="true">
-        <h1>Publishing desk</h1>
-        <p role="status">Loading your workspace…</p>
-      </main>
+      <Box render={<main />} xstyle={styles.login} aria-busy="true">
+        <Heading render={<h1>Publishing desk</h1>} />
+        <Box render={<output />}>Loading your workspace…</Box>
+      </Box>
     )
+
   if (!session.data)
     return (
-      <main {...stylex.props(styles.login)}>
-        <h1>Publishing desk</h1>
+      <Box render={<main />} xstyle={styles.login}>
+        <Heading render={<h1>Publishing desk</h1>} />
         {unauthorized ? (
-          <p>Sign in to manage your publishing workspace.</p>
+          <Text>Sign in to manage your publishing workspace.</Text>
         ) : (
           <>
             <Failure error={session.error} />
@@ -138,17 +147,22 @@ export function Desk({ view }: { view: DeskView }) {
             </Button>
           </>
         )}
-        <Button render={<a href="/auth/login" />}>Sign in with Google</Button>
-      </main>
+        <Button
+          render={<a href="/auth/login" aria-label="Sign in with Google" />}
+        >
+          Sign in with Google
+        </Button>
+      </Box>
     )
+
   return (
     <>
       <a href="#main-content" {...stylex.props(styles.skip)}>
         Skip to content
       </a>
-      <div {...stylex.props(styles.shell)}>
-        <aside {...stylex.props(styles.sidebar)}>
-          <p {...stylex.props(styles.brand)}>Publishing desk</p>
+      <Box xstyle={styles.shell}>
+        <Box render={<aside />} xstyle={styles.sidebar}>
+          <Text xstyle={styles.brand}>Publishing desk</Text>
           <Workspaces
             workspaces={session.data.workspaces}
             selected={workspace}
@@ -164,7 +178,7 @@ export function Desk({ view }: { view: DeskView }) {
           >
             Navigation
           </Button>
-          <nav aria-label="Publishing" {...stylex.props(styles.nav)}>
+          <Box render={<nav />} aria-label="Publishing" xstyle={styles.nav}>
             {navigation.map((item) => (
               <Link
                 key={item.to}
@@ -176,8 +190,8 @@ export function Desk({ view }: { view: DeskView }) {
                 {item.label}
               </Link>
             ))}
-          </nav>
-          <p>{session.data.user.name}</p>
+          </Box>
+          <Text>{session.data.user.name}</Text>
           <Failure error={signOut.error} />
           <Button
             variant="ghost"
@@ -192,8 +206,13 @@ export function Desk({ view }: { view: DeskView }) {
           >
             Sign out
           </Button>
-        </aside>
-        <main id="main-content" tabIndex={-1} {...stylex.props(styles.main)}>
+        </Box>
+        <Box
+          render={<main />}
+          id="main-content"
+          tabIndex={-1}
+          xstyle={styles.main}
+        >
           {workspace ? (
             <WorkspaceView
               key={workspace.id}
@@ -202,10 +221,10 @@ export function Desk({ view }: { view: DeskView }) {
               attempt={search.attempt}
             />
           ) : (
-            <p>Create a workspace to start publishing.</p>
+            <Text>Create a workspace to start publishing.</Text>
           )}
-        </main>
-      </div>
+        </Box>
+      </Box>
     </>
   )
 }
@@ -221,8 +240,12 @@ export function WorkspaceView({
 }) {
   if (view === "channels")
     return <Channels workspace={workspace} attempt={attempt} />
+
   if (view === "analytics") return <Analytics workspaceId={workspace.id} />
+
   if (view === "rss") return <Feeds workspace={workspace} />
+
   if (view === "settings") return <Settings workspace={workspace} />
+
   return <Posts workspace={workspace} view={view} />
 }

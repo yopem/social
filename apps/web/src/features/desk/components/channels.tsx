@@ -4,16 +4,14 @@ import { Schema } from "effect"
 import { useState } from "react"
 
 import { Platform, type Workspace } from "rpc/contracts/models"
+import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
+import { Heading } from "ui/components/ui/heading"
 import { Input } from "ui/components/ui/input"
+import { Text } from "ui/components/ui/text"
 
-import {
-  Check,
-  Failure,
-  PageHeading,
-  deskStyles,
-} from "../../../components/desk-ui"
-import { rpcMutation, workspaceQuery } from "../queries"
+import { Check, Failure, PageHeading, deskStyles } from "@/components/desk-ui"
+import { rpcMutation, workspaceQuery } from "@/features/desk/queries"
 
 export const platformNames: Record<Platform, string> = {
   x: "X",
@@ -34,37 +32,42 @@ export function Channels({
   attempt?: string
 }) {
   const workspaceId = workspace.id
+
   const query = useQuery(
     workspaceQuery(workspaceId, "channels", (client) =>
       client.ChannelList({ workspaceId }),
     ),
   )
+
   const client = useQueryClient()
   const [loginHint, setLoginHint] = useState("")
   const manager = workspace.role !== "editor"
+
   const connect = useMutation(
     rpcMutation(client, workspaceId, (rpc, platform: Platform) =>
       rpc.ConnectionBegin({
         workspaceId,
         platform,
-        ...(platform === "bluesky" && loginHint ? { loginHint } : {}),
+        loginHint: platform === "bluesky" ? loginHint || undefined : undefined,
       }),
     ),
   )
+
   const disconnect = useMutation(
     rpcMutation(client, workspaceId, (rpc, channelId: string) =>
       rpc.ChannelDisconnect({ workspaceId, channelId }),
     ),
   )
+
   return (
-    <div {...stylex.props(deskStyles.stack)}>
+    <Box xstyle={deskStyles.stack}>
       <PageHeading title="Channels" />
-      <p {...stylex.props(deskStyles.muted)}>
+      <Text xstyle={deskStyles.muted}>
         Connect accounts you control. Only selected accounts receive workspace
         access.
-      </p>
+      </Text>
       <Failure error={query.error ?? connect.error ?? disconnect.error} />
-      {query.isPending && <p role="status">Loading channels…</p>}
+      {query.isPending && <Box render={<output />}>Loading channels…</Box>}
       {attempt && manager && (
         <AccountSelection workspaceId={workspaceId} attemptId={attempt} />
       )}
@@ -72,53 +75,64 @@ export function Channels({
         const availability = query.data?.platforms.find(
           (item) => item.platform === platform,
         )
+
         const channels =
           query.data?.channels.filter(
             (item) =>
               item.platform === platform && item.status !== "disconnected",
           ) ?? []
+
         return (
-          <section
+          <Box
+            render={<section />}
             key={platform}
             aria-label={platformNames[platform]}
-            {...stylex.props(deskStyles.flat)}
+            xstyle={deskStyles.flat}
           >
-            <h2>{platformNames[platform]}</h2>
+            <Heading
+              render={
+                <h2>
+                  <>{platformNames[platform]}</>
+                </h2>
+              }
+            />
             {availability && !availability.configured && (
               <>
-                <p>Setup required</p>
-                <p>{availability.reason}</p>
+                <Text>Setup required</Text>
+                <Text>{availability.reason}</Text>
               </>
             )}
             {platform === "facebook" && (
-              <p>Facebook Pages only. Personal profiles are not supported.</p>
+              <Text>
+                Facebook Pages only. Personal profiles are not supported.
+              </Text>
             )}
             {platform === "instagram" && (
-              <p>
+              <Text>
                 Professional Instagram accounts only. Personal accounts are not
                 supported.
-              </p>
+              </Text>
             )}
             {platform === "youtube" && (
-              <p>
+              <Text>
                 YouTube requires video, a title, visibility, and a made-for-kids
                 choice.
-              </p>
+              </Text>
             )}
             {platform === "tiktok" && (
-              <p>
+              <Text>
                 TikTok requires creator review, privacy, interaction,
                 disclosure, and consent choices.
-              </p>
+              </Text>
             )}
             {channels.map((channel) => (
-              <div key={channel.id} {...stylex.props(deskStyles.row)}>
-                <p>
+              <Box key={channel.id} xstyle={deskStyles.row}>
+                <Text>
                   {channel.displayName} ·{" "}
                   {channel.status === "connected"
                     ? "Connected"
                     : "Reconnect required"}
-                </p>
+                </Text>
                 {manager && (
                   <Button
                     variant="outline"
@@ -128,14 +142,18 @@ export function Channels({
                     Disconnect {channel.displayName}
                   </Button>
                 )}
-              </div>
+              </Box>
             ))}
             {manager && (
               <>
                 {platform === "bluesky" && (
-                  <label {...stylex.props(deskStyles.label)}>
+                  <label
+                    htmlFor="channels-field-1"
+                    {...stylex.props(deskStyles.label)}
+                  >
                     Bluesky handle
                     <Input
+                      id="channels-field-1"
                       value={loginHint}
                       onChange={(event) => setLoginHint(event.target.value)}
                     />
@@ -154,10 +172,10 @@ export function Channels({
                 </Button>
               </>
             )}
-          </section>
+          </Box>
         )
       })}
-    </div>
+    </Box>
   )
 }
 
@@ -176,26 +194,30 @@ export function AccountSelection({
       attemptId,
     ),
   )
+
   const [selected, setSelected] = useState<readonly string[]>([])
   const [confirmed, setConfirmed] = useState(false)
   const client = useQueryClient()
+
   const select = useMutation(
     rpcMutation(client, workspaceId, (rpc, accountIds: readonly string[]) =>
       rpc.ConnectionSelect({ workspaceId, attemptId, accountIds }),
     ),
   )
+
   return (
-    <section
+    <Box
+      render={<section />}
       aria-label="Discovered accounts"
-      {...stylex.props(deskStyles.flat)}
+      xstyle={deskStyles.flat}
     >
-      <h2>Select accounts</h2>
-      <p>
+      <Heading render={<h2>Select accounts</h2>} />
+      <Text>
         Discovery does not grant access. Confirm the accounts for this
         workspace.
-      </p>
+      </Text>
       <Failure error={query.error ?? select.error} />
-      {query.isPending && <p role="status">Discovering accounts…</p>}
+      {query.isPending && <Box render={<output />}>Discovering accounts…</Box>}
       {query.data?.map((account) => (
         <Check
           key={account.accountId}
@@ -218,7 +240,7 @@ export function AccountSelection({
       >
         Confirm selected accounts
       </Button>
-      {confirmed && <p role="status">Selected accounts connected.</p>}
-    </section>
+      {confirmed && <Box render={<output />}>Selected accounts connected.</Box>}
+    </Box>
   )
 }

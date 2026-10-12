@@ -1,10 +1,11 @@
 import * as stylex from "@stylexjs/stylex"
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import { useState } from "react"
 
 import { ApiError, type Workspace } from "rpc/contracts/models"
+import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
 import {
   Dialog,
@@ -14,7 +15,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "ui/components/ui/dialog"
+import { Heading } from "ui/components/ui/heading"
 import { Input } from "ui/components/ui/input"
+import { Text } from "ui/components/ui/text"
 
 import {
   Choice,
@@ -22,49 +25,57 @@ import {
   FormErrors,
   PageHeading,
   deskStyles,
-} from "../../../components/desk-ui"
-import { effectMutation, rpcMutation, workspaceQuery } from "../queries"
-import { InviteForm } from "../schema"
+} from "@/components/desk-ui"
+import {
+  effectMutation,
+  rpcMutation,
+  workspaceQuery,
+} from "@/features/desk/queries"
+import { InviteForm } from "@/features/desk/schema"
 
 export function Settings({ workspace }: { workspace: Workspace }) {
   return (
-    <div {...stylex.props(deskStyles.stack)}>
+    <Box xstyle={deskStyles.stack}>
       <PageHeading title="Workspace settings" />
-      <dl>
-        <dt>Name</dt>
-        <dd>{workspace.name}</dd>
-        <dt>Type</dt>
-        <dd>{workspace.kind}</dd>
-        <dt>Timezone</dt>
-        <dd>{workspace.timezone}</dd>
-        <dt>Your role</dt>
-        <dd>{workspace.role}</dd>
-      </dl>
+      <Box render={<dl />}>
+        <Box render={<dt />}>Name</Box>
+        <Box render={<dd />}>{workspace.name}</Box>
+        <Box render={<dt />}>Type</Box>
+        <Box render={<dd />}>{workspace.kind}</Box>
+        <Box render={<dt />}>Timezone</Box>
+        <Box render={<dd />}>{workspace.timezone}</Box>
+        <Box render={<dt />}>Your role</Box>
+        <Box render={<dd />}>{workspace.role}</Box>
+      </Box>
       {workspace.role !== "editor" ? (
         <Members workspaceId={workspace.id} />
       ) : (
-        <p>Only owners and admins can manage workspace members.</p>
+        <Text>Only owners and admins can manage workspace members.</Text>
       )}
-    </div>
+    </Box>
   )
 }
 
 export function Members({ workspaceId }: { workspaceId: string }) {
   const client = useQueryClient()
+
   const query = useQuery(
     workspaceQuery(workspaceId, "members", (rpc) =>
       rpc.WorkspaceMembers({ workspaceId }),
     ),
   )
+
   const remove = useMutation(
     rpcMutation(client, workspaceId, (rpc, userId: string) =>
       rpc.WorkspaceRemoveMember({ workspaceId, userId }),
     ),
   )
+
   const [open, setOpen] = useState(false)
+
   return (
-    <section {...stylex.props(deskStyles.stack)}>
-      <h2>Members</h2>
+    <Box render={<section />} xstyle={deskStyles.stack}>
+      <Heading render={<h2>Members</h2>} />
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger render={<Button />}>Invite member</DialogTrigger>
         <DialogPopup>
@@ -77,14 +88,14 @@ export function Members({ workspaceId }: { workspaceId: string }) {
         </DialogPopup>
       </Dialog>
       <Failure error={query.error ?? remove.error} />
-      {query.isPending && <p role="status">Loading members…</p>}
+      {query.isPending && <Box render={<output />}>Loading members…</Box>}
       {query.data?.map((member) => (
-        <div key={member.user.id} {...stylex.props(deskStyles.flat)}>
-          <p>
+        <Box key={member.user.id} xstyle={deskStyles.flat}>
+          <Text>
             {member.user.name} · {member.user.email} · {member.role}
-          </p>
+          </Text>
           {member.role === "owner" ? (
-            <p>Workspace owner cannot be removed.</p>
+            <Text>Workspace owner cannot be removed.</Text>
           ) : (
             <Button
               variant="outline"
@@ -101,19 +112,21 @@ export function Members({ workspaceId }: { workspaceId: string }) {
               Remove {member.user.name}
             </Button>
           )}
-        </div>
+        </Box>
       ))}
-    </section>
+    </Box>
   )
 }
 
 export function InviteFields({ workspaceId }: { workspaceId: string }) {
   const client = useQueryClient()
+
   const invite = useMutation(
     rpcMutation(client, workspaceId, (rpc, input: typeof InviteForm.Type) =>
       rpc.WorkspaceInvite({ workspaceId, ...input }),
     ),
   )
+
   const copy = useMutation(
     effectMutation((url: string) =>
       Effect.tryPromise({
@@ -127,11 +140,18 @@ export function InviteFields({ workspaceId }: { workspaceId: string }) {
       }),
     ),
   )
+
+  const initial: typeof InviteForm.Type = { email: "", role: "editor" }
+
   const form = useForm({
-    defaultValues: { email: "", role: "editor" as "editor" | "admin" },
-    validators: { onBlur: InviteForm, onSubmit: InviteForm },
+    defaultValues: initial,
+    validators: {
+      onBlur: Schema.standardSchemaV1(InviteForm),
+      onSubmit: Schema.standardSchemaV1(InviteForm),
+    },
     onSubmit: ({ value }) => invite.mutate(value),
   })
+
   return (
     <form
       {...stylex.props(deskStyles.stack)}
@@ -143,9 +163,10 @@ export function InviteFields({ workspaceId }: { workspaceId: string }) {
     >
       <form.Field name="email">
         {(field) => (
-          <label {...stylex.props(deskStyles.label)}>
+          <label htmlFor="settings-field-1" {...stylex.props(deskStyles.label)}>
             Invitation email
             <Input
+              id="settings-field-1"
               type="email"
               value={field.state.value}
               onChange={(event) => field.handleChange(event.target.value)}
@@ -180,9 +201,9 @@ export function InviteFields({ workspaceId }: { workspaceId: string }) {
       </Button>
       {invite.data && (
         <>
-          <label {...stylex.props(deskStyles.label)}>
+          <label htmlFor="settings-field-2" {...stylex.props(deskStyles.label)}>
             Invite link
-            <Input readOnly value={invite.data.url} />
+            <Input id="settings-field-2" readOnly value={invite.data.url} />
           </label>
           <Button
             variant="outline"
@@ -190,8 +211,10 @@ export function InviteFields({ workspaceId }: { workspaceId: string }) {
           >
             Copy invite link
           </Button>
-          {copy.isSuccess && <p role="status">Invite link copied.</p>}
-          <p>Share this link with the invited member. No email is sent.</p>
+          {copy.isSuccess && <Box render={<output />}>Invite link copied.</Box>}
+          <Text>
+            Share this link with the invited member. No email is sent.
+          </Text>
         </>
       )}
     </form>

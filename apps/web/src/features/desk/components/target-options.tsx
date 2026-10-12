@@ -1,13 +1,17 @@
 import * as stylex from "@stylexjs/stylex"
 import { useQuery } from "@tanstack/react-query"
+import { Schema } from "effect"
 import { useState } from "react"
 
 import type { Channel, Media, PlatformOverride } from "rpc/contracts/models"
+import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
+import { Heading } from "ui/components/ui/heading"
 import { Input } from "ui/components/ui/input"
+import { Text } from "ui/components/ui/text"
 
-import { Check, Choice, Failure, deskStyles } from "../../../components/desk-ui"
-import { workspaceQuery } from "../queries"
+import { Check, Choice, Failure, deskStyles } from "@/components/desk-ui"
+import { workspaceQuery } from "@/features/desk/queries"
 
 const booleanChoices = [
   { value: "true", label: "Yes" },
@@ -26,9 +30,11 @@ export function TargetOptions({
   media: readonly Media[]
 }) {
   const [expanded, setExpanded] = useState(false)
+
   function update(patch: Partial<PlatformOverride>) {
     onChange({ ...value, ...patch })
   }
+
   if (channel.platform === "tiktok")
     return (
       <>
@@ -49,18 +55,25 @@ export function TargetOptions({
         )}
       </>
     )
+
   if (channel.platform !== "youtube" && channel.platform !== "linkedin")
     return null
+
   return (
-    <section
+    <Box
+      render={<section />}
       aria-label={`${channel.displayName} options`}
-      {...stylex.props(deskStyles.stack)}
+      xstyle={deskStyles.stack}
     >
       {channel.platform === "youtube" && (
         <>
-          <label {...stylex.props(deskStyles.label)}>
+          <label
+            htmlFor="target-options-field-1"
+            {...stylex.props(deskStyles.label)}
+          >
             YouTube title
             <Input
+              id="target-options-field-1"
               value={value.title ?? ""}
               onChange={(event) => update({ title: event.target.value })}
             />
@@ -73,7 +86,7 @@ export function TargetOptions({
             options={booleanChoices}
             onChange={(choice) => update({ madeForKids: choice === "true" })}
           />
-          <p>Video is required. Choose the audience before publishing.</p>
+          <Text>Video is required. Choose the audience before publishing.</Text>
         </>
       )}
       <Choice
@@ -92,7 +105,7 @@ export function TargetOptions({
             update({ visibility })
         }}
       />
-    </section>
+    </Box>
   )
 }
 
@@ -119,21 +132,35 @@ export function TikTokOptions({
       channel.id,
     ),
   )
-  const creator = query.data
-  const privacyLevels =
-    creator && Array.isArray(creator.privacyLevels)
-      ? creator.privacyLevels.filter(
-          (level): level is string => typeof level === "string",
-        )
-      : []
+
+  const creator =
+    query.data &&
+    Schema.decodeUnknownSync(
+      Schema.Struct({
+        accountId: Schema.String,
+        backend: Schema.String,
+        fetchedAt: Schema.String,
+        username: Schema.String,
+        nickname: Schema.String,
+        privacyLevels: Schema.Array(Schema.String),
+        commentDisabled: Schema.Boolean,
+        duetDisabled: Schema.Boolean,
+        stitchDisabled: Schema.Boolean,
+        maxVideoDurationSeconds: Schema.Number,
+      }),
+    )(query.data)
+
+  const privacyLevels = creator?.privacyLevels ?? []
+
   function update(patch: Partial<PlatformOverride>) {
     onChange({
       ...value,
       ...patch,
-      ...(creator ? { creatorInfo: creator } : {}),
+      creatorInfo: query.data,
       creatorConsent: false,
     })
   }
+
   const fields = [
     {
       label: "Comments",
@@ -173,39 +200,27 @@ export function TikTokOptions({
       inverted: false,
     },
   ] as const
+
   return (
-    <section
+    <Box
+      render={<section />}
       aria-label="TikTok creator settings"
-      {...stylex.props(deskStyles.stack)}
+      xstyle={deskStyles.stack}
     >
-      <h3>Creator preview</h3>
+      <Heading render={<h3>Creator preview</h3>} />
       <Failure error={query.error} />
-      {query.isPending && <p role="status">Loading creator information…</p>}
+      {query.isPending && (
+        <Box render={<output />}>Loading creator information…</Box>
+      )}
       {creator && (
         <>
-          <p>
-            {typeof creator.nickname === "string"
-              ? creator.nickname
-              : "Creator name unavailable"}{" "}
-            {typeof creator.username === "string" ? `@${creator.username}` : ""}
-          </p>
-          {typeof creator.avatarUrl === "string" ? (
-            <img
-              src={creator.avatarUrl}
-              alt="Creator avatar"
-              width={48}
-              height={48}
-            />
-          ) : (
-            <p>Creator avatar unavailable.</p>
-          )}
-          <p>
-            Maximum video duration:{" "}
-            {typeof creator.maxVideoDurationSeconds === "number"
-              ? `${creator.maxVideoDurationSeconds} seconds`
-              : "unavailable"}
-            .
-          </p>
+          <Text>
+            {creator.nickname} @{creator.username}
+          </Text>
+          <Text>Creator avatar unavailable.</Text>
+          <Text>
+            Maximum video duration: {creator.maxVideoDurationSeconds} seconds.
+          </Text>
         </>
       )}
       <Choice
@@ -216,7 +231,7 @@ export function TikTokOptions({
         onChange={(privacyLevel) => update({ privacyLevel })}
       />
       {fields.map((field) => (
-        <div key={field.key}>
+        <Box key={field.key}>
           <Choice
             label={field.label}
             value={
@@ -245,9 +260,9 @@ export function TikTokOptions({
             }
           />
           {field.restricted && (
-            <p>{field.label} unavailable for this creator. Select No.</p>
+            <Text>{field.label} unavailable for this creator. Select No.</Text>
           )}
-        </div>
+        </Box>
       ))}
       {media.length > 0 && media.every((item) => item.kind === "image") && (
         <Choice
@@ -272,14 +287,14 @@ export function TikTokOptions({
           onChange({
             ...value,
             creatorConsent,
-            ...(creator ? { creatorInfo: creator } : {}),
+            creatorInfo: query.data,
           })
         }
       />
-      <p>
+      <Text>
         Review the post and creator choices before approval. Changing content
         requires new approval.
-      </p>
-    </section>
+      </Text>
+    </Box>
   )
 }

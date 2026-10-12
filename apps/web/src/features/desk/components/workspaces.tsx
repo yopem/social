@@ -1,9 +1,11 @@
 import * as stylex from "@stylexjs/stylex"
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { Schema } from "effect"
 import { useState } from "react"
 
 import type { Workspace } from "rpc/contracts/models"
+import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
 import {
   Dialog,
@@ -21,14 +23,9 @@ import {
   SelectTrigger,
 } from "ui/components/ui/select"
 
-import {
-  Choice,
-  Failure,
-  FormErrors,
-  deskStyles,
-} from "../../../components/desk-ui"
-import { rpcMutation } from "../queries"
-import { WorkspaceForm } from "../schema"
+import { Choice, Failure, FormErrors, deskStyles } from "@/components/desk-ui"
+import { rpcMutation } from "@/features/desk/queries"
+import { WorkspaceForm } from "@/features/desk/schema"
 
 export function Workspaces({
   workspaces,
@@ -40,8 +37,9 @@ export function Workspaces({
   onSelect: (id: string) => void
 }) {
   const [pickerOpen, setPickerOpen] = useState(false)
+
   return (
-    <div {...stylex.props(deskStyles.stack)}>
+    <Box xstyle={deskStyles.stack}>
       {selected && (
         <Select
           value={selected.id}
@@ -70,7 +68,7 @@ export function Workspaces({
         </Select>
       )}
       {!selected && <CreateWorkspace onCreated={onSelect} />}
-    </div>
+    </Box>
   )
 }
 
@@ -80,6 +78,7 @@ export function CreateWorkspace({
   onCreated: (id: string) => void
 }) {
   const [open, setOpen] = useState(false)
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<Button variant="outline" />}>
@@ -108,23 +107,31 @@ export function WorkspaceFields({
   onCreated: (id: string) => void
 }) {
   const client = useQueryClient()
+
   const mutation = useMutation(
     rpcMutation(client, "", (rpc, input: typeof WorkspaceForm.Type) =>
       rpc.WorkspaceCreate(input),
     ),
   )
+
+  const initial: typeof WorkspaceForm.Type = {
+    name: "",
+    kind: "personal",
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  }
+
   const form = useForm({
-    defaultValues: {
-      name: "",
-      kind: "personal" as "personal" | "organization",
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    defaultValues: initial,
+    validators: {
+      onBlur: Schema.standardSchemaV1(WorkspaceForm),
+      onSubmit: Schema.standardSchemaV1(WorkspaceForm),
     },
-    validators: { onBlur: WorkspaceForm, onSubmit: WorkspaceForm },
     onSubmit: ({ value }) =>
       mutation.mutate(value, {
         onSuccess: (workspace) => onCreated(workspace.id),
       }),
   })
+
   return (
     <form
       {...stylex.props(deskStyles.stack)}
@@ -136,9 +143,13 @@ export function WorkspaceFields({
     >
       <form.Field name="name">
         {(field) => (
-          <label {...stylex.props(deskStyles.label)}>
+          <label
+            htmlFor="workspaces-field-1"
+            {...stylex.props(deskStyles.label)}
+          >
             Workspace name
             <Input
+              id="workspaces-field-1"
               value={field.state.value}
               onChange={(event) => field.handleChange(event.target.value)}
               onBlur={field.handleBlur}
@@ -165,9 +176,13 @@ export function WorkspaceFields({
       </form.Field>
       <form.Field name="timezone">
         {(field) => (
-          <label {...stylex.props(deskStyles.label)}>
+          <label
+            htmlFor="workspaces-field-2"
+            {...stylex.props(deskStyles.label)}
+          >
             Timezone
             <Input
+              id="workspaces-field-2"
               value={field.state.value}
               onChange={(event) => field.handleChange(event.target.value)}
               onBlur={field.handleBlur}

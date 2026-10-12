@@ -12,12 +12,15 @@ export async function execute<A, E>(
   signal?: AbortSignal,
 ) {
   const result = await Effect.runPromiseExit(effect, { signal })
+
   if (Exit.isFailure(result)) throw Cause.squash(result.cause)
+
   return result.value
 }
 
-export function errorMessage(error: unknown) {
+export function errorMessage(error: Error) {
   if (error instanceof Error) return error.message
+
   return Cause.pretty(Cause.die(error))
 }
 

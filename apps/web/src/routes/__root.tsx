@@ -1,24 +1,26 @@
 import type { QueryClient } from "@tanstack/react-query"
 import type { ReactNode } from "react"
 
-import * as stylex from "@stylexjs/stylex"
 import {
   createRootRouteWithContext,
   HeadContent,
   Outlet,
   Scripts,
 } from "@tanstack/react-router"
+import { Schema } from "effect"
 
+import { Box } from "ui/components/ui/box"
 import { themeMarker, lightTheme, rootStyles } from "ui/styles/tokens.stylex"
 import "ui/styles/styles.css"
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   {
-    validateSearch: (search: Record<string, unknown>) => ({
-      workspace:
-        typeof search.workspace === "string" ? search.workspace : undefined,
-      attempt: typeof search.attempt === "string" ? search.attempt : undefined,
-    }),
+    validateSearch: Schema.decodeUnknownSync(
+      Schema.Struct({
+        workspace: Schema.optional(Schema.String),
+        attempt: Schema.optional(Schema.String),
+      }),
+    ),
     head: () => ({
       meta: [
         { charSet: "utf-8" },
@@ -37,18 +39,19 @@ export function Root() {
 
 export function Document({ children }: { children: ReactNode }) {
   return (
-    <html
+    <Box
+      render={<html lang="en" />}
       lang="en"
       data-theme="light"
-      {...stylex.props(themeMarker, lightTheme, rootStyles.html)}
+      xstyle={[themeMarker, lightTheme, rootStyles.html]}
     >
-      <head>
+      <Box render={<head />}>
         <HeadContent />
-      </head>
-      <body {...stylex.props(rootStyles.body)}>
+      </Box>
+      <Box render={<body />} xstyle={rootStyles.body}>
         {children}
         <Scripts />
-      </body>
-    </html>
+      </Box>
+    </Box>
   )
 }

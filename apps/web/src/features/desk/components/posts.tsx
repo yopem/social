@@ -1,18 +1,18 @@
 import * as stylex from "@stylexjs/stylex"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Match } from "effect"
 import { useState } from "react"
 
 import type { Post, Workspace } from "rpc/contracts/models"
+import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
+import { Heading } from "ui/components/ui/heading"
 import { Input } from "ui/components/ui/input"
+import { Text } from "ui/components/ui/text"
 
-import {
-  Choice,
-  Failure,
-  PageHeading,
-  deskStyles,
-} from "../../../components/desk-ui"
-import { rpcMutation, workspaceQuery } from "../queries"
+import { Choice, Failure, PageHeading, deskStyles } from "@/components/desk-ui"
+import { rpcMutation, workspaceQuery } from "@/features/desk/queries"
+
 import { platformNames } from "./channels"
 import { Composer } from "./composer"
 
@@ -40,8 +40,9 @@ export function Posts({
   const [date, setDate] = useState("")
   const [channelId, setChannelId] = useState("")
   const client = useQueryClient()
-  const filter =
-    view === "drafts" ? "draft" : view === "calendar" ? "all" : "queue"
+
+  const filter = view === "drafts" ? "draft" : "all"
+
   const query = useQuery(
     workspaceQuery(
       workspaceId,
@@ -50,21 +51,25 @@ export function Posts({
       filter,
     ),
   )
+
   const channels = useQuery(
     workspaceQuery(workspaceId, "channels", (rpc) =>
       rpc.ChannelList({ workspaceId }),
     ),
   )
+
   const cancel = useMutation(
     rpcMutation(client, workspaceId, (rpc, postId: string) =>
       rpc.PostCancel({ workspaceId, postId }),
     ),
   )
+
   const remove = useMutation(
     rpcMutation(client, workspaceId, (rpc, postId: string) =>
       rpc.PostDelete({ workspaceId, postId }),
     ),
   )
+
   const rows = query.data?.filter(
     (post) =>
       (view !== "calendar" ||
@@ -80,20 +85,19 @@ export function Posts({
             day: "2-digit",
           }).format(new Date(post.scheduledAt)) === date)),
   )
+
   return (
-    <div {...stylex.props(deskStyles.stack)}>
+    <Box xstyle={deskStyles.stack}>
       <PageHeading
-        title={
-          view === "drafts"
-            ? "Drafts"
-            : view === "calendar"
-              ? "Calendar"
-              : "Publishing queue"
-        }
+        title={Match.value(view).pipe(
+          Match.when("drafts", () => "Drafts"),
+          Match.when("calendar", () => "Calendar"),
+          Match.orElse(() => "Publishing queue"),
+        )}
       >
         <Button onClick={() => setCompose(true)}>Create post</Button>
       </PageHeading>
-      <div {...stylex.props(deskStyles.row)}>
+      <Box xstyle={deskStyles.row}>
         <Choice
           label="Channel filter"
           value={channelId || "all"}
@@ -106,9 +110,10 @@ export function Posts({
           ]}
           onChange={(value) => setChannelId(value === "all" ? "" : value)}
         />
-        <label {...stylex.props(deskStyles.label)}>
+        <label htmlFor="posts-field-1" {...stylex.props(deskStyles.label)}>
           Calendar date
           <Input
+            id="posts-field-1"
             nativeInput
             type="date"
             value={date}
@@ -118,72 +123,77 @@ export function Posts({
         <Button variant="ghost" onClick={() => setDate("")}>
           All dates
         </Button>
-      </div>
-      <p {...stylex.props(deskStyles.muted)}>
+      </Box>
+      <Text xstyle={deskStyles.muted}>
         Workspace timezone: {workspace.timezone}. Review each destination
         outcome separately.
-      </p>
+      </Text>
       <Failure error={query.error ?? cancel.error ?? remove.error} />
-      {query.isPending && <p role="status">Loading posts…</p>}
-      {rows?.length === 0 && <p>No posts match this view.</p>}
+      {query.isPending && <Box render={<output />}>Loading posts…</Box>}
+      {rows?.length === 0 && <Text>No posts match this view.</Text>}
       {rows?.map((post) => (
-        <article key={post.id} {...stylex.props(deskStyles.flat)}>
-          <p {...stylex.props(deskStyles.preview)}>
+        <Box render={<article />} key={post.id} xstyle={deskStyles.flat}>
+          <Text xstyle={deskStyles.preview}>
             {post.content.text || "Media post"}
-          </p>
-          <p>
-            {post.state === "cancelled"
-              ? "Cancelled"
-              : post.state === "needs-review"
-                ? "Needs review"
-                : post.state.charAt(0).toUpperCase() + post.state.slice(1)}
-          </p>
+          </Text>
+          <Text>
+            {post.state === "needs-review"
+              ? "Needs review"
+              : post.state.charAt(0).toUpperCase() + post.state.slice(1)}
+          </Text>
           {post.scheduledAt && (
-            <p>
+            <Text>
               <time dateTime={post.scheduledAt}>
-                {new Intl.DateTimeFormat(undefined, {
+                {new Intl.DateTimeFormat("en-US", {
                   dateStyle: "medium",
                   timeStyle: "short",
                   timeZone: workspace.timezone,
                 }).format(new Date(post.scheduledAt))}
               </time>{" "}
               · {workspace.timezone}
-            </p>
+            </Text>
           )}
-          {post.reviewReason && <p>{post.reviewReason}</p>}
+          {post.reviewReason && <Text>{post.reviewReason}</Text>}
           {post.deliveries.length > 0 && (
-            <section aria-label="Delivery results">
-              <h2>Delivery results</h2>
+            <Box render={<section />} aria-label="Delivery results">
+              <Heading render={<h2>Delivery results</h2>} />
               {post.deliveries.map((delivery) => (
-                <section
+                <Box
+                  render={<section />}
                   key={delivery.id}
                   aria-label={
                     channels.data?.channels.find(
                       (channel) => channel.id === delivery.channelId,
                     )?.displayName ?? platformNames[delivery.platform]
                   }
-                  {...stylex.props(deskStyles.flat)}
+                  xstyle={deskStyles.flat}
                 >
-                  <h3>
-                    {channels.data?.channels.find(
-                      (channel) => channel.id === delivery.channelId,
-                    )?.displayName ?? platformNames[delivery.platform]}
-                  </h3>
-                  <p>{states[delivery.state]}</p>
-                  {delivery.message && <p>{delivery.message}</p>}
+                  <Heading
+                    render={
+                      <h3>
+                        <>
+                          {channels.data?.channels.find(
+                            (channel) => channel.id === delivery.channelId,
+                          )?.displayName ?? platformNames[delivery.platform]}
+                        </>
+                      </h3>
+                    }
+                  />
+                  <Text>{states[delivery.state]}</Text>
+                  {delivery.message && <Text>{delivery.message}</Text>}
                   {delivery.retryDisposition === "reconcile-first" && (
-                    <p>Outcome uncertain. Reconcile before retrying.</p>
+                    <Text>Outcome uncertain. Reconcile before retrying.</Text>
                   )}
                   {delivery.url && (
                     <a href={delivery.url} target="_blank" rel="noreferrer">
                       View published post
                     </a>
                   )}
-                </section>
+                </Box>
               ))}
-            </section>
+            </Box>
           )}
-          <div {...stylex.props(deskStyles.row)}>
+          <Box xstyle={deskStyles.row}>
             {["draft", "scheduled", "needs-review", "cancelled"].includes(
               post.state,
             ) && (
@@ -218,8 +228,8 @@ export function Posts({
                 Delete draft
               </Button>
             )}
-          </div>
-        </article>
+          </Box>
+        </Box>
       ))}
       {compose && (
         <Composer
@@ -231,6 +241,6 @@ export function Posts({
           }}
         />
       )}
-    </div>
+    </Box>
   )
 }
