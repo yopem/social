@@ -1,8 +1,11 @@
 import type { D1Database } from "@cloudflare/workers-types"
 
-import * as D1Client from "@effect/sql-d1/D1Client"
-import { Context, Effect, Layer, Schema } from "effect"
+import { and, asc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm"
+import { drizzle } from "drizzle-orm/d1"
+import { Context, DateTime, Effect, Layer, Schema } from "effect"
 
+import { channels as channelTable, workspaces } from "db/schema/core"
+import { deletionWorkspaces } from "db/schema/deletion"
 import {
   AttemptRow,
   CredentialRow,
@@ -11,8 +14,30 @@ import {
   IdempotencyRow,
   InboxRow,
 } from "db/schema/social"
-import type { Channel, Platform } from "rpc/contracts/models"
+import {
+  socialAttempts,
+  socialCredentials,
+  socialGrants,
+  socialIdempotency,
+  socialInbox,
+  socialOutcomes,
+  socialRefreshLocks,
+  socialUploadSessions,
+  socialWorkflows,
+} from "db/schema/social"
+import { DatabaseRunResult, validateOperation } from "db/services/validation"
+import { Channel, Platform } from "rpc/contracts/models"
 import { ApiError } from "rpc/contracts/models"
+
+const AuthorizationSchema = Schema.Struct({
+  tenantId: Schema.String,
+  principalId: Schema.String,
+})
+
+interface Authorization {
+  readonly tenantId: string
+  readonly principalId: string
+}
 
 function storageError() {
   return new ApiError({
@@ -21,50 +46,77 @@ function storageError() {
   })
 }
 
-function makeSocialDb(db: D1Database) {
-  return Effect.gen(function* () {
-    const sql = yield* D1Client.D1Client
+function makeSocialDb(binding: D1Database) {
+  const db = drizzle(binding)
 
-    function query<A, I>(
-      schema: Schema.Schema<A, I>,
-      text: string,
-      parameters: readonly (string | number | null)[] = [],
-    ) {
-      return sql
-        .unsafe(text, parameters)
-        .pipe(
-          Effect.flatMap(Schema.decodeUnknown(Schema.Array(schema))),
-          Effect.mapError(storageError),
-        )
-    }
+  function execute<A>(operation: () => PromiseLike<A>) {
+    return Effect.tryPromise({
+      try: () => Promise.resolve(operation()),
+      catch: storageError,
+    })
+  }
 
-    function write(
-      text: string,
-      parameters: readonly (string | number | null)[] = [],
-    ) {
-      return sql
-        .unsafe(text, parameters)
-        .pipe(Effect.asVoid, Effect.mapError(storageError))
-    }
+  function query<A, I, B>(
+    schema: Schema.Codec<A, I>,
+    operation: () => PromiseLike<B>,
+  ) {
+    return execute(operation).pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(schema))),
+      Effect.mapError(storageError),
+    )
+  }
 
-    function attempt(id: string) {
-      return query(
-        AttemptRow,
-        "SELECT * FROM social_attempts WHERE id=? AND consumed_token IS NULL",
-        [id],
+  function write<B>(operation: () => PromiseLike<B>) {
+    return execute(operation).pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(DatabaseRunResult)),
+      Effect.mapError(storageError),
+      Effect.asVoid,
+    )
+  }
+
+  function grantMatch(
+    tenantId: string,
+    backend: string,
+    platform: string,
+    accountId: string,
+  ) {
+    return and(
+      eq(socialGrants.tenant_id, tenantId),
+      eq(socialGrants.backend, backend),
+      eq(socialGrants.platform, platform),
+      eq(socialGrants.account_id, accountId),
+    )
+  }
+
+  function attempt(id: string) {
+    return query(AttemptRow, () =>
+      db
+        .select()
+        .from(socialAttempts)
+        .where(
+          and(eq(socialAttempts.id, id), isNull(socialAttempts.consumed_token)),
+        ),
+    ).pipe(Effect.map((rows) => rows[0]))
+  }
+
+  const operations = {
+    attempt,
+    attemptByState(this: void, state: string) {
+      return query(AttemptRow, () =>
+        db
+          .select()
+          .from(socialAttempts)
+          .where(
+            and(
+              eq(socialAttempts.state, state),
+              isNull(socialAttempts.consumed_token),
+            ),
+          ),
       ).pipe(Effect.map((rows) => rows[0]))
-    }
-
-    return {
-      attempt,
-      attemptByState(state: string) {
-        return query(
-          AttemptRow,
-          "SELECT * FROM social_attempts WHERE state=? AND consumed_token IS NULL",
-          [state],
-        ).pipe(Effect.map((rows) => rows[0]))
-      },
-      saveAttempt(input: {
+    },
+    saveAttempt(
+      this: void,
+      input: {
         readonly id: string
         readonly tenantId: string
         readonly principalId: string
@@ -72,331 +124,733 @@ function makeSocialDb(db: D1Database) {
         readonly state: string
         readonly expiresAt: string
         readonly ciphertext: string
-      }) {
-        return write(
-          "INSERT INTO social_attempts(id,tenant_id,principal_id,platform,state,expires_at,ciphertext) VALUES(?,?,?,?,?,?,?)",
-          [
-            input.id,
-            input.tenantId,
-            input.principalId,
-            input.platform,
-            input.state,
-            input.expiresAt,
-            input.ciphertext,
-          ],
-        )
       },
-      claimDiscovery(id: string) {
-        return query(
-          Schema.Struct({ id: Schema.String }),
-          "UPDATE social_attempts SET discovery_claimed=1 WHERE id=? AND discovery_claimed=0 AND consumed_token IS NULL AND expires_at>? RETURNING id",
-          [id, new Date().toISOString()],
-        ).pipe(Effect.map((rows) => rows.length === 1))
-      },
-      saveDiscovery(id: string, data: string) {
-        return write(
-          "UPDATE social_attempts SET discovery=? WHERE id=? AND discovery_claimed=1 AND discovery IS NULL AND consumed_token IS NULL",
-          [data, id],
-        )
-      },
-      completeAttempt(
-        id: string,
-        state: string,
-        grants: readonly (typeof GrantSchema.Type)[],
-        channels: readonly Channel[],
-        promotions: readonly {
-          readonly source: string
-          readonly destination: string
-        }[],
-      ) {
-        return Effect.gen(function* () {
-          const token = crypto.randomUUID()
+    ) {
+      return write(() =>
+        db.insert(socialAttempts).values({
+          id: input.id,
+          tenant_id: input.tenantId,
+          principal_id: input.principalId,
+          platform: input.platform,
+          state: input.state,
+          expires_at: input.expiresAt,
+          ciphertext: input.ciphertext,
+        }),
+      )
+    },
+    claimDiscovery: Effect.fn("social.claimDiscovery")(function* (id: string) {
+      const time = yield* DateTime.now
 
-          // D1 batch is atomic; Effect SQL D1 does not support transactions.
-          const results = yield* Effect.tryPromise({
-            try: () =>
-              db.batch([
+      return yield* query(Schema.Struct({ id: Schema.String }), () =>
+        db
+          .update(socialAttempts)
+          .set({ discovery_claimed: 1 })
+          .where(
+            and(
+              eq(socialAttempts.id, id),
+              eq(socialAttempts.discovery_claimed, 0),
+              isNull(socialAttempts.consumed_token),
+              gt(socialAttempts.expires_at, DateTime.formatIso(time)),
+            ),
+          )
+          .returning({ id: socialAttempts.id }),
+      ).pipe(Effect.map((rows) => rows.length === 1))
+    }),
+    saveDiscovery(this: void, id: string, data: string) {
+      return write(() =>
+        db
+          .update(socialAttempts)
+          .set({ discovery: data })
+          .where(
+            and(
+              eq(socialAttempts.id, id),
+              eq(socialAttempts.discovery_claimed, 1),
+              isNull(socialAttempts.discovery),
+              isNull(socialAttempts.consumed_token),
+            ),
+          ),
+      )
+    },
+    completeAttempt: Effect.fn("social.completeAttempt")(function* (
+      id: string,
+      state: string,
+      grants: readonly (typeof GrantSchema.Type)[],
+      channels: readonly Channel[],
+      promotions: readonly {
+        readonly source: string
+        readonly destination: string
+      }[],
+    ) {
+      const token = crypto.randomUUID()
+      const time = yield* DateTime.now
+      const consumed = sql`EXISTS(SELECT 1 FROM ${socialAttempts} WHERE ${socialAttempts.id}=${id} AND ${socialAttempts.consumed_token}=${token})`
+
+      const claim = db
+        .update(socialAttempts)
+        .set({ consumed_token: token })
+        .where(
+          and(
+            eq(socialAttempts.id, id),
+            eq(socialAttempts.state, state),
+            isNull(socialAttempts.consumed_token),
+            sql`${socialAttempts.discovery} IS NOT NULL`,
+            gt(socialAttempts.expires_at, DateTime.formatIso(time)),
+          ),
+        )
+
+      const results = yield* execute(() =>
+        db.batch([
+          claim.returning({ id: socialAttempts.id }),
+          ...promotions.map((promotion) =>
+            db
+              .insert(socialCredentials)
+              .select(
                 db
-                  .prepare(
-                    "UPDATE social_attempts SET consumed_token=? WHERE id=? AND state=? AND consumed_token IS NULL AND discovery IS NOT NULL AND expires_at>?",
-                  )
-                  .bind(token, id, state, new Date().toISOString()),
-                ...promotions.map((promotion) =>
-                  db
-                    .prepare(
-                      "INSERT INTO social_credentials(key,revision,ciphertext) SELECT ?,?,ciphertext FROM social_credentials WHERE key=? AND EXISTS(SELECT 1 FROM social_attempts WHERE id=? AND consumed_token=?) ON CONFLICT(key) DO UPDATE SET revision=excluded.revision,ciphertext=excluded.ciphertext",
-                    )
-                    .bind(
-                      promotion.destination,
-                      crypto.randomUUID(),
-                      promotion.source,
-                      id,
-                      token,
+                  .select({
+                    key: sql<string>`${promotion.destination}`.as("key"),
+                    revision: sql<string>`${crypto.randomUUID()}`.as(
+                      "revision",
                     ),
-                ),
-                ...grants.map((grant) =>
-                  db
-                    .prepare(
-                      "INSERT INTO social_grants(id,tenant_id,principal_id,backend,platform,account_id,data) SELECT ?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM social_attempts WHERE id=? AND consumed_token=?) ON CONFLICT(tenant_id,backend,platform,account_id) DO UPDATE SET principal_id=excluded.principal_id,data=excluded.data,revoked=0",
-                    )
-                    .bind(
-                      grant.grantId,
-                      grant.tenantId,
-                      grant.principalId,
-                      grant.account.backend,
-                      grant.account.platform,
-                      grant.account.accountId,
-                      JSON.stringify(grant),
-                      id,
-                      token,
-                    ),
-                ),
-                ...channels.map((channel) =>
-                  db
-                    .prepare(
-                      "INSERT INTO channels(id,workspace_id,data) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM social_attempts WHERE id=? AND consumed_token=?) ON CONFLICT(id) DO UPDATE SET data=excluded.data WHERE channels.workspace_id=excluded.workspace_id",
-                    )
-                    .bind(
-                      channel.id,
-                      channel.workspaceId,
-                      JSON.stringify(channel),
-                      id,
-                      token,
-                    ),
-                ),
-              ]),
-            catch: storageError,
-          })
-
-          if (results[0]?.meta.changes !== 1)
-            return yield* Effect.fail(
-              new ApiError({
-                code: "conflict",
-                message: "Connection attempt already selected or expired",
+                    ciphertext: socialCredentials.ciphertext,
+                  })
+                  .from(socialCredentials)
+                  .where(
+                    and(eq(socialCredentials.key, promotion.source), consumed),
+                  ),
+              )
+              .onConflictDoUpdate({
+                target: socialCredentials.key,
+                set: {
+                  revision: sql`excluded.revision`,
+                  ciphertext: sql`excluded.ciphertext`,
+                },
               }),
-            )
-
-          return grants
-        })
-      },
-      grants(
-        tenantId: string,
-        backend: string,
-        platform: string,
-        accountId: string,
-      ) {
-        return query(
-          Schema.Struct({ data: Schema.parseJson(GrantSchema) }),
-          "SELECT data FROM social_grants WHERE tenant_id=? AND backend=? AND platform=? AND account_id=? AND revoked=0",
-          [tenantId, backend, platform, accountId],
-        ).pipe(Effect.map((rows) => rows.map((row) => row.data)))
-      },
-      revoke(
-        tenantId: string,
-        backend: string,
-        platform: string,
-        accountId: string,
-      ) {
-        return write(
-          "UPDATE social_grants SET revoked=1 WHERE tenant_id=? AND backend=? AND platform=? AND account_id=?",
-          [tenantId, backend, platform, accountId],
-        )
-      },
-      credential(key: string) {
-        return query(
-          CredentialRow,
-          "SELECT ciphertext,revision FROM social_credentials WHERE key=?",
-          [key],
-        ).pipe(Effect.map((rows) => rows[0]))
-      },
-      casCredential(
-        key: string,
-        expectedRevision: string | undefined,
-        ciphertext: string,
-      ) {
-        const revision = crypto.randomUUID()
-
-        const operation =
-          expectedRevision === undefined
-            ? query(
-                Schema.Struct({ revision: Schema.String }),
-                "INSERT INTO social_credentials(key,revision,ciphertext) VALUES(?,?,?) ON CONFLICT(key) DO NOTHING RETURNING revision",
-                [key, revision, ciphertext],
-              )
-            : query(
-                Schema.Struct({ revision: Schema.String }),
-                "UPDATE social_credentials SET revision=?,ciphertext=? WHERE key=? AND revision=? RETURNING revision",
-                [revision, ciphertext, key, expectedRevision],
-              )
-
-        return operation.pipe(
-          Effect.map((rows) =>
-            rows[0]
-              ? { updated: true, revision: rows[0].revision }
-              : { updated: false },
           ),
-        )
-      },
-      deleteCredential(key: string) {
-        return write("DELETE FROM social_credentials WHERE key=?", [key])
-      },
-      acquireLease(key: string, ttlMs: number) {
-        const token = crypto.randomUUID()
-        const now = new Date().toISOString()
-
-        const expiresAt = new Date(
-          Date.now() + Math.min(Math.max(ttlMs, 1000), 120000),
-        ).toISOString()
-
-        return query(
-          Schema.Struct({ token: Schema.String }),
-          "INSERT INTO social_refresh_locks(key,token,expires_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET token=excluded.token,expires_at=excluded.expires_at WHERE social_refresh_locks.expires_at<? RETURNING token",
-          [key, token, expiresAt, now],
-        ).pipe(
-          Effect.map((rows) =>
-            rows[0] ? { key, token, expiresAt } : undefined,
+          ...grants.map((grant) =>
+            db
+              .insert(socialGrants)
+              .select(
+                db
+                  .select({
+                    id: sql<string>`${grant.grantId}`.as("id"),
+                    tenant_id: sql<string>`${grant.tenantId}`.as("tenant_id"),
+                    principal_id: sql<string>`${grant.principalId}`.as(
+                      "principal_id",
+                    ),
+                    backend: sql<string>`${grant.account.backend}`.as(
+                      "backend",
+                    ),
+                    platform: sql<string>`${grant.account.platform}`.as(
+                      "platform",
+                    ),
+                    account_id: sql<string>`${grant.account.accountId}`.as(
+                      "account_id",
+                    ),
+                    data: sql<string>`${JSON.stringify(grant)}`.as("data"),
+                    revoked: sql<number>`0`.as("revoked"),
+                  })
+                  .from(socialAttempts)
+                  .where(and(eq(socialAttempts.id, id), consumed)),
+              )
+              .onConflictDoUpdate({
+                target: [
+                  socialGrants.tenant_id,
+                  socialGrants.backend,
+                  socialGrants.platform,
+                  socialGrants.account_id,
+                ],
+                set: {
+                  principal_id: sql`excluded.principal_id`,
+                  data: sql`excluded.data`,
+                  revoked: 0,
+                },
+              }),
           ),
-        )
-      },
-      releaseLease(key: string, token: string) {
-        return write(
-          "DELETE FROM social_refresh_locks WHERE key=? AND token=?",
-          [key, token],
-        )
-      },
-      claimIdempotency(
-        scope: string,
-        key: string,
-        fingerprint: string,
-        targets: readonly string[],
-      ) {
-        return Effect.gen(function* () {
-          const id = crypto.randomUUID()
-          yield* write(
-            "INSERT INTO social_idempotency(id,scope,key,fingerprint,targets) VALUES(?,?,?,?,?) ON CONFLICT(scope,key) DO NOTHING",
-            [id, scope, key, fingerprint, JSON.stringify(targets)],
-          )
+          ...channels.map((channel) =>
+            db
+              .insert(channelTable)
+              .select(
+                db
+                  .select({
+                    id: sql<string>`${channel.id}`.as("id"),
+                    workspace_id: sql<string>`${channel.workspaceId}`.as(
+                      "workspace_id",
+                    ),
+                    data: sql<string>`${JSON.stringify(channel)}`.as("data"),
+                  })
+                  .from(socialAttempts)
+                  .where(and(eq(socialAttempts.id, id), consumed)),
+              )
+              .onConflictDoUpdate({
+                target: channelTable.id,
+                set: { data: sql`excluded.data` },
+                setWhere: sql`${channelTable.workspace_id}=excluded.workspace_id`,
+              }),
+          ),
+          db.delete(socialCredentials).where(
+            and(
+              inArray(
+                socialCredentials.key,
+                promotions.map((promotion) => promotion.source),
+              ),
+              consumed,
+            ),
+          ),
+        ]),
+      )
 
-          const rows = yield* query(
-            IdempotencyRow,
-            "SELECT * FROM social_idempotency WHERE scope=? AND key=?",
-            [scope, key],
-          )
+      const claimed = yield* Schema.decodeUnknownEffect(
+        Schema.Array(Schema.Struct({ id: Schema.String })),
+      )(results[0]).pipe(Effect.mapError(storageError))
 
-          const row = rows[0]
+      if (claimed.length !== 1)
+        return yield* Effect.fail(
+          new ApiError({
+            code: "conflict",
+            message: "Connection attempt already selected or expired",
+          }),
+        )
 
-          if (!row) return yield* Effect.fail(storageError())
+      return grants
+    }),
+    grants(
+      this: void,
+      tenantId: string,
+      backend: string,
+      platform: string,
+      accountId: string,
+    ) {
+      return query(
+        Schema.Struct({ data: Schema.fromJsonString(GrantSchema) }),
+        () =>
+          db
+            .select({ data: socialGrants.data })
+            .from(socialGrants)
+            .where(
+              and(
+                grantMatch(tenantId, backend, platform, accountId),
+                eq(socialGrants.revoked, 0),
+                sql`NOT EXISTS(SELECT 1 FROM account_deletions WHERE user_id=${socialGrants.principal_id})`,
+              ),
+            ),
+      ).pipe(Effect.map((rows) => rows.map((row) => row.data)))
+    },
+    revoke(
+      this: void,
+      tenantId: string,
+      backend: string,
+      platform: string,
+      accountId: string,
+    ) {
+      return write(() =>
+        db
+          .update(socialGrants)
+          .set({ revoked: 1 })
+          .where(grantMatch(tenantId, backend, platform, accountId)),
+      )
+    },
+    credential(this: void, key: string) {
+      return query(CredentialRow, () =>
+        db
+          .select({
+            ciphertext: socialCredentials.ciphertext,
+            revision: socialCredentials.revision,
+          })
+          .from(socialCredentials)
+          .where(eq(socialCredentials.key, key)),
+      ).pipe(Effect.map((rows) => rows[0]))
+    },
+    casCredential(
+      this: void,
+      key: string,
+      expectedRevision: string | undefined,
+      ciphertext: string,
+    ) {
+      const revision = crypto.randomUUID()
 
-          const outcomes = yield* query(
-            Schema.Struct({ target_key: Schema.String, data: Schema.String }),
-            "SELECT target_key,data FROM social_outcomes WHERE claim_id=?",
-            [row.id],
-          )
+      return query(Schema.Struct({ revision: Schema.String }), () =>
+        expectedRevision === undefined
+          ? db
+              .insert(socialCredentials)
+              .values({ key, revision, ciphertext })
+              .onConflictDoNothing()
+              .returning({ revision: socialCredentials.revision })
+          : db
+              .update(socialCredentials)
+              .set({ revision, ciphertext })
+              .where(
+                and(
+                  eq(socialCredentials.key, key),
+                  eq(socialCredentials.revision, expectedRevision),
+                ),
+              )
+              .returning({ revision: socialCredentials.revision }),
+      ).pipe(
+        Effect.map((rows) =>
+          rows[0]
+            ? { updated: true, revision: rows[0].revision }
+            : { updated: false },
+        ),
+      )
+    },
+    deleteCredential(this: void, key: string) {
+      return write(() =>
+        db.delete(socialCredentials).where(eq(socialCredentials.key, key)),
+      )
+    },
+    acquireLease: Effect.fn("social.acquireLease")(function* (
+      key: string,
+      ttlMs: number,
+    ) {
+      const time = yield* DateTime.now
+      const token = crypto.randomUUID()
 
-          return { row, fresh: row.id === id, outcomes }
-        })
-      },
-      saveOutcome(claimId: string, targetKey: string, data: string) {
-        return write(
-          "INSERT INTO social_outcomes(claim_id,target_key,data) VALUES(?,?,?) ON CONFLICT(claim_id,target_key) DO UPDATE SET data=excluded.data",
-          [claimId, targetKey, data],
-        )
-      },
-      workflow(id: string) {
-        return query(DataRow, "SELECT data FROM social_workflows WHERE id=?", [
-          id,
-        ]).pipe(Effect.map((rows) => rows[0]?.data))
-      },
-      createWorkflow(id: string, kind: string, data: string) {
-        return write(
-          "INSERT INTO social_workflows(id,kind,data) VALUES(?,?,?)",
-          [id, kind, data],
-        )
-      },
-      updateWorkflow(id: string, data: string) {
-        return write("UPDATE social_workflows SET data=? WHERE id=?", [
-          data,
-          id,
-        ])
-      },
-      claimWorkflow(id: string, token: string) {
-        return query(
-          Schema.Struct({ id: Schema.String }),
-          "UPDATE social_workflows SET claim_token=? WHERE id=? AND claim_token IS NULL RETURNING id",
-          [token, id],
-        ).pipe(Effect.map((rows) => rows.length === 1))
-      },
-      releaseWorkflow(id: string, token: string) {
-        return write(
-          "UPDATE social_workflows SET claim_token=NULL WHERE id=? AND claim_token=?",
-          [id, token],
-        )
-      },
-      saveUploadSession(
-        tenantId: string,
-        channelId: string,
-        ciphertext: string,
-      ) {
-        return write(
-          "INSERT INTO social_upload_sessions(id,tenant_id,channel_id,ciphertext) VALUES(?,?,?,?)",
-          [crypto.randomUUID(), tenantId, channelId, ciphertext],
-        )
-      },
-      resolveTenants(platform: string, accountIds: readonly string[]) {
-        return query(
-          Schema.Struct({ tenant_id: Schema.String }),
-          "SELECT DISTINCT tenant_id FROM social_grants WHERE platform=? AND revoked=0 AND account_id IN (SELECT value FROM json_each(?))",
-          [platform, JSON.stringify(accountIds)],
-        ).pipe(Effect.map((rows) => rows.map((row) => row.tenant_id)))
-      },
-      acceptInbox(
-        key: string,
-        platform: Platform,
-        data: string,
-        tenants: readonly string[],
-        quarantined = tenants.length === 0,
-      ) {
-        return query(
-          Schema.Struct({ key: Schema.String }),
-          "INSERT INTO social_inbox(key,platform,data,tenants,state,received_at) VALUES(?,?,?,?,?,?) ON CONFLICT(key) DO NOTHING RETURNING key",
-          [
+      const expiresAt = DateTime.formatIso(
+        DateTime.addDuration(time, Math.min(Math.max(ttlMs, 1000), 120000)),
+      )
+
+      return yield* query(Schema.Struct({ token: Schema.String }), () =>
+        db
+          .insert(socialRefreshLocks)
+          .values({ key, token, expires_at: expiresAt })
+          .onConflictDoUpdate({
+            target: socialRefreshLocks.key,
+            set: { token, expires_at: expiresAt },
+            setWhere: lt(
+              socialRefreshLocks.expires_at,
+              DateTime.formatIso(time),
+            ),
+          })
+          .returning({ token: socialRefreshLocks.token }),
+      ).pipe(
+        Effect.map((rows) => (rows[0] ? { key, token, expiresAt } : undefined)),
+      )
+    }),
+    releaseLease(this: void, key: string, token: string) {
+      return write(() =>
+        db
+          .delete(socialRefreshLocks)
+          .where(
+            and(
+              eq(socialRefreshLocks.key, key),
+              eq(socialRefreshLocks.token, token),
+            ),
+          ),
+      )
+    },
+    claimIdempotency: Effect.fn("social.claimIdempotency")(function* (
+      scope: string,
+      key: string,
+      fingerprint: string,
+      targets: readonly string[],
+      authorization?: Authorization,
+    ) {
+      const id = crypto.randomUUID()
+      yield* write(() =>
+        db
+          .insert(socialIdempotency)
+          .values({
+            id,
+            scope,
             key,
-            platform,
-            data,
-            JSON.stringify(tenants),
-            quarantined ? "quarantined" : "pending",
-            new Date().toISOString(),
-          ],
+            fingerprint,
+            targets: JSON.stringify(targets),
+            tenant_id: authorization?.tenantId ?? null,
+            principal_id: authorization?.principalId ?? null,
+          })
+          .onConflictDoNothing(),
+      )
+
+      const rows = yield* query(IdempotencyRow, () =>
+        db
+          .select()
+          .from(socialIdempotency)
+          .where(
+            and(
+              eq(socialIdempotency.scope, scope),
+              eq(socialIdempotency.key, key),
+            ),
+          ),
+      )
+
+      const row = rows[0]
+
+      if (!row) return yield* Effect.fail(storageError())
+
+      const outcomes = yield* query(
+        Schema.Struct({ target_key: Schema.String, data: Schema.String }),
+        () =>
+          db
+            .select({
+              target_key: socialOutcomes.target_key,
+              data: socialOutcomes.data,
+            })
+            .from(socialOutcomes)
+            .where(eq(socialOutcomes.claim_id, row.id)),
+      )
+
+      return { row, fresh: row.id === id, outcomes }
+    }),
+    saveOutcome(this: void, claimId: string, targetKey: string, data: string) {
+      return write(() =>
+        db
+          .insert(socialOutcomes)
+          .values({ claim_id: claimId, target_key: targetKey, data })
+          .onConflictDoUpdate({
+            target: [socialOutcomes.claim_id, socialOutcomes.target_key],
+            set: { data },
+          }),
+      )
+    },
+    workflow(this: void, id: string) {
+      return query(DataRow, () =>
+        db
+          .select({ data: socialWorkflows.data })
+          .from(socialWorkflows)
+          .where(eq(socialWorkflows.id, id)),
+      ).pipe(Effect.map((rows) => rows[0]?.data))
+    },
+    createWorkflow(
+      this: void,
+      id: string,
+      kind: string,
+      data: string,
+      authorization?: Authorization,
+    ) {
+      return write(() =>
+        db.insert(socialWorkflows).values({
+          id,
+          kind,
+          data,
+          tenant_id: authorization?.tenantId ?? null,
+          principal_id: authorization?.principalId ?? null,
+        }),
+      )
+    },
+    updateWorkflow(this: void, id: string, data: string) {
+      return write(() =>
+        db
+          .update(socialWorkflows)
+          .set({ data })
+          .where(eq(socialWorkflows.id, id)),
+      )
+    },
+    claimWorkflow(this: void, id: string, token: string) {
+      return query(Schema.Struct({ id: Schema.String }), () =>
+        db
+          .update(socialWorkflows)
+          .set({ claim_token: token })
+          .where(
+            and(
+              eq(socialWorkflows.id, id),
+              isNull(socialWorkflows.claim_token),
+            ),
+          )
+          .returning({ id: socialWorkflows.id }),
+      ).pipe(Effect.map((rows) => rows.length === 1))
+    },
+    releaseWorkflow(this: void, id: string, token: string) {
+      return write(() =>
+        db
+          .update(socialWorkflows)
+          .set({ claim_token: null })
+          .where(
+            and(
+              eq(socialWorkflows.id, id),
+              eq(socialWorkflows.claim_token, token),
+            ),
+          ),
+      )
+    },
+    saveUploadSession(
+      this: void,
+      tenantId: string,
+      channelId: string,
+      ciphertext: string,
+    ) {
+      return write(() =>
+        db.insert(socialUploadSessions).values({
+          id: crypto.randomUUID(),
+          tenant_id: tenantId,
+          channel_id: channelId,
+          ciphertext,
+        }),
+      )
+    },
+    resolveTenants(
+      this: void,
+      platform: string,
+      accountIds: readonly string[],
+    ) {
+      return query(Schema.Struct({ tenant_id: Schema.String }), () =>
+        db
+          .selectDistinct({ tenant_id: socialGrants.tenant_id })
+          .from(socialGrants)
+          .where(
+            and(
+              eq(socialGrants.platform, platform),
+              eq(socialGrants.revoked, 0),
+              sql`NOT EXISTS(SELECT 1 FROM account_deletions WHERE user_id=${socialGrants.principal_id})`,
+              inArray(socialGrants.account_id, [...accountIds]),
+            ),
+          ),
+      ).pipe(Effect.map((rows) => rows.map((row) => row.tenant_id)))
+    },
+    acceptInbox: Effect.fn("social.acceptInbox")(function* (
+      key: string,
+      platform: Platform,
+      data: string,
+      tenants: readonly string[],
+      quarantined = tenants.length === 0,
+    ) {
+      const time = yield* DateTime.now
+
+      if (tenants.length === 0)
+        return yield* query(Schema.Struct({ key: Schema.String }), () =>
+          db
+            .insert(socialInbox)
+            .values({
+              key,
+              platform,
+              data,
+              tenants: "[]",
+              state: quarantined ? "quarantined" : "pending",
+              received_at: DateTime.formatIso(time),
+              completed_at: null,
+            })
+            .onConflictDoNothing()
+            .returning({ key: socialInbox.key }),
         ).pipe(
           Effect.map((rows): "accepted" | "duplicate" =>
             rows.length ? "accepted" : "duplicate",
           ),
         )
-      },
-      pendingInbox(limit = 50) {
-        return query(
-          InboxRow,
-          "SELECT * FROM social_inbox WHERE state='pending' ORDER BY received_at LIMIT ?",
-          [Math.min(Math.max(limit, 1), 100)],
+
+      const active = db
+        .select({ id: workspaces.id })
+        .from(workspaces)
+        .where(
+          and(
+            inArray(workspaces.id, [...tenants]),
+            sql`NOT EXISTS(SELECT 1 FROM ${deletionWorkspaces} WHERE ${deletionWorkspaces.workspace_id}=${workspaces.id})`,
+          ),
         )
-      },
-      completeInbox(key: string) {
-        return write(
-          "UPDATE social_inbox SET state='complete' WHERE key=? AND state='pending'",
-          [key],
-        )
-      },
-    }
-  })
+
+      return yield* query(Schema.Struct({ key: Schema.String }), () =>
+        db
+          .insert(socialInbox)
+          .select(
+            db
+              .select({
+                key: sql<string>`${key}`.as("key"),
+                platform: sql<string>`${platform}`.as("platform"),
+                data: sql<string>`${data}`.as("data"),
+                tenants:
+                  sql<string>`(SELECT coalesce(json_group_array(id),'[]') FROM (${active.getSQL()}))`.as(
+                    "tenants",
+                  ),
+                state:
+                  sql<string>`${quarantined ? "quarantined" : "pending"}`.as(
+                    "state",
+                  ),
+                received_at: sql<string>`${DateTime.formatIso(time)}`.as(
+                  "received_at",
+                ),
+                completed_at: sql<string | null>`NULL`.as("completed_at"),
+              })
+              .from(workspaces)
+              .where(sql`${tenants.length}=0 OR EXISTS(${active.getSQL()})`)
+              .limit(1),
+          )
+          .onConflictDoNothing()
+          .returning({ key: socialInbox.key }),
+      ).pipe(
+        Effect.map((rows): "accepted" | "duplicate" =>
+          rows.length ? "accepted" : "duplicate",
+        ),
+      )
+    }),
+    pendingInbox(this: void, limit = 50) {
+      return query(InboxRow, () =>
+        db
+          .select()
+          .from(socialInbox)
+          .where(eq(socialInbox.state, "pending"))
+          .orderBy(asc(socialInbox.received_at))
+          .limit(Math.min(Math.max(limit, 1), 100)),
+      )
+    },
+    completeInbox: Effect.fn("social.completeInbox")(function* (key: string) {
+      const time = yield* DateTime.now
+      yield* write(() =>
+        db
+          .update(socialInbox)
+          .set({ state: "complete", completed_at: DateTime.formatIso(time) })
+          .where(
+            and(eq(socialInbox.key, key), eq(socialInbox.state, "pending")),
+          ),
+      )
+    }),
+  }
+
+  return {
+    attempt: validateOperation(
+      operations.attempt,
+      Schema.Tuple([Schema.String]),
+    ),
+    attemptByState: validateOperation(
+      operations.attemptByState,
+      Schema.Tuple([Schema.String]),
+    ),
+    saveAttempt: validateOperation(
+      operations.saveAttempt,
+      Schema.Tuple([
+        Schema.Struct({
+          id: Schema.String,
+          tenantId: Schema.String,
+          principalId: Schema.String,
+          platform: Platform,
+          state: Schema.String,
+          expiresAt: Schema.String,
+          ciphertext: Schema.String,
+        }),
+      ]),
+    ),
+    claimDiscovery: validateOperation(
+      operations.claimDiscovery,
+      Schema.Tuple([Schema.String]),
+    ),
+    saveDiscovery: validateOperation(
+      operations.saveDiscovery,
+      Schema.Tuple([Schema.String, Schema.String]),
+    ),
+    completeAttempt: validateOperation(
+      operations.completeAttempt,
+      Schema.Tuple([
+        Schema.String,
+        Schema.String,
+        Schema.Array(GrantSchema),
+        Schema.Array(Channel),
+        Schema.Array(
+          Schema.Struct({ source: Schema.String, destination: Schema.String }),
+        ),
+      ]),
+    ),
+    grants: validateOperation(
+      operations.grants,
+      Schema.Tuple([
+        Schema.String,
+        Schema.String,
+        Schema.String,
+        Schema.String,
+      ]),
+    ),
+    revoke: validateOperation(
+      operations.revoke,
+      Schema.Tuple([
+        Schema.String,
+        Schema.String,
+        Schema.String,
+        Schema.String,
+      ]),
+    ),
+    credential: validateOperation(
+      operations.credential,
+      Schema.Tuple([Schema.String]),
+    ),
+    casCredential: validateOperation(
+      operations.casCredential,
+      Schema.Tuple([
+        Schema.String,
+        Schema.UndefinedOr(Schema.String),
+        Schema.String,
+      ]),
+    ),
+    deleteCredential: validateOperation(
+      operations.deleteCredential,
+      Schema.Tuple([Schema.String]),
+    ),
+    acquireLease: validateOperation(
+      operations.acquireLease,
+      Schema.Tuple([Schema.String, Schema.Number]),
+    ),
+    releaseLease: validateOperation(
+      operations.releaseLease,
+      Schema.Tuple([Schema.String, Schema.String]),
+    ),
+    claimIdempotency: validateOperation(
+      operations.claimIdempotency,
+      Schema.Tuple([
+        Schema.String,
+        Schema.String,
+        Schema.String,
+        Schema.Array(Schema.String),
+        Schema.optionalKey(AuthorizationSchema),
+      ]),
+    ),
+    saveOutcome: validateOperation(
+      operations.saveOutcome,
+      Schema.Tuple([Schema.String, Schema.String, Schema.String]),
+    ),
+    workflow: validateOperation(
+      operations.workflow,
+      Schema.Tuple([Schema.String]),
+    ),
+    createWorkflow: validateOperation(
+      operations.createWorkflow,
+      Schema.Tuple([
+        Schema.String,
+        Schema.String,
+        Schema.String,
+        Schema.optionalKey(AuthorizationSchema),
+      ]),
+    ),
+    updateWorkflow: validateOperation(
+      operations.updateWorkflow,
+      Schema.Tuple([Schema.String, Schema.String]),
+    ),
+    claimWorkflow: validateOperation(
+      operations.claimWorkflow,
+      Schema.Tuple([Schema.String, Schema.String]),
+    ),
+    releaseWorkflow: validateOperation(
+      operations.releaseWorkflow,
+      Schema.Tuple([Schema.String, Schema.String]),
+    ),
+    saveUploadSession: validateOperation(
+      operations.saveUploadSession,
+      Schema.Tuple([Schema.String, Schema.String, Schema.String]),
+    ),
+    resolveTenants: validateOperation(
+      operations.resolveTenants,
+      Schema.Tuple([Schema.String, Schema.Array(Schema.String)]),
+    ),
+    acceptInbox: validateOperation(
+      operations.acceptInbox,
+      Schema.Tuple([
+        Schema.String,
+        Platform,
+        Schema.String,
+        Schema.Array(Schema.String),
+        Schema.optionalKey(Schema.Boolean),
+      ]),
+    ),
+    pendingInbox: validateOperation(
+      operations.pendingInbox,
+      Schema.Tuple([Schema.optionalKey(Schema.Number)]),
+    ),
+    completeInbox: validateOperation(
+      operations.completeInbox,
+      Schema.Tuple([Schema.String]),
+    ),
+  }
 }
 
-export class SocialDb extends Context.Tag("social/SocialDb")<
+export class SocialDb extends Context.Service<
   SocialDb,
-  Effect.Effect.Success<ReturnType<typeof makeSocialDb>>
->() {}
+  ReturnType<typeof makeSocialDb>
+>()("social/SocialDb") {}
 
 export function socialDbLayer(db: D1Database) {
-  return Layer.effect(SocialDb, makeSocialDb(db)).pipe(
-    Layer.provide(D1Client.layer({ db })),
-  )
+  return Layer.succeed(SocialDb, makeSocialDb(db))
 }

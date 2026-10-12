@@ -1,8 +1,15 @@
 import type { D1Database } from "@cloudflare/workers-types"
 
+import { count, eq, is, and, like } from "drizzle-orm"
+import { drizzle } from "drizzle-orm/d1"
+import { SQLiteTable } from "drizzle-orm/sqlite-core"
 import { Effect, Schema } from "effect"
 
-import { ApiError } from "rpc/contracts/models"
+import * as core from "db/schema/core"
+import * as deletion from "db/schema/deletion"
+import * as session from "db/schema/session"
+import * as social from "db/schema/social"
+import { ApiError, Id } from "rpc/contracts/models"
 
 function storageError() {
   return new ApiError({
@@ -11,82 +18,123 @@ function storageError() {
   })
 }
 
-export function migrateLocalFixtures(
-  db: D1Database,
-  origin: string,
-  statements: readonly string[],
-) {
-  return Effect.gen(function* () {
-    if (origin !== "http://localhost:3000") {
+export function verifyLocalFixtureDatabase(db: D1Database, origin: string) {
+  return Effect.fnUntraced(function* () {
+    if (origin !== "http://localhost:3200")
       return yield* Effect.fail(
         new ApiError({
           code: "forbidden",
-          message: "Fixture migrations require local origin",
+          message: "Fixture checks require local origin",
         }),
       )
-    }
 
-    yield* Effect.tryPromise({
-      try: () =>
-        db.exec(
-          "CREATE TABLE IF NOT EXISTS fixture_migrations (id INTEGER PRIMARY KEY)",
-        ),
-      catch: storageError,
-    })
+    const client = drizzle(db)
 
-    for (const [index, statement] of statements.entries()) {
-      const applied = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .prepare("SELECT id FROM fixture_migrations WHERE id=?")
-            .bind(index)
-            .first(),
-        catch: storageError,
-      })
+    const tables = Object.values({
+      ...core,
+      ...social,
+      ...deletion,
+      ...session,
+    }).filter((entry) => is(entry, SQLiteTable))
 
-      if (applied) continue
-
-      const commands = statement
-        .split(";")
-        .map((command) => command.trim())
-        .filter(Boolean)
-
-      yield* Effect.tryPromise({
-        try: () =>
-          db.batch([
-            ...commands.map((command) => db.prepare(command)),
-            db
-              .prepare("INSERT INTO fixture_migrations(id) VALUES(?)")
-              .bind(index),
-          ]),
-        catch: storageError,
-      })
-    }
-  })
+    if (tables.length === 0) return yield* storageError()
+    yield* Effect.forEach(
+      tables,
+      (table) =>
+        Effect.tryPromise({
+          try: () => client.select().from(table).limit(1),
+          catch: () =>
+            new ApiError({
+              code: "not-configured",
+              message: "Apply Alchemy D1 migrations before running E2E tests.",
+            }),
+        }),
+      { concurrency: 1, discard: true },
+    )
+  })()
 }
 
 export function fixtureDatabaseStats(db: D1Database, workspaceId: string) {
-  return Effect.tryPromise({
-    try: () =>
-      db
-        .prepare(
-          "SELECT (SELECT count(*) FROM social_grants WHERE tenant_id=? AND revoked=0) AS grants, (SELECT count(*) FROM social_attempts WHERE tenant_id=? AND discovery_claimed=1) AS codeExchanges, (SELECT count(*) FROM social_inbox WHERE state='complete') AS processed, (SELECT count(*) FROM social_inbox WHERE state='quarantined') AS quarantined, (SELECT count(*) FROM social_workflows WHERE kind='fixture-dispatch' AND id LIKE ?) AS dispatches",
-        )
-        .bind(workspaceId, workspaceId, `${workspaceId}:%`)
-        .first(),
-    catch: storageError,
-  }).pipe(
-    Effect.flatMap(
-      Schema.decodeUnknown(
-        Schema.Struct({
-          grants: Schema.Number,
-          codeExchanges: Schema.Number,
-          processed: Schema.Number,
-          quarantined: Schema.Number,
-          dispatches: Schema.Number,
+  return Schema.decodeUnknownEffect(Id)(workspaceId).pipe(
+    Effect.mapError(
+      () =>
+        new ApiError({
+          code: "invalid-input",
+          message: "Invalid fixture workspace",
         }),
-      ),
     ),
-    Effect.mapError(storageError),
+    Effect.flatMap((id) =>
+      Effect.gen(function* () {
+        const client = drizzle(db)
+
+        const statements = [
+          client
+            .select({ value: count() })
+            .from(social.socialGrants)
+            .where(
+              and(
+                eq(social.socialGrants.tenant_id, id),
+                eq(social.socialGrants.revoked, 0),
+              ),
+            ),
+          client
+            .select({ value: count() })
+            .from(social.socialAttempts)
+            .where(
+              and(
+                eq(social.socialAttempts.tenant_id, id),
+                eq(social.socialAttempts.discovery_claimed, 1),
+              ),
+            ),
+          client
+            .select({ value: count() })
+            .from(social.socialInbox)
+            .where(eq(social.socialInbox.state, "complete")),
+          client
+            .select({ value: count() })
+            .from(social.socialInbox)
+            .where(eq(social.socialInbox.state, "quarantined")),
+          client
+            .select({ value: count() })
+            .from(social.socialWorkflows)
+            .where(
+              and(
+                eq(social.socialWorkflows.kind, "fixture-dispatch"),
+                like(social.socialWorkflows.id, `${id}:%`),
+              ),
+            ),
+        ] as const
+
+        const result = yield* Effect.tryPromise({
+          try: () => client.batch(statements),
+          catch: storageError,
+        })
+
+        const row = Schema.Array(Schema.Struct({ value: Schema.Int }))
+
+        const values = yield* Schema.decodeUnknownEffect(
+          Schema.Tuple([row, row, row, row, row]),
+        )(result).pipe(Effect.mapError(storageError))
+
+        const [grants, exchanges, processed, quarantined, dispatches] =
+          values.map((rows) => rows[0]?.value)
+
+        return yield* Schema.decodeUnknownEffect(
+          Schema.Struct({
+            grants: Schema.Int,
+            codeExchanges: Schema.Int,
+            processed: Schema.Int,
+            quarantined: Schema.Int,
+            dispatches: Schema.Int,
+          }),
+        )({
+          grants,
+          codeExchanges: exchanges,
+          processed,
+          quarantined,
+          dispatches,
+        }).pipe(Effect.mapError(storageError))
+      }),
+    ),
   )
 }
