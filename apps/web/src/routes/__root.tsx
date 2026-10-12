@@ -15,7 +15,7 @@ import "ui/styles/styles.css"
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   {
-    validateSearch: Schema.decodeUnknownSync(
+    validateSearch: Schema.toStandardSchemaV1(
       Schema.Struct({
         workspace: Schema.optional(Schema.String),
         attempt: Schema.optional(Schema.String),

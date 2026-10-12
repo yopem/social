@@ -2,7 +2,7 @@ import * as stylex from "@stylexjs/stylex"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 
-import { ApiError, type Workspace } from "rpc/contracts/models"
+import type { Workspace } from "rpc/contracts/models"
 import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
 import { Flex } from "ui/components/ui/flex"
@@ -13,12 +13,13 @@ import { tokens } from "ui/styles/tokens.stylex"
 
 import { Failure } from "@/components/desk-ui"
 import { sessionQuery, logoutMutation } from "@/features/desk/queries"
+import { LegalLinks } from "@/features/legal/components/legal-page"
 
 import { Analytics } from "./analytics"
 import { Channels } from "./channels"
 import { Feeds } from "./feeds"
 import { Posts } from "./posts"
-import { Settings } from "./settings"
+import { AccountDeletionSettings, Settings } from "./settings"
 import { Workspaces } from "./workspaces"
 
 const styles = stylex.create({
@@ -81,10 +82,6 @@ export function Desk({ view }: { view: DeskView }) {
     session.data?.workspaces.find((item) => item.id === search.workspace) ??
     session.data?.workspaces[0]
 
-  const unauthorized =
-    session.error instanceof ApiError &&
-    session.error.code === "unauthenticated"
-
   if (session.isPending)
     return (
       <Box
@@ -98,7 +95,7 @@ export function Desk({ view }: { view: DeskView }) {
       </Box>
     )
 
-  if (!session.data)
+  if (!session.data?.user)
     return (
       <Box
         render={<Stack render={<main />} spacing="loose" />}
@@ -106,8 +103,19 @@ export function Desk({ view }: { view: DeskView }) {
         xstyle={styles.login}
       >
         <Heading render={<h1>Publishing desk</h1>} />
-        {unauthorized ? (
-          <Text>Sign in to manage your publishing workspace.</Text>
+        {session.isSuccess && session.data.user === null ? (
+          <>
+            <Text>Sign in to manage your publishing workspace.</Text>
+            <Button
+              render={<a href="/auth/login" aria-label="Sign in with Google" />}
+            >
+              Sign in with Google
+            </Button>
+            <Text tone="muted" size="small">
+              By signing in, you agree to our Terms of Service and acknowledge
+              our Privacy Policy.
+            </Text>
+          </>
         ) : (
           <>
             <Failure error={session.error} />
@@ -120,11 +128,7 @@ export function Desk({ view }: { view: DeskView }) {
             </Button>
           </>
         )}
-        <Button
-          render={<a href="/auth/login" aria-label="Sign in with Google" />}
-        >
-          Sign in with Google
-        </Button>
+        <LegalLinks />
       </Box>
     )
 
@@ -146,7 +150,11 @@ export function Desk({ view }: { view: DeskView }) {
             workspaces={session.data.workspaces}
             selected={workspace}
             onSelect={(id) => {
-              void navigate({ search: { workspace: id }, replace: true })
+              void navigate({
+                to: ".",
+                search: { workspace: id },
+                replace: true,
+              })
             }}
           />
           <Flex
@@ -183,6 +191,7 @@ export function Desk({ view }: { view: DeskView }) {
           >
             Sign out
           </Button>
+          <LegalLinks />
         </Box>
         <Box
           render={<main />}
@@ -190,6 +199,16 @@ export function Desk({ view }: { view: DeskView }) {
           tabIndex={-1}
           padding="responsive"
         >
+          <Failure error={session.error} />
+          {session.isError && (
+            <Button
+              onClick={() => {
+                void session.refetch()
+              }}
+            >
+              Retry
+            </Button>
+          )}
           {workspace ? (
             <WorkspaceView
               key={workspace.id}
@@ -197,6 +216,8 @@ export function Desk({ view }: { view: DeskView }) {
               view={view}
               attempt={search.attempt}
             />
+          ) : view === "settings" ? (
+            <AccountDeletionSettings />
           ) : (
             <Text>Create a workspace to start publishing.</Text>
           )}

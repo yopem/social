@@ -83,6 +83,20 @@ export function mediaMutation(workspaceId: string) {
   })
 }
 
+export function accountDeletionMutation(queryClient: QueryClient) {
+  return mutationOptions({
+    mutationFn: () =>
+      execute(
+        withRpc((client) => client.AccountDelete({ confirmation: "DELETE" })),
+      ),
+    retry: false,
+    onSuccess: () => {
+      queryClient.clear()
+      window.location.assign("/")
+    },
+  })
+}
+
 export function logoutMutation(queryClient: QueryClient) {
   return mutationOptions({
     mutationFn: () => execute(logout()),

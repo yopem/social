@@ -1,6 +1,5 @@
 import * as stylex from "@stylexjs/stylex"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Schema } from "effect"
 import { useState } from "react"
 
 import { Platform, type Workspace } from "rpc/contracts/models"
@@ -73,7 +72,7 @@ export function Channels({
       {attempt && manager && (
         <AccountSelection workspaceId={workspaceId} attemptId={attempt} />
       )}
-      {Schema.Literal(...Platform.literals).literals.map((platform) => {
+      {Platform.literals.map((platform) => {
         const availability = query.data?.platforms.find(
           (item) => item.platform === platform,
         )

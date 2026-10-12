@@ -6,8 +6,8 @@ import { createApplicationWorker } from "server/index"
 
 const start = createStartHandler(defaultStreamHandler)
 
-export default createApplicationWorker({
-  frontend(request) {
-    return Promise.resolve(start(request))
-  },
-})
+export function frontend(request: Request) {
+  return Promise.resolve(start(request))
+}
+
+export default createApplicationWorker({ frontend })

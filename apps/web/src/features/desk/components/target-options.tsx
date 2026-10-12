@@ -1,6 +1,6 @@
 import * as stylex from "@stylexjs/stylex"
 import { useQuery } from "@tanstack/react-query"
-import { Schema } from "effect"
+import { Effect, Schema } from "effect"
 import { useState } from "react"
 
 import type { Channel, Media, PlatformOverride } from "rpc/contracts/models"
@@ -122,30 +122,34 @@ export function TikTokOptions({
       channel.workspaceId,
       "creator",
       (client) =>
-        client.TikTokCreatorInfo({
-          workspaceId: channel.workspaceId,
-          channelId: channel.id,
+        Effect.gen(function* () {
+          const data = yield* client.TikTokCreatorInfo({
+            workspaceId: channel.workspaceId,
+            channelId: channel.id,
+          })
+
+          const creator = yield* Schema.decodeUnknownEffect(
+            Schema.Struct({
+              accountId: Schema.String,
+              backend: Schema.String,
+              fetchedAt: Schema.String,
+              username: Schema.String,
+              nickname: Schema.String,
+              privacyLevels: Schema.Array(Schema.String),
+              commentDisabled: Schema.Boolean,
+              duetDisabled: Schema.Boolean,
+              stitchDisabled: Schema.Boolean,
+              maxVideoDurationSeconds: Schema.Number,
+            }),
+          )(data)
+
+          return { creator, data }
         }),
       channel.id,
     ),
   )
 
-  const creator =
-    query.data &&
-    Schema.decodeUnknownSync(
-      Schema.Struct({
-        accountId: Schema.String,
-        backend: Schema.String,
-        fetchedAt: Schema.String,
-        username: Schema.String,
-        nickname: Schema.String,
-        privacyLevels: Schema.Array(Schema.String),
-        commentDisabled: Schema.Boolean,
-        duetDisabled: Schema.Boolean,
-        stitchDisabled: Schema.Boolean,
-        maxVideoDurationSeconds: Schema.Number,
-      }),
-    )(query.data)
+  const creator = query.data?.creator
 
   const privacyLevels = creator?.privacyLevels ?? []
 
@@ -153,7 +157,7 @@ export function TikTokOptions({
     onChange({
       ...value,
       ...patch,
-      creatorInfo: query.data,
+      creatorInfo: query.data?.data,
       creatorConsent: false,
     })
   }
@@ -280,7 +284,7 @@ export function TikTokOptions({
           onChange({
             ...value,
             creatorConsent,
-            creatorInfo: query.data,
+            creatorInfo: query.data?.data,
           })
         }
       />

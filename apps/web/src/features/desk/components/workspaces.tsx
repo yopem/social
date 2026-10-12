@@ -123,8 +123,8 @@ export function WorkspaceFields({
   const form = useForm({
     defaultValues: initial,
     validators: {
-      onBlur: Schema.standardSchemaV1(WorkspaceForm),
-      onSubmit: Schema.standardSchemaV1(WorkspaceForm),
+      onBlur: Schema.toStandardSchemaV1(WorkspaceForm),
+      onSubmit: Schema.toStandardSchemaV1(WorkspaceForm),
     },
     onSubmit: ({ value }) =>
       mutation.mutate(value, {

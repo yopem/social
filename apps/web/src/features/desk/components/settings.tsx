@@ -28,6 +28,7 @@ import {
   deskStyles,
 } from "@/components/desk-ui"
 import {
+  accountDeletionMutation,
   effectMutation,
   rpcMutation,
   workspaceQuery,
@@ -49,15 +50,101 @@ export function Settings({ workspace }: { workspace: Workspace }) {
         <Box render={<dd />}>{workspace.role}</Box>
       </Box>
       {workspace.role !== "editor" ? (
-        <Members workspaceId={workspace.id} />
+        <Members
+          workspaceId={workspace.id}
+          canTransfer={workspace.role === "owner"}
+        />
       ) : (
         <Text>Only owners and admins can manage workspace members.</Text>
       )}
+      <AccountDeletionSettings />
     </Stack>
   )
 }
 
-export function Members({ workspaceId }: { workspaceId: string }) {
+export function AccountDeletionSettings() {
+  const client = useQueryClient()
+  const deletion = useMutation(accountDeletionMutation(client))
+  const [open, setOpen] = useState(false)
+  const [confirmation, setConfirmation] = useState("")
+
+  return (
+    <Stack render={<section />}>
+      <Heading render={<h2>Delete account</h2>} />
+      <Text>
+        Delete your account, local credentials, and workspaces where you are the
+        only member. Shared workspace data stays for other members. Transfer
+        ownership of all shared workspaces first.
+      </Text>
+      <Text>
+        This does not delete posts on social platforms or revoke provider
+        access. Remove provider access on each platform. Account deletion cannot
+        be undone.
+      </Text>
+      <Dialog
+        open={open}
+        onOpenChange={(value) => {
+          if (!deletion.isPending) {
+            setOpen(value)
+            setConfirmation("")
+          }
+        }}
+      >
+        <DialogTrigger render={<Button variant="outline" />}>
+          Delete account
+        </DialogTrigger>
+        <DialogPopup>
+          <DialogHeader>
+            <DialogTitle>Delete account and data?</DialogTitle>
+          </DialogHeader>
+          <DialogPanel>
+            <Stack>
+              <Text>
+                Your account and sole-member workspace data will be permanently
+                deleted.
+              </Text>
+              <label
+                htmlFor="delete-account-confirmation"
+                {...stylex.props(deskStyles.label)}
+              >
+                Type DELETE to confirm
+                <Input
+                  id="delete-account-confirmation"
+                  value={confirmation}
+                  disabled={deletion.isPending}
+                  onChange={(event) => setConfirmation(event.target.value)}
+                />
+              </label>
+              <Failure error={deletion.error} />
+              <Button
+                disabled={confirmation !== "DELETE" || deletion.isPending}
+                loading={deletion.isPending}
+                onClick={() => deletion.mutate()}
+              >
+                Delete account and data
+              </Button>
+              <Button
+                variant="outline"
+                disabled={deletion.isPending}
+                onClick={() => setOpen(false)}
+              >
+                Cancel
+              </Button>
+            </Stack>
+          </DialogPanel>
+        </DialogPopup>
+      </Dialog>
+    </Stack>
+  )
+}
+
+export function Members({
+  workspaceId,
+  canTransfer,
+}: {
+  workspaceId: string
+  canTransfer: boolean
+}) {
   const client = useQueryClient()
 
   const query = useQuery(
@@ -71,6 +158,18 @@ export function Members({ workspaceId }: { workspaceId: string }) {
       rpc.WorkspaceRemoveMember({ workspaceId, userId }),
     ),
   )
+
+  const transfer = useMutation({
+    ...rpcMutation(client, workspaceId, (rpc, memberId: string) =>
+      rpc.WorkspaceTransfer({ workspaceId, memberId }),
+    ),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["workspace", workspaceId] }),
+        client.invalidateQueries({ queryKey: ["session"] }),
+      ])
+    },
+  })
 
   const [open, setOpen] = useState(false)
 
@@ -88,7 +187,10 @@ export function Members({ workspaceId }: { workspaceId: string }) {
           </DialogPanel>
         </DialogPopup>
       </Dialog>
-      <Failure error={query.error ?? remove.error} />
+      <Failure error={query.error ?? remove.error ?? transfer.error} />
+      {transfer.isSuccess && (
+        <Box render={<output />}>Ownership transferred.</Box>
+      )}
       {query.isPending && <Box render={<output />}>Loading members…</Box>}
       {query.data?.map((member) => (
         <Box key={member.user.id} surface="divided">
@@ -98,20 +200,39 @@ export function Members({ workspaceId }: { workspaceId: string }) {
           {member.role === "owner" ? (
             <Text>Workspace owner cannot be removed.</Text>
           ) : (
-            <Button
-              variant="outline"
-              disabled={remove.isPending}
-              onClick={() => {
-                if (
-                  window.confirm(
-                    `Remove ${member.user.name} from this workspace?`,
+            <>
+              {canTransfer && (
+                <Button
+                  variant="outline"
+                  disabled={transfer.isPending || remove.isPending}
+                  loading={transfer.isPending}
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `Transfer ownership to ${member.user.name}? You will become an admin and lose owner access.`,
+                      )
+                    )
+                      transfer.mutate(member.user.id)
+                  }}
+                >
+                  Transfer ownership
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                disabled={remove.isPending || transfer.isPending}
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Remove ${member.user.name} from this workspace?`,
+                    )
                   )
-                )
-                  remove.mutate(member.user.id)
-              }}
-            >
-              Remove {member.user.name}
-            </Button>
+                    remove.mutate(member.user.id)
+                }}
+              >
+                Remove {member.user.name}
+              </Button>
+            </>
           )}
         </Box>
       ))}
@@ -147,8 +268,8 @@ export function InviteFields({ workspaceId }: { workspaceId: string }) {
   const form = useForm({
     defaultValues: initial,
     validators: {
-      onBlur: Schema.standardSchemaV1(InviteForm),
-      onSubmit: Schema.standardSchemaV1(InviteForm),
+      onBlur: Schema.toStandardSchemaV1(InviteForm),
+      onSubmit: Schema.toStandardSchemaV1(InviteForm),
     },
     onSubmit: ({ value }) => invite.mutate(value),
   })

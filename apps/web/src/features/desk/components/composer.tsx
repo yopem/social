@@ -192,8 +192,8 @@ export function Composer({
   const form = useForm({
     defaultValues: initial,
     validators: {
-      onBlur: Schema.standardSchemaV1(ComposerForm),
-      onSubmit: Schema.standardSchemaV1(ComposerForm),
+      onBlur: Schema.toStandardSchemaV1(ComposerForm),
+      onSubmit: Schema.toStandardSchemaV1(ComposerForm),
     },
     onSubmit: ({ value }) =>
       mutation.mutate({

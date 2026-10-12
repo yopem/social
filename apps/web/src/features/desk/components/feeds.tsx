@@ -208,8 +208,8 @@ export function FeedFields({
   const form = useForm({
     defaultValues: initial,
     validators: {
-      onBlur: Schema.standardSchemaV1(FeedForm),
-      onSubmit: Schema.standardSchemaV1(FeedForm),
+      onBlur: Schema.toStandardSchemaV1(FeedForm),
+      onSubmit: Schema.toStandardSchemaV1(FeedForm),
     },
     onSubmit: ({ value }) => save.mutate(value, { onSuccess: onSaved }),
   })
