@@ -17,6 +17,7 @@ import {
 } from "ui/components/ui/dialog"
 import { Heading } from "ui/components/ui/heading"
 import { Input } from "ui/components/ui/input"
+import { Stack } from "ui/components/ui/stack"
 import { Text } from "ui/components/ui/text"
 
 import {
@@ -35,7 +36,7 @@ import { InviteForm } from "@/features/desk/schema"
 
 export function Settings({ workspace }: { workspace: Workspace }) {
   return (
-    <Box xstyle={deskStyles.stack}>
+    <Stack>
       <PageHeading title="Workspace settings" />
       <Box render={<dl />}>
         <Box render={<dt />}>Name</Box>
@@ -52,7 +53,7 @@ export function Settings({ workspace }: { workspace: Workspace }) {
       ) : (
         <Text>Only owners and admins can manage workspace members.</Text>
       )}
-    </Box>
+    </Stack>
   )
 }
 
@@ -74,7 +75,7 @@ export function Members({ workspaceId }: { workspaceId: string }) {
   const [open, setOpen] = useState(false)
 
   return (
-    <Box render={<section />} xstyle={deskStyles.stack}>
+    <Stack render={<section />}>
       <Heading render={<h2>Members</h2>} />
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger render={<Button />}>Invite member</DialogTrigger>
@@ -90,7 +91,7 @@ export function Members({ workspaceId }: { workspaceId: string }) {
       <Failure error={query.error ?? remove.error} />
       {query.isPending && <Box render={<output />}>Loading members…</Box>}
       {query.data?.map((member) => (
-        <Box key={member.user.id} xstyle={deskStyles.flat}>
+        <Box key={member.user.id} surface="divided">
           <Text>
             {member.user.name} · {member.user.email} · {member.role}
           </Text>
@@ -114,7 +115,7 @@ export function Members({ workspaceId }: { workspaceId: string }) {
           )}
         </Box>
       ))}
-    </Box>
+    </Stack>
   )
 }
 

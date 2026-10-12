@@ -1,7 +1,5 @@
 "use client"
 
-import type { ComponentPropsWithoutRef, RefAttributes } from "react"
-
 import { useRender } from "@base-ui/react/use-render"
 import * as stylex from "@stylexjs/stylex"
 
@@ -13,16 +11,23 @@ const styles = stylex.create({
   root: {
     display: "flex",
     flexDirection: "column",
-    gap: `calc(${tokens["--spacing"]} * 4)`,
+    minInlineSize: 0,
   },
+  tight: { gap: `calc(${tokens["--spacing"]} * 2)` },
+  normal: { gap: `calc(${tokens["--spacing"]} * 4)` },
+  loose: { gap: `calc(${tokens["--spacing"]} * 6)` },
 })
 
-type StackElementProps = ComponentPropsWithoutRef<"div"> &
-  RefAttributes<HTMLDivElement>
-
-export type StackProps = StyleXComponentProps<StackElementProps>
+export type StackProps = StyleXComponentProps<
+  useRender.ComponentProps<"div">,
+  {
+    spacing?: "tight" | "normal" | "loose"
+  }
+>
 
 export function Stack({
+  render,
+  spacing = "normal",
   xstyle: consumerXstyle,
   className,
   ref,
@@ -33,9 +38,13 @@ export function Stack({
 
   return useRender({
     defaultTagName: "div",
+    render,
     props: {
       "data-slot": "stack",
-      ...mergeStylexProps(stylexProps(className, styles.root, xstyle), props),
+      ...mergeStylexProps(
+        stylexProps(className, styles.root, styles[spacing], xstyle),
+        props,
+      ),
     },
     ref,
   })

@@ -15,8 +15,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "ui/components/ui/dialog"
+import { Flex } from "ui/components/ui/flex"
 import { Heading } from "ui/components/ui/heading"
 import { Input } from "ui/components/ui/input"
+import { Stack } from "ui/components/ui/stack"
 import { Text } from "ui/components/ui/text"
 
 import {
@@ -56,7 +58,7 @@ export function Feeds({ workspace }: { workspace: Workspace }) {
   const [editing, setEditing] = useState<Feed>()
 
   return (
-    <Box xstyle={deskStyles.stack}>
+    <Stack>
       <PageHeading title="RSS automation">
         <Dialog
           open={open}
@@ -100,7 +102,7 @@ export function Feeds({ workspace }: { workspace: Workspace }) {
         </Box>
       )}
       {query.data?.map((feed) => (
-        <Box render={<article />} key={feed.id} xstyle={deskStyles.flat}>
+        <Box render={<article />} key={feed.id} surface="divided">
           <Heading
             render={
               <h2>
@@ -128,7 +130,7 @@ export function Feeds({ workspace }: { workspace: Workspace }) {
               })}
             </Text>
           )}
-          <Box xstyle={deskStyles.row}>
+          <Flex spacing="normal" wrap align="center">
             <Button
               variant="outline"
               loading={refresh.isPending && refresh.variables === feed.id}
@@ -159,10 +161,10 @@ export function Feeds({ workspace }: { workspace: Workspace }) {
             >
               Delete feed
             </Button>
-          </Box>
+          </Flex>
         </Box>
       ))}
-    </Box>
+    </Stack>
   )
 }
 

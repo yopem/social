@@ -24,8 +24,10 @@ import {
   DialogTitle,
 } from "ui/components/ui/dialog"
 import { Field, FieldLabel } from "ui/components/ui/field"
+import { Flex } from "ui/components/ui/flex"
 import { Heading } from "ui/components/ui/heading"
 import { Input } from "ui/components/ui/input"
+import { Stack } from "ui/components/ui/stack"
 import { Text } from "ui/components/ui/text"
 import { Textarea } from "ui/components/ui/textarea"
 
@@ -285,7 +287,7 @@ export function Composer({
               <Box render={<output />}>Uploading media…</Box>
             )}
             {media.map((item) => (
-              <Box key={item.id} xstyle={deskStyles.row}>
+              <Flex key={item.id} spacing="normal" wrap align="center">
                 <a href={item.url} target="_blank" rel="noreferrer">
                   {item.name}
                 </a>
@@ -302,7 +304,7 @@ export function Composer({
                 >
                   Remove {item.name}
                 </Button>
-              </Box>
+              </Flex>
             ))}
             {post && post.content.mediaIds.length > 0 && (
               <Text>
@@ -316,7 +318,7 @@ export function Composer({
               .map((channel) => (
                 <form.Field key={channel.id} name="channelIds">
                   {(field) => (
-                    <Box xstyle={deskStyles.stack}>
+                    <Stack>
                       <Check
                         label={channel.displayName}
                         checked={field.state.value.includes(channel.id)}
@@ -368,7 +370,7 @@ export function Composer({
                           )}
                         </form.Field>
                       )}
-                    </Box>
+                    </Stack>
                   )}
                 </form.Field>
               ))}
@@ -393,7 +395,7 @@ export function Composer({
                 onChange={(event) => setScheduled(event.target.value)}
               />
             </label>
-            <Text xstyle={deskStyles.muted}>
+            <Text tone="muted" size="small">
               Publish time uses {workspace.timezone}. Daylight-saving gaps and
               repeated times are rejected.
             </Text>
@@ -402,7 +404,7 @@ export function Composer({
                 <Box
                   render={<section />}
                   aria-label="Post preview"
-                  xstyle={deskStyles.preview}
+                  surface="preview"
                 >
                   <Heading render={<h3>Preview</h3>} />
                   <Text>{value.text || "Media post"}</Text>
@@ -423,7 +425,7 @@ export function Composer({
               {(errors) => <FormErrors errors={errors} />}
             </form.Subscribe>
             <Failure error={mutation.error} />
-            <Box xstyle={deskStyles.row}>
+            <Flex spacing="normal" wrap align="center">
               <Button
                 type="submit"
                 variant="outline"
@@ -455,7 +457,7 @@ export function Composer({
               >
                 Schedule post
               </Button>
-            </Box>
+            </Flex>
             {publishStarted && mutation.error && (
               <Text>
                 Publish outcome may be uncertain. Check uses the same post and

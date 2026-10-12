@@ -6,8 +6,10 @@ import { useState } from "react"
 import { Platform, type Workspace } from "rpc/contracts/models"
 import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
+import { Flex } from "ui/components/ui/flex"
 import { Heading } from "ui/components/ui/heading"
 import { Input } from "ui/components/ui/input"
+import { Stack } from "ui/components/ui/stack"
 import { Text } from "ui/components/ui/text"
 
 import { Check, Failure, PageHeading, deskStyles } from "@/components/desk-ui"
@@ -60,9 +62,9 @@ export function Channels({
   )
 
   return (
-    <Box xstyle={deskStyles.stack}>
+    <Stack>
       <PageHeading title="Channels" />
-      <Text xstyle={deskStyles.muted}>
+      <Text tone="muted" size="small">
         Connect accounts you control. Only selected accounts receive workspace
         access.
       </Text>
@@ -87,7 +89,7 @@ export function Channels({
             render={<section />}
             key={platform}
             aria-label={platformNames[platform]}
-            xstyle={deskStyles.flat}
+            surface="divided"
           >
             <Heading
               render={
@@ -126,7 +128,7 @@ export function Channels({
               </Text>
             )}
             {channels.map((channel) => (
-              <Box key={channel.id} xstyle={deskStyles.row}>
+              <Flex key={channel.id} spacing="normal" wrap align="center">
                 <Text>
                   {channel.displayName} ·{" "}
                   {channel.status === "connected"
@@ -142,7 +144,7 @@ export function Channels({
                     Disconnect {channel.displayName}
                   </Button>
                 )}
-              </Box>
+              </Flex>
             ))}
             {manager && (
               <>
@@ -175,7 +177,7 @@ export function Channels({
           </Box>
         )
       })}
-    </Box>
+    </Stack>
   )
 }
 
@@ -209,7 +211,7 @@ export function AccountSelection({
     <Box
       render={<section />}
       aria-label="Discovered accounts"
-      xstyle={deskStyles.flat}
+      surface="divided"
     >
       <Heading render={<h2>Select accounts</h2>} />
       <Text>

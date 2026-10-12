@@ -8,6 +8,7 @@ import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
 import { Heading } from "ui/components/ui/heading"
 import { Input } from "ui/components/ui/input"
+import { Stack } from "ui/components/ui/stack"
 import { Text } from "ui/components/ui/text"
 
 import { Check, Choice, Failure, deskStyles } from "@/components/desk-ui"
@@ -60,11 +61,7 @@ export function TargetOptions({
     return null
 
   return (
-    <Box
-      render={<section />}
-      aria-label={`${channel.displayName} options`}
-      xstyle={deskStyles.stack}
-    >
+    <Stack render={<section />} aria-label={`${channel.displayName} options`}>
       {channel.platform === "youtube" && (
         <>
           <label
@@ -105,7 +102,7 @@ export function TargetOptions({
             update({ visibility })
         }}
       />
-    </Box>
+    </Stack>
   )
 }
 
@@ -202,11 +199,7 @@ export function TikTokOptions({
   ] as const
 
   return (
-    <Box
-      render={<section />}
-      aria-label="TikTok creator settings"
-      xstyle={deskStyles.stack}
-    >
+    <Stack render={<section />} aria-label="TikTok creator settings">
       <Heading render={<h3>Creator preview</h3>} />
       <Failure error={query.error} />
       {query.isPending && (
@@ -295,6 +288,6 @@ export function TikTokOptions({
         Review the post and creator choices before approval. Changing content
         requires new approval.
       </Text>
-    </Box>
+    </Stack>
   )
 }

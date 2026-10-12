@@ -6,8 +6,10 @@ import { useState } from "react"
 import type { Post, Workspace } from "rpc/contracts/models"
 import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
+import { Flex } from "ui/components/ui/flex"
 import { Heading } from "ui/components/ui/heading"
 import { Input } from "ui/components/ui/input"
+import { Stack } from "ui/components/ui/stack"
 import { Text } from "ui/components/ui/text"
 
 import { Choice, Failure, PageHeading, deskStyles } from "@/components/desk-ui"
@@ -87,7 +89,7 @@ export function Posts({
   )
 
   return (
-    <Box xstyle={deskStyles.stack}>
+    <Stack>
       <PageHeading
         title={Match.value(view).pipe(
           Match.when("drafts", () => "Drafts"),
@@ -97,7 +99,7 @@ export function Posts({
       >
         <Button onClick={() => setCompose(true)}>Create post</Button>
       </PageHeading>
-      <Box xstyle={deskStyles.row}>
+      <Flex spacing="normal" wrap align="center">
         <Choice
           label="Channel filter"
           value={channelId || "all"}
@@ -123,8 +125,8 @@ export function Posts({
         <Button variant="ghost" onClick={() => setDate("")}>
           All dates
         </Button>
-      </Box>
-      <Text xstyle={deskStyles.muted}>
+      </Flex>
+      <Text tone="muted" size="small">
         Workspace timezone: {workspace.timezone}. Review each destination
         outcome separately.
       </Text>
@@ -132,10 +134,8 @@ export function Posts({
       {query.isPending && <Box render={<output />}>Loading posts…</Box>}
       {rows?.length === 0 && <Text>No posts match this view.</Text>}
       {rows?.map((post) => (
-        <Box render={<article />} key={post.id} xstyle={deskStyles.flat}>
-          <Text xstyle={deskStyles.preview}>
-            {post.content.text || "Media post"}
-          </Text>
+        <Box render={<article />} key={post.id} surface="divided">
+          <Text variant="preview">{post.content.text || "Media post"}</Text>
           <Text>
             {post.state === "needs-review"
               ? "Needs review"
@@ -166,7 +166,7 @@ export function Posts({
                       (channel) => channel.id === delivery.channelId,
                     )?.displayName ?? platformNames[delivery.platform]
                   }
-                  xstyle={deskStyles.flat}
+                  surface="divided"
                 >
                   <Heading
                     render={
@@ -193,7 +193,7 @@ export function Posts({
               ))}
             </Box>
           )}
-          <Box xstyle={deskStyles.row}>
+          <Flex spacing="normal" wrap align="center">
             {["draft", "scheduled", "needs-review", "cancelled"].includes(
               post.state,
             ) && (
@@ -228,7 +228,7 @@ export function Posts({
                 Delete draft
               </Button>
             )}
-          </Box>
+          </Flex>
         </Box>
       ))}
       {compose && (
@@ -241,6 +241,6 @@ export function Posts({
           }}
         />
       )}
-    </Box>
+    </Stack>
   )
 }

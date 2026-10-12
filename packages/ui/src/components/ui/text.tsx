@@ -3,13 +3,45 @@
 import type { ComponentProps } from "react"
 
 import { useRender } from "@base-ui/react/use-render"
+import * as stylex from "@stylexjs/stylex"
 
 import type { StyleXComponentProps } from "ui/lib/stylex"
 import { mergeStylexProps, stylexProps } from "ui/lib/stylex"
+import { tokens } from "ui/styles/tokens.stylex"
 
-export type TextProps = StyleXComponentProps<ComponentProps<"p">>
+const styles = stylex.create({
+  muted: { color: tokens["--muted-foreground"] },
+  danger: {
+    color: tokens["--destructive-foreground"],
+    overflowWrap: "anywhere",
+  },
+  small: { fontSize: "0.875rem" },
+  large: { fontSize: "1.125rem" },
+  semibold: { fontWeight: 650 },
+  preview: {
+    padding: `calc(${tokens["--spacing"]} * 4)`,
+    backgroundColor: tokens["--muted"],
+    borderRadius: tokens["--radius-sm"],
+    whiteSpace: "pre-wrap",
+    overflowWrap: "anywhere",
+  },
+})
+
+export type TextProps = StyleXComponentProps<
+  ComponentProps<"p">,
+  {
+    tone?: "muted" | "danger"
+    size?: "small" | "large"
+    weight?: "semibold"
+    variant?: "preview"
+  }
+>
 
 export function Text({
+  tone,
+  size,
+  weight,
+  variant,
   xstyle: consumerXstyle,
   className,
   ref,
@@ -19,7 +51,17 @@ export function Text({
     defaultTagName: "p",
     props: {
       "data-slot": "text",
-      ...mergeStylexProps(stylexProps(className, consumerXstyle), restProps),
+      ...mergeStylexProps(
+        stylexProps(
+          className,
+          tone && styles[tone],
+          size && styles[size],
+          weight && styles[weight],
+          variant && styles[variant],
+          consumerXstyle,
+        ),
+        restProps,
+      ),
     },
     ref,
   })

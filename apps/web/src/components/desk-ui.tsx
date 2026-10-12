@@ -2,8 +2,8 @@ import * as stylex from "@stylexjs/stylex"
 import { Schema } from "effect"
 import { useId, type ReactNode } from "react"
 
-import { Box } from "ui/components/ui/box"
 import { Checkbox } from "ui/components/ui/checkbox"
+import { Flex } from "ui/components/ui/flex"
 import { Heading } from "ui/components/ui/heading"
 import {
   Select,
@@ -12,34 +12,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "ui/components/ui/select"
+import { Stack } from "ui/components/ui/stack"
 import { Text } from "ui/components/ui/text"
-import { tokens } from "ui/styles/tokens.stylex"
 
 import { errorMessage } from "@/features/desk/queries"
 
 export const deskStyles = stylex.create({
   stack: { display: "grid", gap: 16, minWidth: 0 },
-  row: { display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" },
-  flat: {
-    borderBottom: `1px solid ${tokens["--border"]}`,
-    paddingBlock: 20,
-    minWidth: 0,
-    overflowWrap: "anywhere",
-  },
-  muted: { color: tokens["--muted-foreground"], fontSize: 14 },
-  title: { fontSize: 28, fontWeight: 650, letterSpacing: "-0.03em" },
   label: { display: "grid", gap: 8, fontSize: 14, minWidth: 0 },
-  error: {
-    color: tokens["--destructive-foreground"],
-    overflowWrap: "anywhere",
-  },
-  preview: {
-    padding: 16,
-    backgroundColor: tokens["--muted"],
-    borderRadius: 6,
-    whiteSpace: "pre-wrap",
-    overflowWrap: "anywhere",
-  },
   check: { display: "flex", gap: 10, alignItems: "center", minHeight: 44 },
 })
 
@@ -61,7 +41,7 @@ export function Choice({
   const id = useId()
 
   return (
-    <Box xstyle={deskStyles.label}>
+    <Stack spacing="tight">
       <label id={`${id}-label`} htmlFor={id}>
         {label}
       </label>
@@ -85,7 +65,7 @@ export function Choice({
           ))}
         </SelectPopup>
       </Select>
-    </Box>
+    </Stack>
   )
 }
 
@@ -115,7 +95,7 @@ export function Check({
 
 export function Failure({ error }: { error: unknown }) {
   return error ? (
-    <Text role="alert" xstyle={deskStyles.error}>
+    <Text role="alert" tone="danger">
       {errorMessage(
         error instanceof Error
           ? error
@@ -129,7 +109,7 @@ export function FormErrors({ errors }: { errors: readonly unknown[] }) {
   return (
     <>
       {errors.map((error, index) => (
-        <Text role="alert" key={index} xstyle={deskStyles.error}>
+        <Text role="alert" key={index} tone="danger">
           {Schema.is(Schema.String)(error)
             ? error
             : Schema.is(Schema.Struct({ message: Schema.String }))(error)
@@ -149,16 +129,16 @@ export function PageHeading({
   children?: ReactNode
 }) {
   return (
-    <Box render={<header />} xstyle={deskStyles.row}>
+    <Flex render={<header />} spacing="normal" wrap align="center">
       <Heading
         render={
           <h1>
             <>{title}</>
           </h1>
         }
-        xstyle={deskStyles.title}
+        size="title"
       />
       {children}
-    </Box>
+    </Flex>
   )
 }

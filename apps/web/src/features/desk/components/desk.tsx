@@ -1,12 +1,13 @@
 import * as stylex from "@stylexjs/stylex"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
-import { useState } from "react"
 
 import { ApiError, type Workspace } from "rpc/contracts/models"
 import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
+import { Flex } from "ui/components/ui/flex"
 import { Heading } from "ui/components/ui/heading"
+import { Stack } from "ui/components/ui/stack"
 import { Text } from "ui/components/ui/text"
 import { tokens } from "ui/styles/tokens.stylex"
 
@@ -21,29 +22,6 @@ import { Settings } from "./settings"
 import { Workspaces } from "./workspaces"
 
 const styles = stylex.create({
-  shell: {
-    display: "grid",
-    gridTemplateColumns: {
-      default: "228px minmax(0, 1fr)",
-      "@media (max-width: 700px)": "minmax(0, 1fr)",
-    },
-    minHeight: "100vh",
-  },
-  sidebar: {
-    backgroundColor: tokens["--sidebar"],
-    borderRight: `1px solid ${tokens["--border"]}`,
-    padding: 20,
-    display: "flex",
-    flexDirection: "column",
-    gap: 24,
-    minWidth: 0,
-  },
-  brand: { fontWeight: 650, fontSize: 18, letterSpacing: "-0.02em" },
-  nav: {
-    display: { default: "grid", "@media (max-width: 700px)": "flex" },
-    flexWrap: "wrap",
-    gap: 6,
-  },
   link: {
     padding: "10px 12px",
     borderRadius: 6,
@@ -60,10 +38,6 @@ const styles = stylex.create({
       outlineOffset: 2,
     },
   },
-  main: {
-    padding: { default: 36, "@media (max-width: 700px)": 18 },
-    minWidth: 0,
-  },
   skip: {
     position: "fixed",
     top: 8,
@@ -74,16 +48,7 @@ const styles = stylex.create({
     color: tokens["--foreground"],
     transform: { default: "translateY(-200%)", ":focus": "translateY(0)" },
   },
-  login: {
-    maxWidth: 540,
-    margin: "10vh auto",
-    padding: 24,
-    display: "grid",
-    gap: 20,
-  },
-  mobile: {
-    display: { default: "none", "@media (max-width: 700px)": "inline-flex" },
-  },
+  login: { width: "min(540px, 100%)", margin: "10vh auto" },
 })
 
 export type DeskView =
@@ -111,7 +76,6 @@ export function Desk({ view }: { view: DeskView }) {
   const navigate = useNavigate()
   const client = useQueryClient()
   const signOut = useMutation(logoutMutation(client))
-  const [menuOpen, setMenuOpen] = useState(false)
 
   const workspace =
     session.data?.workspaces.find((item) => item.id === search.workspace) ??
@@ -123,7 +87,12 @@ export function Desk({ view }: { view: DeskView }) {
 
   if (session.isPending)
     return (
-      <Box render={<main />} xstyle={styles.login} aria-busy="true">
+      <Box
+        render={<Stack render={<main />} spacing="loose" />}
+        padding="spacious"
+        xstyle={styles.login}
+        aria-busy="true"
+      >
         <Heading render={<h1>Publishing desk</h1>} />
         <Box render={<output />}>Loading your workspace…</Box>
       </Box>
@@ -131,7 +100,11 @@ export function Desk({ view }: { view: DeskView }) {
 
   if (!session.data)
     return (
-      <Box render={<main />} xstyle={styles.login}>
+      <Box
+        render={<Stack render={<main />} spacing="loose" />}
+        padding="spacious"
+        xstyle={styles.login}
+      >
         <Heading render={<h1>Publishing desk</h1>} />
         {unauthorized ? (
           <Text>Sign in to manage your publishing workspace.</Text>
@@ -160,9 +133,15 @@ export function Desk({ view }: { view: DeskView }) {
       <a href="#main-content" {...stylex.props(styles.skip)}>
         Skip to content
       </a>
-      <Box xstyle={styles.shell}>
-        <Box render={<aside />} xstyle={styles.sidebar}>
-          <Text xstyle={styles.brand}>Publishing desk</Text>
+      <Box layout="split">
+        <Box
+          render={<Stack render={<aside />} spacing="loose" />}
+          surface="sidebar"
+          padding="comfortable"
+        >
+          <Text size="large" weight="semibold">
+            Publishing desk
+          </Text>
           <Workspaces
             workspaces={session.data.workspaces}
             selected={workspace}
@@ -170,15 +149,13 @@ export function Desk({ view }: { view: DeskView }) {
               void navigate({ search: { workspace: id }, replace: true })
             }}
           />
-          <Button
-            variant="outline"
-            xstyle={styles.mobile}
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen(!menuOpen)}
+          <Flex
+            render={<nav />}
+            aria-label="Publishing"
+            spacing="tight"
+            wrap
+            direction="responsive"
           >
-            Navigation
-          </Button>
-          <Box render={<nav />} aria-label="Publishing" xstyle={styles.nav}>
             {navigation.map((item) => (
               <Link
                 key={item.to}
@@ -190,7 +167,7 @@ export function Desk({ view }: { view: DeskView }) {
                 {item.label}
               </Link>
             ))}
-          </Box>
+          </Flex>
           <Text>{session.data.user.name}</Text>
           <Failure error={signOut.error} />
           <Button
@@ -211,7 +188,7 @@ export function Desk({ view }: { view: DeskView }) {
           render={<main />}
           id="main-content"
           tabIndex={-1}
-          xstyle={styles.main}
+          padding="responsive"
         >
           {workspace ? (
             <WorkspaceView

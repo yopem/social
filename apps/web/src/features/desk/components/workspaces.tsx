@@ -5,7 +5,6 @@ import { Schema } from "effect"
 import { useState } from "react"
 
 import type { Workspace } from "rpc/contracts/models"
-import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
 import {
   Dialog,
@@ -22,6 +21,7 @@ import {
   SelectPopup,
   SelectTrigger,
 } from "ui/components/ui/select"
+import { Stack } from "ui/components/ui/stack"
 
 import { Choice, Failure, FormErrors, deskStyles } from "@/components/desk-ui"
 import { rpcMutation } from "@/features/desk/queries"
@@ -39,7 +39,7 @@ export function Workspaces({
   const [pickerOpen, setPickerOpen] = useState(false)
 
   return (
-    <Box xstyle={deskStyles.stack}>
+    <Stack>
       {selected && (
         <Select
           value={selected.id}
@@ -68,7 +68,7 @@ export function Workspaces({
         </Select>
       )}
       {!selected && <CreateWorkspace onCreated={onSelect} />}
-    </Box>
+    </Stack>
   )
 }
 
