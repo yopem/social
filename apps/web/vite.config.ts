@@ -14,7 +14,7 @@ const uiSource = fileURLToPath(
 
 const require = createRequire(import.meta.url)
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
   const stylexPlugins = [
     [
       "@stylexjs/babel-plugin",
@@ -42,11 +42,20 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       babel({ plugins: stylexPlugins }),
-      alchemy(),
+      alchemy({
+        config:
+          command === "build"
+            ? {
+                main: fileURLToPath(
+                  new URL("./src/worker.ts", import.meta.url),
+                ),
+              }
+            : undefined,
+      }),
       tanstackStart({ server: { entry: "./src/worker.ts" } }),
       react(),
     ],
-    server: { port: 3000, strictPort: true },
+    server: { port: 3200, strictPort: true },
     resolve: { alias: { "@": source } },
     css: { postcss: { plugins: [postcss] } },
   }

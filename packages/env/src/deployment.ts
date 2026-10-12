@@ -32,18 +32,18 @@ export class InfrastructureError extends Schema.TaggedError<InfrastructureError>
 ) {}
 
 export function deploymentPassword() {
-  return Config.redacted("ALCHEMY_PASSWORD")
+  return Config.Redacted("ALCHEMY_PASSWORD")
 }
 
-const ResourceName = Schema.String.pipe(
-  Schema.pattern(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/),
-  Schema.minLength(3),
-  Schema.maxLength(63),
+const ResourceName = Schema.String.check(
+  Schema.isPattern(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/),
+  Schema.isMinLength(3),
+  Schema.isMaxLength(63),
 )
 
 export function deploymentConfig(local: boolean, stage: string) {
   return Effect.gen(function* () {
-    const testMode = yield* Config.string("SOCIAL_E2E").pipe(
+    const testMode = yield* Config.String("SOCIAL_E2E").pipe(
       Config.withDefault("0"),
     )
 
@@ -57,41 +57,52 @@ export function deploymentConfig(local: boolean, stage: string) {
         new InfrastructureError({ operation: "E2E entry requires local mode" }),
       )
 
+    const applyFlag = yield* Config.String("SOCIAL_APPLY_MIGRATIONS").pipe(
+      Config.withDefault("0"),
+    )
+
+    if (applyFlag !== "0" && applyFlag !== "1")
+      return yield* Effect.fail(
+        new InfrastructureError({
+          operation: "Invalid SOCIAL_APPLY_MIGRATIONS flag",
+        }),
+      )
+
     const required = yield* Config.all({
       APP_ORIGIN: local
-        ? Config.string("APP_ORIGIN").pipe(
-            Config.withDefault("http://localhost:3000"),
+        ? Config.String("APP_ORIGIN").pipe(
+            Config.withDefault("http://localhost:3200"),
           )
-        : Config.string("APP_ORIGIN"),
+        : Config.String("APP_ORIGIN"),
       AUTH_CALLBACK_URL: local
-        ? Config.string("AUTH_CALLBACK_URL").pipe(
-            Config.withDefault("http://localhost:3000/auth/callback"),
+        ? Config.String("AUTH_CALLBACK_URL").pipe(
+            Config.withDefault("http://localhost:3200/auth/callback"),
           )
-        : Config.string("AUTH_CALLBACK_URL"),
-      AUTH_CLIENT_ID: Config.string("AUTH_CLIENT_ID").pipe(
+        : Config.String("AUTH_CALLBACK_URL"),
+      AUTH_CLIENT_ID: Config.String("AUTH_CLIENT_ID").pipe(
         Config.withDefault("yopem"),
       ),
-      SECRET_ENCRYPTION_KEY: Config.string("SECRET_ENCRYPTION_KEY"),
+      SECRET_ENCRYPTION_KEY: Config.String("SECRET_ENCRYPTION_KEY"),
     })
 
     const optional: Partial<Record<(typeof optionalNames)[number], string>> = {}
 
     for (const name of optionalNames) {
-      const value = yield* Config.option(Config.string(name))
+      const value = yield* Config.option(Config.String(name))
 
       if (Option.isSome(value) && value.value !== "")
         optional[name] = value.value
     }
 
     const names = yield* Config.all({
-      db: Config.string("DB_NAME"),
-      media: Config.string("R2_BUCKET_NAME"),
-      jobs: Config.string("QUEUE_NAME"),
-      failedJobs: Config.string("DLQ_NAME"),
-      worker: Config.string("WORKER_NAME"),
+      db: Config.String("DB_NAME"),
+      media: Config.String("R2_BUCKET_NAME"),
+      jobs: Config.String("QUEUE_NAME"),
+      failedJobs: Config.String("DLQ_NAME"),
+      worker: Config.String("WORKER_NAME"),
     })
 
-    const physicalNames = yield* Schema.decodeUnknown(
+    const physicalNames = yield* Schema.decodeUnknownEffect(
       Schema.Struct({
         db: ResourceName,
         media: ResourceName,
@@ -110,6 +121,11 @@ export function deploymentConfig(local: boolean, stage: string) {
     const scalars = { ...required, ...optional }
     yield* loadConfig(scalars)
 
-    return { scalars, physicalNames, testMode: testMode === "1" }
+    return {
+      scalars,
+      physicalNames,
+      testMode: testMode === "1",
+      applyMigrations: local || applyFlag === "1",
+    }
   })
 }

@@ -1,4 +1,9 @@
-import type { D1Database, Queue, R2Bucket } from "@cloudflare/workers-types"
+import type {
+  D1Database,
+  Fetcher,
+  Queue,
+  R2Bucket,
+} from "@cloudflare/workers-types"
 
 import {
   Config,
@@ -12,7 +17,7 @@ import {
 
 import { ApiError } from "rpc/contracts/models"
 
-export const JobMessage = Schema.Union(
+export const JobMessage = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("publish"),
     workspaceId: Schema.String,
@@ -25,8 +30,8 @@ export const JobMessage = Schema.Union(
     feedId: Schema.String,
     cursor: Schema.optional(
       Schema.Struct({
-        snapshotId: Schema.String.pipe(Schema.pattern(/^[a-f0-9-]{36}$/)),
-        offset: Schema.Int.pipe(Schema.greaterThanOrEqualTo(0)),
+        snapshotId: Schema.String.check(Schema.isPattern(/^[a-f0-9-]{36}$/)),
+        offset: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
         revision: Schema.String,
       }),
     ),
@@ -36,11 +41,12 @@ export const JobMessage = Schema.Union(
     workspaceId: Schema.String,
     postId: Schema.String,
   }),
-)
+])
 
 export type JobMessage = typeof JobMessage.Type
 
 export interface ResourceBindings {
+  readonly ASSETS?: Fetcher
   readonly DB: D1Database
   readonly MEDIA: R2Bucket
   readonly JOBS: Queue<JobMessage>
@@ -62,6 +68,8 @@ const optionalNames = [
   "LINKEDIN_API_VERSION",
   "FACEBOOK_CLIENT_ID",
   "FACEBOOK_CLIENT_SECRET",
+  "FACEBOOK_WEBHOOK_VERIFY_TOKEN",
+  "YOUTUBE_WEBHOOK_SECRET",
   "BLUESKY_CLIENT_ID",
 ] as const
 
@@ -75,7 +83,8 @@ export type WorkerBindings = ResourceBindings &
       | "AUTH_CALLBACK_URL"
       | "SECRET_ENCRYPTION_KEY"
       | "META_API_VERSION"
-      | "TIKTOK_VERIFIED_MEDIA_ORIGINS",
+      | "TIKTOK_VERIFIED_MEDIA_ORIGINS"
+      | "YOUTUBE_WEBHOOK_TOPICS",
       string
     >
   >
@@ -87,8 +96,8 @@ export const AppConfigSchema = Schema.Struct({
   AUTH_ISSUER: Schema.Literal("https://auth.yopem.com"),
   AUTH_CLIENT_ID: Schema.NonEmptyString,
   AUTH_CALLBACK_URL: Schema.String,
-  SECRET_ENCRYPTION_KEY: Schema.String.pipe(
-    Schema.pattern(/^[A-Za-z0-9+/]{43}=$/),
+  SECRET_ENCRYPTION_KEY: Schema.String.check(
+    Schema.isPattern(/^[A-Za-z0-9+/]{43}=$/),
   ),
   X_CLIENT_ID: OptionalSecret,
   X_CLIENT_SECRET: OptionalSecret,
@@ -105,6 +114,9 @@ export const AppConfigSchema = Schema.Struct({
   LINKEDIN_API_VERSION: OptionalSecret,
   FACEBOOK_CLIENT_ID: OptionalSecret,
   FACEBOOK_CLIENT_SECRET: OptionalSecret,
+  FACEBOOK_WEBHOOK_VERIFY_TOKEN: OptionalSecret,
+  YOUTUBE_WEBHOOK_SECRET: OptionalSecret,
+  YOUTUBE_WEBHOOK_TOPICS: Schema.Array(Schema.String),
   BLUESKY_CLIENT_ID: OptionalSecret,
   META_API_VERSION: Schema.NonEmptyString,
   TIKTOK_VERIFIED_MEDIA_ORIGINS: Schema.Array(Schema.String),
@@ -112,15 +124,14 @@ export const AppConfigSchema = Schema.Struct({
 
 export type AppConfig = typeof AppConfigSchema.Type
 
-export class ConfigService extends Context.Tag("social/ConfigService")<
-  ConfigService,
-  AppConfig
->() {}
+export class ConfigService extends Context.Service<ConfigService, AppConfig>()(
+  "social/ConfigService",
+) {}
 
-export class WorkerResources extends Context.Tag("social/WorkerResources")<
+export class WorkerResources extends Context.Service<
   WorkerResources,
   ResourceBindings
->() {}
+>()("social/WorkerResources") {}
 
 export function loadConfig(
   bindings: Omit<WorkerBindings, keyof ResourceBindings>,
@@ -130,21 +141,21 @@ export function loadConfig(
 
     for (const [key, value] of Object.entries(bindings))
       if (Predicate.isString(value) && value !== "") scalars.set(key, value)
-    const provider = ConfigProvider.fromMap(scalars)
+    const provider = ConfigProvider.fromEnvRecord(Object.fromEntries(scalars))
 
     const values = yield* Config.all({
-      APP_ORIGIN: Config.string("APP_ORIGIN"),
-      AUTH_ISSUER: Config.string("AUTH_ISSUER").pipe(
+      APP_ORIGIN: Config.String("APP_ORIGIN"),
+      AUTH_ISSUER: Config.String("AUTH_ISSUER").pipe(
         Config.withDefault("https://auth.yopem.com"),
       ),
-      AUTH_CLIENT_ID: Config.string("AUTH_CLIENT_ID").pipe(
+      AUTH_CLIENT_ID: Config.String("AUTH_CLIENT_ID").pipe(
         Config.withDefault("yopem"),
       ),
-      SECRET_ENCRYPTION_KEY: Config.string("SECRET_ENCRYPTION_KEY"),
-      META_API_VERSION: Config.string("META_API_VERSION").pipe(
+      SECRET_ENCRYPTION_KEY: Config.String("SECRET_ENCRYPTION_KEY"),
+      META_API_VERSION: Config.String("META_API_VERSION").pipe(
         Config.withDefault("v25.0"),
       ),
-    }).pipe(Effect.withConfigProvider(provider))
+    }).pipe(Effect.provideService(ConfigProvider.ConfigProvider, provider))
 
     const origin = yield* Effect.try({
       try: () => new URL(values.APP_ORIGIN),
@@ -211,11 +222,45 @@ export function loadConfig(
         )
     }
 
-    return yield* Schema.decodeUnknown(AppConfigSchema)({
+    const topics = (bindings.YOUTUBE_WEBHOOK_TOPICS ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+
+    for (const value of topics) {
+      const topic = yield* Effect.try({
+        try: () => new URL(value),
+        catch: () =>
+          new ApiError({
+            code: "not-configured",
+            message: "Invalid YouTube webhook topic",
+          }),
+      })
+
+      if (
+        topic.protocol !== "https:" ||
+        topic.hostname !== "www.youtube.com" ||
+        topic.pathname !== "/xml/feeds/videos.xml" ||
+        !topic.searchParams.get("channel_id") ||
+        topic.username ||
+        topic.password ||
+        topic.hash ||
+        topic.port
+      )
+        return yield* Effect.fail(
+          new ApiError({
+            code: "not-configured",
+            message: "Use a YouTube channel feed webhook topic",
+          }),
+        )
+    }
+
+    return yield* Schema.decodeUnknownEffect(AppConfigSchema)({
       ...values,
       ...optional,
       AUTH_CALLBACK_URL: callback,
       TIKTOK_VERIFIED_MEDIA_ORIGINS: origins,
+      YOUTUBE_WEBHOOK_TOPICS: topics,
     })
   }).pipe(
     Effect.mapError(
