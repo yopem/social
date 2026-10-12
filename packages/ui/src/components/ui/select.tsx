@@ -13,6 +13,7 @@ import {
   ChevronUpIcon,
 } from "lucide-react"
 
+import { Box } from "ui/components/ui/box"
 import type { StyleXComponentProps } from "ui/lib/stylex"
 import {
   isCallback,
@@ -323,7 +324,13 @@ export function SelectButton({
   const defaultProps = {
     children: (
       <>
-        <span {...stylex.props(styles.buttonValue)}>{children}</span>
+        <Box
+          render={<span />}
+          xstyle={styles.buttonValue}
+          data-slot={undefined}
+        >
+          {children}
+        </Box>
         <ChevronsUpDownIcon className={selectTriggerIconClassName} />
       </>
     ),
@@ -451,7 +458,7 @@ export function SelectPopup({
           >
             <ChevronUpIcon {...stylex.props(styles.arrowIcon)} />
           </SelectPrimitive.ScrollUpArrow>
-          <div {...stylex.props(styles.popupSurface)}>
+          <Box xstyle={styles.popupSurface} data-slot={undefined}>
             <SelectPrimitive.List
               {...stylexProps(
                 isString(className) ? className : undefined,
@@ -461,7 +468,7 @@ export function SelectPopup({
             >
               {children}
             </SelectPrimitive.List>
-          </div>
+          </Box>
           <SelectPrimitive.ScrollDownArrow
             {...stylex.props(styles.scrollArrow, styles.scrollDown)}
             data-slot="select-scroll-down-arrow"

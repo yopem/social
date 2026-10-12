@@ -2,6 +2,7 @@
 
 import type { ComponentPropsWithoutRef, RefAttributes } from "react"
 
+import { useRender } from "@base-ui/react/use-render"
 import * as stylex from "@stylexjs/stylex"
 
 import type { StyleXComponentProps } from "ui/lib/stylex"
@@ -25,11 +26,12 @@ export function Flex({
   const props = restProps
   const xstyle = consumerXstyle
 
-  return (
-    <div
-      data-slot="flex"
-      {...mergeStylexProps(stylexProps(className, styles.root, xstyle), props)}
-      ref={ref}
-    />
-  )
+  return useRender({
+    defaultTagName: "div",
+    props: {
+      "data-slot": "flex",
+      ...mergeStylexProps(stylexProps(className, styles.root, xstyle), props),
+    },
+    ref,
+  })
 }

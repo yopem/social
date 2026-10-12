@@ -6,9 +6,10 @@ import { Field as FieldPrimitive } from "@base-ui/react/field"
 import { mergeProps } from "@base-ui/react/merge-props"
 import * as stylex from "@stylexjs/stylex"
 
+import { Box } from "ui/components/ui/box"
 import type { StyleXComponentProps } from "ui/lib/stylex"
 import type { StyleXProps } from "ui/lib/stylex"
-import { isString, stylexProps } from "ui/lib/stylex"
+import { isString } from "ui/lib/stylex"
 import { themeMarker, tokens } from "ui/styles/tokens.stylex"
 
 const styles = stylex.create({
@@ -102,12 +103,10 @@ export function Textarea({
   const wrapperClassName = isString(className) ? className : undefined
 
   return (
-    <span
-      {...stylexProps(
-        wrapperClassName,
-        !unstyled && styles.control,
-        controlXstyle,
-      )}
+    <Box
+      render={<span />}
+      className={wrapperClassName}
+      xstyle={[!unstyled && styles.control, controlXstyle]}
       data-size={size}
       data-slot="textarea-control"
     >
@@ -128,7 +127,7 @@ export function Textarea({
           />
         }
       />
-    </span>
+    </Box>
   )
 }
 

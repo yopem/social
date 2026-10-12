@@ -2,6 +2,7 @@
 
 import type { ComponentPropsWithoutRef, RefAttributes } from "react"
 
+import { useRender } from "@base-ui/react/use-render"
 import * as stylex from "@stylexjs/stylex"
 
 import type { StyleXComponentProps } from "ui/lib/stylex"
@@ -30,11 +31,12 @@ export function Stack({
   const props = restProps
   const xstyle = consumerXstyle
 
-  return (
-    <div
-      data-slot="stack"
-      {...mergeStylexProps(stylexProps(className, styles.root, xstyle), props)}
-      ref={ref}
-    />
-  )
+  return useRender({
+    defaultTagName: "div",
+    props: {
+      "data-slot": "stack",
+      ...mergeStylexProps(stylexProps(className, styles.root, xstyle), props),
+    },
+    ref,
+  })
 }

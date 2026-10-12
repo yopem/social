@@ -6,6 +6,7 @@ import { Input as InputPrimitive } from "@base-ui/react/input"
 import * as stylex from "@stylexjs/stylex"
 import { clsx } from "clsx"
 
+import { Box } from "ui/components/ui/box"
 import type { StyleXComponentProps } from "ui/lib/stylex"
 import type { StyleXProps } from "ui/lib/stylex"
 import { isCallback, isNumber, isString, stylexProps } from "ui/lib/stylex"
@@ -227,13 +228,14 @@ export function Input({
   const wrapperClassName = isString(className) ? className : undefined
 
   return (
-    <span
-      {...stylexProps(
-        wrapperClassName,
+    <Box
+      render={<span />}
+      className={wrapperClassName}
+      xstyle={[
         !unstyled && styles.control,
         unstyled && styles.groupControl,
         controlXstyle,
-      )}
+      ]}
       data-size={size}
       data-slot="input-control"
     >
@@ -255,7 +257,7 @@ export function Input({
           {...props}
         />
       )}
-    </span>
+    </Box>
   )
 }
 
