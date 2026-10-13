@@ -36,8 +36,13 @@ Use `http://localhost:3200` for the local app and its callback origin. Keep
 platform credentials empty until you have approved developer access. Missing
 credentials show setup requirements, not simulated publication.
 
+For normal local sign-in, use a private `.env.local` with the app settings
+and `SOCIAL_E2E=0`. Keep its encryption key and Alchemy password stable. Use
+the `development` stage to keep local resources separate from test resources.
+Do not use `.env.e2e` for real sign-in.
+
 ```sh
-pnpm exec vp run dev
+pnpm exec vp run dev --stage development --env-file .env.local
 ```
 
 The live sign-in flow uses the configured external issuer at

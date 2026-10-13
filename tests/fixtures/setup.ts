@@ -10,11 +10,14 @@ export default function setup() {
     Effect.gen(function* () {
       const response = yield* Effect.tryPromise({
         try: () =>
-          fetch("http://localhost:3000/__fixtures/migrate", { method: "POST" }),
+          fetch("http://localhost:3200/__fixtures/ready", {
+            method: "GET",
+            headers: { Origin: "http://localhost:3200" },
+          }),
         catch: () =>
           new FixtureSetupError({
             message:
-              "Start isolated Alchemy local Worker with SOCIAL_E2E=1 on http://localhost:3000 before E2E tests.",
+              "Start isolated Alchemy local Worker with SOCIAL_E2E=1 on http://localhost:3200 before E2E tests.",
           }),
       })
 
@@ -25,18 +28,20 @@ export default function setup() {
         return yield* Effect.fail(
           new FixtureSetupError({
             message:
-              "Local fixture migration failed. Production Worker must not expose fixture routes.",
+              "Local fixture database is not ready. Apply Alchemy migrations before tests. Production Worker must not expose fixture routes.",
           }),
         )
 
       const result = yield* Effect.tryPromise({
         try: () => response.json(),
         catch: () =>
-          new FixtureSetupError({ message: "Invalid migration response" }),
+          new FixtureSetupError({
+            message: "Invalid fixture readiness response",
+          }),
       })
 
-      yield* Schema.decodeUnknown(
-        Schema.Struct({ migrated: Schema.Literal(true) }),
+      yield* Schema.decodeUnknownEffect(
+        Schema.Struct({ ready: Schema.Literal(true) }),
       )(result)
     }),
   )

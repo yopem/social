@@ -4,6 +4,8 @@ import { expect, test } from "@playwright/test"
 import { Effect, Schema } from "effect"
 import { createHmac } from "node:crypto"
 
+import { Channel } from "rpc/contracts/models"
+
 import { check, effectTest, responseJson, step } from "./effect"
 
 function signIn(request: APIRequestContext) {
@@ -155,17 +157,35 @@ effectTest(
 
       yield* check(() => expect(connected.ok()).toBeTruthy())
 
+      const seeded = yield* responseJson(
+        connected,
+        Schema.Struct({ channels: Schema.Tuple([Channel]) }),
+      )
+
+      const [channel] = seeded.channels
+
+      const inboxSchema = Schema.Struct({
+        processed: Schema.Number,
+        quarantined: Schema.Number,
+      })
+
+      const baselineResponse = yield* step(() =>
+        request.get("/__fixtures/inbox"),
+      )
+
+      const baseline = yield* responseJson(baselineResponse, inboxSchema)
+
       const body = JSON.stringify({
         object: "page",
         entry: [
           {
-            id: "fixture-facebook",
+            id: channel.accountId,
             time: 1791820800,
             changes: [
               {
                 field: "feed",
                 value: {
-                  post_id: "fixture-facebook_post",
+                  post_id: `${channel.accountId}_post`,
                   item: "post",
                   verb: "add",
                 },
@@ -210,13 +230,13 @@ effectTest(
         object: "page",
         entry: [
           {
-            id: "unknown-account",
+            id: `${channel.accountId}-unknown`,
             time: 1791820800,
             changes: [
               {
                 field: "feed",
                 value: {
-                  post_id: "unknown-account_post",
+                  post_id: `${channel.accountId}-unknown_post`,
                   item: "post",
                   verb: "add",
                 },
@@ -240,13 +260,13 @@ effectTest(
       yield* check(() => expect(unmapped.ok()).toBeTruthy())
       const state = yield* step(() => request.get("/__fixtures/inbox"))
 
-      const inbox = yield* responseJson(
-        state,
-        Schema.Struct({ processed: Schema.Number, quarantined: Schema.Number }),
-      )
+      const inbox = yield* responseJson(state, inboxSchema)
 
       yield* check(() =>
-        expect(inbox).toEqual({ processed: 1, quarantined: 1 }),
+        expect(inbox).toEqual({
+          processed: baseline.processed + 1,
+          quarantined: baseline.quarantined + 1,
+        }),
       )
     }),
 )
@@ -274,7 +294,7 @@ effectTest("logout removes both app session cookies", ({ request }) =>
     yield* signIn(request)
 
     const origin = new URL(
-      test.info().project.use.baseURL ?? "http://localhost:3000",
+      test.info().project.use.baseURL ?? "http://localhost:3200",
     ).origin
 
     const response = yield* step(() =>

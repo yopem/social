@@ -169,6 +169,9 @@ overrides:
   '@stylexjs/babel-plugin': 0.19.1
   '@stylexjs/postcss-plugin': 0.19.1
 
+patchedDependencies:
+  miniflare@5.20261006.1-alpha: 5fa3b006c63bff3e8a0f85365c25f82b3f4cf4af365ca4b5f3568be9bb89d792
+
 importers:
 
   .:
@@ -5028,7 +5031,7 @@ snapshots:
   '@cloudflare/vite-plugin@1.63.1(@types/node@24.10.1)(@voidzero-dev/vite-plus-core@1.1.0(@types/node@24.10.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(wrangler@4.149.0(@cloudflare/workers-types@5.20261012.1)(@types/node@24.10.1))':
     dependencies:
       '@cloudflare/unenv-preset': 2.16.2(unenv@2.0.0-rc.24)(workerd@1.20261006.1)
-      miniflare: 5.20261006.1-alpha(@types/node@24.10.1)
+      miniflare: 5.20261006.1-alpha(patch_hash=5fa3b006c63bff3e8a0f85365c25f82b3f4cf4af365ca4b5f3568be9bb89d792)(@types/node@24.10.1)
       unenv: 2.0.0-rc.24
       vite: '@voidzero-dev/vite-plus-core@1.1.0(@types/node@24.10.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1)'
       workerd: 1.20261006.1
@@ -7568,7 +7571,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  miniflare@5.20261006.1-alpha(@types/node@24.10.1):
+  miniflare@5.20261006.1-alpha(patch_hash=5fa3b006c63bff3e8a0f85365c25f82b3f4cf4af365ca4b5f3568be9bb89d792)(@types/node@24.10.1):
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
       sharp: 0.35.5(@types/node@24.10.1)
@@ -8329,7 +8332,7 @@ snapshots:
       '@cloudflare/unenv-preset': 2.16.2(unenv@2.0.0-rc.24)(workerd@1.20261006.1)
       blake3-wasm: 2.1.5
       esbuild: 0.28.2
-      miniflare: 5.20261006.1-alpha(@types/node@24.10.1)
+      miniflare: 5.20261006.1-alpha(patch_hash=5fa3b006c63bff3e8a0f85365c25f82b3f4cf4af365ca4b5f3568be9bb89d792)(@types/node@24.10.1)
       path-to-regexp: 6.3.0
       unenv: 2.0.0-rc.24
       workerd: 1.20261006.1

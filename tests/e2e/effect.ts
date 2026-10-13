@@ -28,12 +28,12 @@ export function check(run: () => void) {
   })
 }
 
-export function responseJson<A, I>(
+export function responseJson<A>(
   response: APIResponse,
-  schema: Schema.Schema<A, I>,
+  schema: Schema.ConstraintDecoder<A>,
 ) {
   return step(() => response.json()).pipe(
-    Effect.flatMap(Schema.decodeUnknown(schema)),
+    Effect.flatMap(Schema.decodeUnknownEffect(schema)),
     Effect.mapError(
       () => new E2EFailure({ message: "Response failed schema validation." }),
     ),
@@ -46,7 +46,7 @@ export function effectTest(
     fixtures: Pick<PlaywrightTestArgs, "page" | "request">,
   ) => Effect.Effect<void, E2EFailure>,
 ) {
-  test(title, ({ page, request }) =>
-    Effect.runPromise(scenario({ page, request })),
+  test(title, ({ page }) =>
+    Effect.runPromise(scenario({ page, request: page.request })),
   )
 }

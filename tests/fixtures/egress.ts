@@ -1,5 +1,5 @@
-import { HttpClientRequest, HttpClientResponse } from "@effect/platform"
 import { Effect, Layer } from "effect"
+import { HttpClientRequest, HttpClientResponse } from "effect/http"
 import { Egress, publicUrl } from "server/lib/egress"
 
 import { fixtureError } from "./auth"

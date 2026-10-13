@@ -13,6 +13,17 @@ function signIn(page: Page, identity = "owner") {
 
     yield* check(() => expect(response.ok()).toBeTruthy())
     yield* step(() => page.goto("/"))
+
+    if (identity === "editor") {
+      yield* step(() =>
+        page.getByRole("button", { name: /^Workspace:/ }).click(),
+      )
+      yield* step(() =>
+        page
+          .getByRole("option", { name: "Shared Editor Workspace", exact: true })
+          .click(),
+      )
+    }
   })
 }
 
@@ -236,6 +247,44 @@ effectTest("editors cannot manage members or social connections", ({ page }) =>
       ).toHaveCount(0),
     )
   }),
+)
+
+effectTest(
+  "editors publish through owner-connected shared accounts",
+  ({ page }) =>
+    Effect.gen(function* () {
+      yield* signIn(page, "editor")
+
+      const seeded = yield* step(() =>
+        page.request.post("/__fixtures/channels", {
+          data: { scenario: "editor-shared-account" },
+        }),
+      )
+
+      yield* check(() => expect(seeded.ok()).toBeTruthy())
+      yield* step(() => page.reload())
+      yield* step(() =>
+        page.getByRole("button", { name: "Create post", exact: true }).click(),
+      )
+      yield* step(() =>
+        page
+          .getByRole("textbox", { name: "Post text" })
+          .fill("Shared account, current editor permission."),
+      )
+      yield* step(() =>
+        page.getByRole("checkbox", { name: "Alex on X" }).check(),
+      )
+      yield* step(() =>
+        page.getByRole("button", { name: "Publish now", exact: true }).click(),
+      )
+      yield* step(() =>
+        expect(
+          page
+            .getByRole("region", { name: "Delivery results" })
+            .getByText("Published", { exact: true }),
+        ).toBeVisible(),
+      )
+    }),
 )
 
 effectTest(

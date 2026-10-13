@@ -41,6 +41,12 @@ effectTest(
           page.getByText("Creator preview", { exact: true }),
         ).toBeVisible(),
       )
+      yield* step(() =>
+        expect(
+          page.getByText(/Maximum video duration: \d+ seconds\./),
+        ).toBeVisible(),
+      )
+      yield* step(() => expect(page.getByRole("alert")).toHaveCount(0))
       yield* Effect.forEach(
         [
           "Privacy level",

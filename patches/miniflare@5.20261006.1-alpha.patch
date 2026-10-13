@@ -1,0 +1,14 @@
+diff --git a/dist/src/index.js b/dist/src/index.js
+index 2f887776e3d0ce9bbe4e39ed5ce94291077bef54..1b145b43a530b6de80c5aedffc1561b93df10eeb 100644
+--- a/dist/src/index.js
++++ b/dist/src/index.js
+@@ -90381,7 +90381,8 @@ var DispatchFetchDispatcher = class extends undici.Dispatcher {
+       this.addHeaders(headers, path84);
+       options.headers = headers;
+       options.idempotent = false;
+-      options.reset = false;
++      // Close local request sockets before workerd can reset a reused socket.
++      options.reset = true;
+       return this.runtimeDispatcher.dispatch(options, handler);
+     } else {
+       return this.globalDispatcher.dispatch(options, handler);

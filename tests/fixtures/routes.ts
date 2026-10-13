@@ -3,19 +3,64 @@ import { drainSocialInbox, socialWebhook } from "server/handlers/webhooks"
 import { JobService } from "server/jobs/handler"
 
 import { AuthSession } from "auth/services/session"
-import initial from "db/migrations/0001_initial.sql?raw"
-import social from "db/migrations/0002_social.sql?raw"
 import { CoreDb } from "db/services/core"
+import { DeletionDb } from "db/services/deletion"
 import {
   fixtureDatabaseStats,
-  migrateLocalFixtures,
+  verifyLocalFixtureDatabase,
 } from "db/services/migrations"
+import { SocialDb } from "db/services/social"
 import type { AppConfig } from "env/server"
 import { WorkerResources } from "env/server"
 
 import { fixtureError, fixtureJson, fixtureSignIn } from "./auth"
 import { fixtureConnections } from "./connections"
+import {
+  deletionLegacyOtherFixture,
+  deletionFixtureSetup,
+  deletionFixtureVerify,
+  deletionRemoteFixture,
+} from "./deletion"
+import { deletionGateFixture } from "./deletion-gate"
+import { deletionInvitationRace } from "./deletion-race"
+import { ownershipFixtureGuards } from "./ownership"
+import { reconciliationFixture } from "./reconciliation"
+import { retentionFixtureCleanup, retentionFixtureSetup } from "./retention"
 import { ChannelScenario } from "./social"
+
+function drainFixtureInbox() {
+  return drainSocialInbox((event, workspaceId) =>
+    Effect.gen(function* () {
+      const core = yield* CoreDb
+      const jobs = yield* JobService
+      const channels = yield* core.listChannels(workspaceId)
+
+      const affected = new Set(
+        channels
+          .filter(
+            (channel) =>
+              channel.platform === event.provider &&
+              event.accountIds.includes(channel.accountId),
+          )
+          .map((channel) => channel.id),
+      )
+
+      const pending = yield* core.listPosts(workspaceId, "queue")
+      yield* Effect.forEach(
+        pending.filter(
+          (post) =>
+            post.state === "pending" &&
+            post.deliveries.some((delivery) =>
+              affected.has(delivery.channelId),
+            ),
+        ),
+        (post) =>
+          jobs.handle({ type: "reconcile", workspaceId, postId: post.id }),
+        { concurrency: 1, discard: true },
+      )
+    }),
+  )
+}
 
 export function fixtureRequest(request: Request, config: AppConfig) {
   return Effect.gen(function* () {
@@ -23,17 +68,14 @@ export function fixtureRequest(request: Request, config: AppConfig) {
 
     if (!path.startsWith("/__fixtures/")) return null
 
-    if (config.APP_ORIGIN !== "http://localhost:3000")
+    if (config.APP_ORIGIN !== "http://localhost:3200")
       return yield* Effect.fail(fixtureError("Fixture origin denied"))
     const resources = yield* WorkerResources
 
-    if (path === "/__fixtures/migrate" && request.method === "POST") {
-      yield* migrateLocalFixtures(resources.DB, config.APP_ORIGIN, [
-        initial,
-        social,
-      ])
+    if (path === "/__fixtures/ready" && request.method === "GET") {
+      yield* verifyLocalFixtureDatabase(resources.DB, config.APP_ORIGIN)
 
-      return Response.json({ migrated: true })
+      return Response.json({ ready: true })
     }
 
     if (path === "/__fixtures/session" && request.method === "POST")
@@ -45,42 +87,40 @@ export function fixtureRequest(request: Request, config: AppConfig) {
         { ...config, FACEBOOK_CLIENT_SECRET: "isolated-e2e-webhook-key" },
       )
 
-      yield* drainSocialInbox((event, workspaceId) =>
-        Effect.gen(function* () {
-          const core = yield* CoreDb
-          const jobs = yield* JobService
-          const channels = yield* core.listChannels(workspaceId)
-
-          const affected = new Set(
-            channels
-              .filter(
-                (channel) =>
-                  channel.platform === event.provider &&
-                  event.accountIds.includes(channel.accountId),
-              )
-              .map((channel) => channel.id),
-          )
-
-          const pending = yield* core.listPosts(workspaceId, "queue")
-          yield* Effect.forEach(
-            pending.filter(
-              (post) =>
-                post.state === "pending" &&
-                post.deliveries.some((delivery) =>
-                  affected.has(delivery.channelId),
-                ),
-            ),
-            (post) =>
-              jobs.handle({ type: "reconcile", workspaceId, postId: post.id }),
-            { concurrency: 1, discard: true },
-          )
-        }),
-      )
+      yield* drainFixtureInbox()
 
       return response
     }
 
+    if (
+      [
+        "/__fixtures/deletion/verify",
+        "/__fixtures/deletion/unchanged",
+      ].includes(path) &&
+      request.method === "POST"
+    )
+      return yield* deletionFixtureVerify(request, config)
+
+    if (
+      path === "/__fixtures/deletion/legacy-other-retained" &&
+      request.method === "POST"
+    )
+      return yield* deletionLegacyOtherFixture(request, config)
     const auth = yield* AuthSession
+
+    if (path === "/__fixtures/auth-fault" && request.method === "POST") {
+      const { fault } = yield* fixtureJson(
+        request,
+        Schema.Struct({ fault: Schema.Literals(["upstream", "storage"]) }),
+      )
+
+      const headers = new Headers(request.headers)
+      headers.set("x-fixture-auth-fault", fault)
+      yield* auth.authenticate(new Request(request.url, { headers }))
+
+      return yield* fixtureError("Authentication fault was not raised")
+    }
+
     const session = yield* auth.authenticate(request)
 
     if (!session.user) return new Response(null, { status: 401 })
@@ -96,7 +136,84 @@ export function fixtureRequest(request: Request, config: AppConfig) {
       return yield* Effect.fail(fixtureError("Fixture workspace missing"))
     const userId = session.user.id
     const workspaceId = workspace.id
+
+    if (
+      [
+        "/__fixtures/deletion/remote",
+        "/__fixtures/deletion/remote-unchanged",
+        "/__fixtures/deletion/remote-resolve",
+      ].includes(path) &&
+      request.method === "POST"
+    )
+      return yield* deletionRemoteFixture(
+        request,
+        config,
+        session.user,
+        workspaceId,
+      )
+
+    if (
+      path === "/__fixtures/deletion/legacy-other" &&
+      request.method === "POST"
+    )
+      return yield* deletionLegacyOtherFixture(request, config, session.user)
+
+    if (path === "/__fixtures/retention/setup" && request.method === "POST")
+      return yield* retentionFixtureSetup(request, userId, workspaceId)
+
+    if (path === "/__fixtures/retention/cleanup" && request.method === "POST")
+      return yield* retentionFixtureCleanup(request, userId, workspaceId)
+
+    if (path === "/__fixtures/ownership/guards" && request.method === "POST")
+      return yield* ownershipFixtureGuards(config, session.user)
+
+    if (path === "/__fixtures/reconciliation" && request.method === "POST")
+      return yield* reconciliationFixture(request, userId, workspaceId)
     const connections = yield* fixtureConnections()
+
+    if (
+      [
+        "/__fixtures/deletion/hold",
+        "/__fixtures/deletion/release",
+        "/__fixtures/deletion/recover",
+        "/__fixtures/deletion/status",
+      ].includes(path) &&
+      request.method === "POST"
+    )
+      return yield* deletionGateFixture(request, userId, workspaceId)
+
+    if (
+      path === "/__fixtures/deletion/race-invite" &&
+      request.method === "POST"
+    )
+      return yield* deletionInvitationRace(config, session.user, workspaceId)
+
+    if (path === "/__fixtures/deletion/freeze" && request.method === "POST") {
+      const deletion = yield* DeletionDb
+      yield* deletion.begin(userId)
+
+      return Response.json({ fenced: true })
+    }
+
+    if (path === "/__fixtures/deletion/legacy" && request.method === "POST") {
+      const social = yield* SocialDb
+      yield* social.claimIdempotency(
+        JSON.stringify(["credential-ready", "posts.publish"]),
+        `deletion-fixture:${userId}`,
+        "fixture",
+        [],
+      )
+
+      return Response.json({ legacy: true })
+    }
+
+    if (path === "/__fixtures/deletion/setup" && request.method === "POST")
+      return yield* deletionFixtureSetup(
+        request,
+        config,
+        session.user,
+        workspaceId,
+      )
 
     if (path === "/__fixtures/channels" && request.method === "POST") {
       const { scenario } = yield* fixtureJson(request, ChannelScenario)
@@ -142,18 +259,19 @@ export function fixtureRequest(request: Request, config: AppConfig) {
           displayName,
         )
 
-        yield* connections.discover(
+        const discovered = yield* connections.discover(
           connectingUser,
           workspaceId,
           started.attempt.id,
           started.attempt.state,
           displayName,
         )
+
         yield* connections.select(
           connectingUser,
           workspaceId,
           started.attempt.id,
-          [`fixture-${platform}`],
+          discovered.map((account) => account.ref.accountId),
         )
       }
 
@@ -266,6 +384,8 @@ export function fixtureRequest(request: Request, config: AppConfig) {
       })
     }
 
+    if (path === "/__fixtures/inbox" && request.method === "GET")
+      yield* drainFixtureInbox()
     const stats = yield* fixtureDatabaseStats(resources.DB, workspaceId)
 
     if (path === "/__fixtures/grants")

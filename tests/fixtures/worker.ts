@@ -1,4 +1,5 @@
 import { createApplicationWorker } from "server/index"
+import { frontend } from "web/worker"
 
 import { fixtureAuthLayer } from "./auth"
 import { fixtureEgressLayer } from "./egress"
@@ -14,4 +15,5 @@ export default createApplicationWorker({
     }
   },
   fixtureRequest,
+  frontend,
 })

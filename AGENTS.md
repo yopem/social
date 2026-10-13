@@ -46,9 +46,11 @@
 - **Production runtime:** Cloudflare Workers (`workerd`), not a Node.js server.
   Enable `nodejs_compat` only when a dependency needs supported Node.js APIs.
 - **Language:** TypeScript with `@yopem/typescript-config`.
-- **Application foundation:** Effect from https://effect.website. Use Effect
-  for domain logic, typed errors, services, dependency injection, concurrency,
-  retries, timeouts, resource management, logging, and tracing.
+- **Application foundation:** Effect v4 or the latest release with a major
+  version of 4 or higher from https://effect.website. Never use Effect v3 or
+  earlier. Use Effect for domain logic, typed errors, services, dependency
+  injection, concurrency, retries, timeouts, resource management, logging,
+  and tracing.
 - **Frontend:** React 19, TanStack Start, TanStack Router, TanStack Query, and
   TanStack Form (`@tanstack/react-form`). Use TanStack Table and TanStack Virtual
   only when needed. Keep these frontend tools; Effect does not replace React,
@@ -61,10 +63,11 @@
   `@yopem/oxlint-config` for shared lint policy.
 - **Backend and client contract:** Effect RPC with Effect Schema. Use Effect
   HTTP APIs for transport and non-RPC handlers. Do not use Hono or Hono RPC.
-- **Database:** Cloudflare D1 (SQLite) through Drizzle ORM's D1 driver.
-  Define tables with Drizzle. Use Drizzle Kit for migrations and Drizzle Studio
-  for local database inspection. Keep Effect Schema for domain input, stored
-  row, and output validation.
+- **Database:** Cloudflare D1 (SQLite) through Drizzle ORM's D1 adapter.
+  Use Drizzle ORM for all database queries, mutations, batches, seeds, and
+  maintenance operations. Use Effect Schema to validate operation inputs,
+  stored rows, and outputs at data-access boundaries. Use Drizzle Kit for
+  migration generation and Drizzle Studio for database inspection.
 - **Authentication, when needed:** OpenAuth from https://openauth.js.org with
   the existing external issuer at `https://auth.yopem.com`. Use its client behind
   Effect services. Preserve the application's session contract; do not deploy
@@ -94,11 +97,30 @@ Cloudflare build plugins. Node.js is not the deployed HTTP server. Do not use
 Bun or Bun-specific APIs. Select a Node.js-compatible `@yopem-ui/cli` release.
 
 Pin compatible Effect, Drizzle ORM, Drizzle Kit, and Alchemy versions. Read
-documentation for the pinned versions before selecting APIs. Do not mix Effect
-major versions or package imports from different releases. Use an Effect Schema
-integration that supports the pinned Effect release. Do not upgrade Effect to
-another major version only to add Drizzle. Use the Node.js platform adapter only
-in local scripts; keep it out of Worker and browser bundles.
+documentation for the pinned versions before selecting APIs. Use the Node.js
+platform adapter only in local scripts; keep it out of Worker and browser
+bundles.
+
+## Effect version policy
+
+- Before setup or an upgrade, check the official Effect release information
+  and package registry. Select the latest release with a major version of 4
+  or higher. If v4 is available only as a prerelease, use the latest v4
+  prerelease. Do not assume the registry's `latest` tag points to v4 or higher.
+- Pin the selected version. Keep all Effect packages and integrations compatible
+  with that release. Do not mix Effect major versions or imports from different
+  releases.
+- Never install, recommend, or write code for Effect v3 or earlier. This rule
+  applies to dependencies, imports, APIs, examples, tests, and generated code.
+- Read official documentation and migration guidance for the selected release
+  before writing code. Do not copy v3 APIs or package paths from old tutorials,
+  search results, or model memory. Verify each API and import against that
+  release.
+- If an existing project uses Effect v3 or earlier, report the conflict and
+  obtain approval for migration before writing Effect code. Do not extend the
+  old implementation or silently downgrade to satisfy an integration.
+- If a required integration does not support v4 or higher, report the blocker.
+  Do not use v3 or earlier as a fallback.
 
 ## Repository layout
 
@@ -156,12 +178,18 @@ required empty files. Do not create unused packages or optional folders:
 │           └── scripts/           optional local maintenance scripts
 ├── packages/
 │   ├── db/
-│   │   ├── package.json           database dependencies and source exports
+│   │   ├── package.json           Drizzle dependencies, migration/Studio tasks
 │   │   ├── tsconfig.json          shared base preset
+│   │   ├── drizzle.config.ts      Drizzle Kit and Studio configuration
 │   │   └── src/
-│   │       ├── schema/            Drizzle tables and Effect row schemas
-│   │       ├── services/          Drizzle queries and Effect Layers
-│   │       └── migrations/        Drizzle Kit SQL and migration metadata
+│   │       ├── schema/            Drizzle tables and Effect Schema contracts
+│   │       │   └── <domain>.ts    tables, indexes, constraints, and validation
+│   │       ├── services/          all runtime database access
+│   │       │   ├── client.ts      Drizzle D1 client and Effect Layer
+│   │       │   └── <domain>.ts    queries, mutations, and atomic batches
+│   │       └── migrations/        reviewed Drizzle Kit migration output
+│   │           ├── <migration>.sql versioned schema or data migration
+│   │           └── meta/          generated metadata when emitted by Kit
 │   ├── auth/                      OpenAuth client and session support
 │   │   ├── package.json           server-only client and subject exports
 │   │   ├── tsconfig.json
@@ -235,23 +263,16 @@ apps/web → packages/rpc contracts/client → apps/server handlers
 - The web Worker's server-only entrypoint imports the backend handlers to build
   one application. Keep this import out of client bundles.
 - All database access lives in `packages/db/src/services/`.
-- Keep Drizzle tables and Effect row schemas in `packages/db/src/schema/`,
-  data access in `src/services/`, and Drizzle Kit migration output in
-  `src/migrations/`. Keep the Drizzle Kit config in `packages/db`.
-- Use Drizzle ORM for database queries. Wrap its Promise APIs with
-  `Effect.tryPromise` in data-access services. Map failures to typed errors.
+- Keep Drizzle table definitions and their Effect input, row, and output
+  schemas together in `packages/db/src/schema/<domain>.ts`. Do not create
+  separate table and validation folders. Keep data access in `src/services/`
+  and Drizzle-generated SQL migrations and metadata in `src/migrations/`.
 - Define domain schemas with Effect Schema and infer domain types from them.
-  Derive stored-row schemas from Drizzle tables where the compatible Effect
-  integration supports them. Validate D1 results at the data-access boundary.
-  Do not add `drizzle-zod`, Zod, or another runtime schema library.
-- Keep Drizzle imports, database clients, and SQL inside `packages/db`.
-  Browser code and RPC contracts must not import Drizzle table definitions.
-- Generate schema migrations with Drizzle Kit. Preserve applied migration
-  history. Use reviewed custom SQL migrations for triggers or operations that
-  Drizzle cannot describe. Do not apply remote migrations without approval.
-- Keep Drizzle Studio local by default. Use a confirmed local D1 SQLite file or
-  an isolated development database. Do not open production data in Studio
-  without explicit approval. Keep Studio credentials and local paths out of git.
+  Use Drizzle's inferred types for database operations. Validate operation
+  inputs before execution and decode selected or returned rows with Effect
+  Schema before they leave the data-access service. Validate mutation values
+  even when the operation returns no rows. Model database failures as typed
+  Effect errors. Do not use `drizzle-zod` or a second validation library.
 - Reuse the project's ID helper when present. Otherwise, use a platform API
   that meets the required ID format; do not add a helper package in advance.
 - Keep handlers thin: authentication, validation, authorization, and service
@@ -261,8 +282,9 @@ apps/web → packages/rpc contracts/client → apps/server handlers
 - Put shared RPC contracts in `packages/rpc`. Contracts must not import server
   handlers, secret configuration, or Cloudflare resource instances.
 - Store project-specific import restrictions and package overrides in the
-  Vite+ `lint` block. Limit Drizzle and D1 data-access imports to the database
-  module. Shared lint rules come from `@yopem/oxlint-config`.
+  Vite+ `lint` block. Limit Drizzle ORM and D1 data-access imports to the database
+  module. Keep Drizzle Kit and Studio in local tooling, not Worker or browser
+  bundles. Shared lint rules come from `@yopem/oxlint-config`.
 - Do not create barrel files that only re-export modules. Import concrete
   modules through package subpaths.
 - An `index.ts` is allowed when it contains real assembly or initialization
@@ -445,13 +467,34 @@ For a backend organized under `apps/server/src`, use:
 
 ## Cloudflare data and job rules
 
-- D1 uses SQLite semantics, not PostgreSQL semantics. Use Drizzle's
-  parameterized queries and versioned Drizzle Kit migrations. Keep migrations
-  separate from request handling.
-- Check Drizzle's D1 driver capabilities for the pinned release. Do not assume
-  it supports interactive SQL transactions or streaming queries. Use its D1
-  batch support for atomic writes. Use parameterized Drizzle SQL only when a
-  query needs SQLite features that its query builder cannot express.
+- D1 uses SQLite semantics, not PostgreSQL semantics. Use Drizzle ORM's D1
+  adapter for every runtime database operation, including queries, inserts,
+  updates, deletes, batches, seeds, and maintenance scripts. Wrap asynchronous
+  execution in Effect services with typed errors. Do not bypass Drizzle with
+  direct D1 queries or add an Effect SQL client as a second data-access path.
+- Use Drizzle query builders and parameterized `sql` expressions when a query
+  needs custom SQL. Never concatenate untrusted values into SQL. Validate
+  inputs and returned data with Effect Schema, including custom SQL results.
+- Check the pinned Drizzle D1 adapter's capabilities. Do not assume it supports
+  interactive SQL transactions or streaming queries. Use Drizzle's D1 batch
+  API for supported atomic writes; do not emulate transactions with separate
+  requests.
+- Use Drizzle table definitions as the database structure source of truth.
+  Generate versioned SQL migrations with Drizzle Kit. Review generated SQL and
+  keep its migration metadata with the SQL files. Use custom Drizzle migrations
+  when schema changes or data backfills need SQL that cannot be generated.
+  Effect Schema validates application data; it does not define SQL migrations.
+- Apply those migration files through the pinned Alchemy D1 integration's
+  supported migration path as an explicit release step. Do not add a second
+  migration history or use schema push against shared or production databases.
+  Validate seed and backfill data with Effect Schema before database writes.
+- Configure Drizzle Kit and Drizzle Studio in `packages/db/drizzle.config.ts`.
+  Use Studio for database inspection. Default to local or isolated development
+  databases. Confirm the target before connecting to a remote database or
+  changing data. Studio edits bypass application validation; do not use them
+  instead of validated application operations or reviewed migrations.
+  Keep Studio credentials in untracked, server-only local configuration and
+  never expose Studio publicly.
 - Use Durable Objects when operations need coordinated state. Do not use KV for
   permissions, locks, counters, or state that requires immediate consistency.
 - HTTP caches are not durable storage. Separate public and private responses;

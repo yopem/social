@@ -15,8 +15,8 @@ export default defineConfig({
     ["json", { outputFile: "test-results/results.json" }],
   ],
   use: {
-    baseURL: "http://localhost:3000",
-    extraHTTPHeaders: { Origin: "http://localhost:3000" },
+    baseURL: "http://localhost:3200",
+    extraHTTPHeaders: { Origin: "http://localhost:3200" },
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },

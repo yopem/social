@@ -46,7 +46,10 @@ export function fixtureConnections() {
         complete(input) {
           return stores.bridge(
             Effect.gen(function* () {
-              const accountId = `fixture-${platform}`
+              const accountId =
+                platform === "facebook"
+                  ? `fixture-facebook:${input.attempt.tenantId}`
+                  : `fixture-${platform}`
 
               const ciphertext = yield* cipher.encrypt(
                 JSON.stringify({ accessToken: "isolated-fixture-token" }),
@@ -84,7 +87,7 @@ export function fixtureConnections() {
       displayName = "Alex on X",
     ) {
       return core.workspaceAccess(userId, workspaceId, true).pipe(
-        Effect.zipRight(
+        Effect.andThen(
           fixtureSdk(() =>
             manager.begin({
               backend: `fixture:${scenario}:${workspaceId}:${platform}`,
@@ -140,7 +143,7 @@ export function fixtureConnections() {
       accountIds: readonly string[],
     ) {
       return core.workspaceAccess(userId, workspaceId, true).pipe(
-        Effect.zipRight(
+        Effect.andThen(
           fixtureSdk(() =>
             manager.select({
               attemptId: id,

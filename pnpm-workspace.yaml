@@ -18,3 +18,5 @@ allowBuilds:
   "@parcel/watcher": false
   msgpackr-extract: false
   sharp: false
+patchedDependencies:
+  miniflare@5.20261006.1-alpha: patches/miniflare@5.20261006.1-alpha.patch

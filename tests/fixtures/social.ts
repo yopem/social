@@ -8,8 +8,12 @@ import { connectedAccountRef, createSocial } from "@opencoredev/social-sdk"
 import { mockBackend } from "@opencoredev/social-sdk/testing"
 import { tiktok } from "@opencoredev/social-sdk/tiktok"
 import { Effect, Layer, Schema } from "effect"
-import { credentialKey, OutcomeSchema } from "server/lib/sdk-stores"
-import { SocialService } from "server/services/social"
+import {
+  credentialKey,
+  OutcomeSchema,
+  makeSdkStores,
+} from "server/lib/sdk-stores"
+import { SocialService, reconcileOutcomes } from "server/services/social"
 
 import { CredentialCrypto } from "auth/services/crypto"
 import { CredentialSchema } from "db/schema/social"
@@ -18,13 +22,13 @@ import { SocialDb } from "db/services/social"
 import type { AppConfig } from "env/server"
 import { JsonObject } from "rpc/contracts/json"
 import type { Channel, Delivery, Media, Post } from "rpc/contracts/models"
-import { Analytics, Platform } from "rpc/contracts/models"
+import { ApiError, Analytics, Platform } from "rpc/contracts/models"
 import { DiscoveredAccount } from "rpc/contracts/models"
 
 import { fixtureError } from "./auth"
 import { fixtureConnections, fixtureRedirect, fixtureSdk } from "./connections"
 
-const Scenario = Schema.Literal(
+const Scenario = Schema.Literals([
   "mixed",
   "success",
   "video-required",
@@ -32,12 +36,14 @@ const Scenario = Schema.Literal(
   "unknown",
   "facebook",
   "editor-shared-account",
-)
+])
 
 export const ChannelScenario = Schema.Struct({ scenario: Scenario })
 
 function scenarioFor(channel: Channel) {
-  return Schema.decodeUnknown(Scenario)(channel.backend.split(":")[1]).pipe(
+  return Schema.decodeUnknownEffect(Scenario)(
+    channel.backend.split(":")[1],
+  ).pipe(
     Effect.mapError(() => fixtureError("Invalid fixture channel scenario")),
   )
 }
@@ -76,7 +82,9 @@ export function fixtureSocialLayer(_config: AppConfig) {
 
           const credential = yield* cipher.decrypt(stored.ciphertext).pipe(
             Effect.flatMap(
-              Schema.decodeUnknown(Schema.parseJson(CredentialSchema)),
+              Schema.decodeUnknownEffect(
+                Schema.fromJsonString(CredentialSchema),
+              ),
             ),
             Effect.mapError(() => fixtureError("Invalid fixture credential")),
           )
@@ -136,7 +144,7 @@ export function fixtureSocialLayer(_config: AppConfig) {
               retryBudget: { maxAttempts: 1, maxElapsedMs: 10000 },
             }),
           ).pipe(
-            Effect.flatMap(Schema.decodeUnknown(JsonObject)),
+            Effect.flatMap(Schema.decodeUnknownEffect(JsonObject)),
             Effect.mapError(() =>
               fixtureError("Invalid fixture creator information"),
             ),
@@ -183,6 +191,11 @@ export function fixtureSocialLayer(_config: AppConfig) {
         operation: string,
       ) {
         return Effect.gen(function* () {
+          const scopedStores = yield* makeSdkStores({
+            tenantId: workspaceId,
+            principalId: userId,
+          })
+
           const backends: Record<string, SocialAdapter<unknown>> = {}
 
           for (const channel of channels) {
@@ -229,7 +242,6 @@ export function fixtureSocialLayer(_config: AppConfig) {
               return yield* Effect.fail(
                 fixtureError("Fixture platform validation missing"),
               )
-
             const workflowId = `${workspaceId}:${post.id}:${channel.id}`
             backends[channel.backend] = {
               ...mock,
@@ -245,6 +257,7 @@ export function fixtureSocialLayer(_config: AppConfig) {
                         workflowId,
                         "fixture-dispatch",
                         "{}",
+                        { tenantId: workspaceId, principalId: userId },
                       )
 
                       const outcome = yield* fixtureSdk(() =>
@@ -263,10 +276,21 @@ export function fixtureSocialLayer(_config: AppConfig) {
                 getDelivery(ref) {
                   return connections.stores.bridge(
                     Effect.gen(function* () {
+                      if (
+                        (yield* db.workflow(`${workflowId}:lookup`)) ===
+                        "outage"
+                      )
+                        return yield* Effect.fail(
+                          new ApiError({
+                            code: "upstream-failure",
+                            message:
+                              "Fixture provider lookup temporarily unavailable",
+                          }),
+                        )
                       const saved = yield* db.workflow(workflowId)
 
-                      const outcome = yield* Schema.decodeUnknown(
-                        Schema.parseJson(OutcomeSchema),
+                      const outcome = yield* Schema.decodeUnknownEffect(
+                        Schema.fromJsonString(OutcomeSchema),
                       )(saved).pipe(
                         Effect.mapError(() =>
                           fixtureError("Fixture delivery missing"),
@@ -294,8 +318,8 @@ export function fixtureSocialLayer(_config: AppConfig) {
           return {
             client: createSocial({
               backends,
-              authorization: connections.stores.authorization,
-              idempotencyStore: connections.stores.idempotency,
+              authorization: scopedStores.authorization,
+              idempotencyStore: scopedStores.idempotency,
             }),
           }
         })
@@ -423,14 +447,14 @@ export function fixtureSocialLayer(_config: AppConfig) {
                   ),
                 )
 
-              const settings = yield* Schema.decodeUnknown(
+              const settings = yield* Schema.decodeUnknownEffect(
                 Schema.Struct({
-                  privacyLevel: Schema.Literal(
+                  privacyLevel: Schema.Literals([
                     "SELF_ONLY",
                     "MUTUAL_FOLLOW_FRIENDS",
                     "FOLLOWER_OF_CREATOR",
                     "PUBLIC_TO_EVERYONE",
-                  ),
+                  ]),
                   creatorInfo: JsonObject,
                   disableComment: Schema.Boolean,
                   disableDuet: Schema.Boolean,
@@ -528,7 +552,9 @@ export function fixtureSocialLayer(_config: AppConfig) {
               url.searchParams.get("state") ?? "",
             )
 
-            return yield* Schema.decodeUnknown(Schema.Array(DiscoveredAccount))(
+            return yield* Schema.decodeUnknownEffect(
+              Schema.Array(DiscoveredAccount),
+            )(
               accounts.map((account) => ({
                 accountId: account.ref.accountId,
                 platform: account.ref.platform,
@@ -559,7 +585,9 @@ export function fixtureSocialLayer(_config: AppConfig) {
               connections.stores.connections.getDiscoveredAccounts(id),
             )
 
-            return yield* Schema.decodeUnknown(Schema.Array(DiscoveredAccount))(
+            return yield* Schema.decodeUnknownEffect(
+              Schema.Array(DiscoveredAccount),
+            )(
               (accounts ?? []).map((account) => ({
                 accountId: account.ref.accountId,
                 platform: account.ref.platform,
@@ -580,7 +608,7 @@ export function fixtureSocialLayer(_config: AppConfig) {
         ) {
           return connections
             .select(userId, workspaceId, id, ids)
-            .pipe(Effect.zipRight(core.listChannels(workspaceId)))
+            .pipe(Effect.andThen(core.listChannels(workspaceId)))
         },
         disconnect(userId: string, workspaceId: string, id: string) {
           return Effect.gen(function* () {
@@ -640,7 +668,7 @@ export function fixtureSocialLayer(_config: AppConfig) {
             const channels = yield* core.listChannels(workspaceId)
             const posts = yield* core.listPosts(workspaceId, "sent")
 
-            return yield* Schema.decodeUnknown(Analytics)({
+            return yield* Schema.decodeUnknownEffect(Analytics)({
               channels: channels.map((channel) => ({
                 channelId: channel.id,
                 platform: channel.platform,
@@ -685,44 +713,13 @@ export function fixtureSocialLayer(_config: AppConfig) {
               "posts.read",
             )
 
-            const outcomes: DeliveryOutcome[] = []
-
-            for (const delivery of post.deliveries) {
-              if (
-                !delivery.providerPostId ||
-                !["unknown", "processing", "accepted"].includes(delivery.state)
-              )
-                continue
-
-              const channel = channels.find(
-                (value) => value.id === delivery.channelId,
-              )
-
-              if (!channel)
-                return yield* Effect.fail(
-                  fixtureError("Fixture delivery channel missing"),
-                )
-              outcomes.push(
-                yield* fixtureSdk(() =>
-                  client.posts.getDelivery(
-                    {
-                      kind: "delivery",
-                      version: 1,
-                      backend: channel.backend,
-                      platform: channel.platform,
-                      accountId: channel.accountId,
-                      deliveryId: delivery.providerPostId ?? "",
-                    },
-                    {
-                      authorization: {
-                        tenantId: workspaceId,
-                        principalId: userId,
-                      },
-                    },
-                  ),
-                ),
-              )
-            }
+            const outcomes = yield* reconcileOutcomes(
+              userId,
+              workspaceId,
+              post,
+              channels,
+              client,
+            )
 
             const updated = yield* saveOutcomes(post, channels, outcomes)
 
