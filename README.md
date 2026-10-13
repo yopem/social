@@ -1,8 +1,10 @@
 # Yopem Social
 
 A workspace-based social publishing app. It supports drafts, media uploads,
-scheduled posts, delivery results, RSS automation, and available platform
-analytics.
+scheduled posts, a workspace-timezone calendar, delivery history, RSS
+automation, and available platform analytics. Members can join workspaces
+through invitation links. Post views use filtered pagination, and saved drafts
+retain editable media attachments.
 
 The app uses direct Social SDK adapters for X, Threads, Bluesky, YouTube,
 TikTok, Instagram, and LinkedIn. A direct Meta Graph API adapter supports

@@ -60,7 +60,9 @@ effectTest(
         ],
         (label) =>
           step(() =>
-            expect(page.getByLabel(label, { exact: true })).toHaveValue(""),
+            expect(
+              page.getByRole("combobox", { name: label, exact: true }),
+            ).toHaveText("Choose…"),
           ),
         { concurrency: 1, discard: true },
       )

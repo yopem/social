@@ -290,6 +290,18 @@ apps/web → packages/rpc contracts/client → apps/server handlers
 - An `index.ts` is allowed when it contains real assembly or initialization
   logic, such as handler composition, service Layers, or environment parsing.
 
+## Learning more about Effect
+
+This repository uses the Effect TypeScript library.
+
+- Before you write Effect code, read `node_modules/effect/AGENTS.md` in full.
+  Follow its links when needed.
+- If that guide does not cover an API or concept, inspect the pinned source in
+  `node_modules/effect/src`.
+- Use Effect for domain logic and service boundaries. Keep React and TanStack
+  responsible for UI, routing, forms, and query state.
+- Keep Drizzle as the database access path. Do not add Effect SQL.
+
 ## Effect application patterns
 
 - Keep Effect success, error, and dependency types precise. Let inference work

@@ -2,7 +2,7 @@ import * as stylex from "@stylexjs/stylex"
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Match, Schema } from "effect"
-import { useState } from "react"
+import { useRef, useState } from "react"
 
 import type { Feed, Workspace } from "rpc/contracts/models"
 import { Box } from "ui/components/ui/box"
@@ -15,6 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "ui/components/ui/dialog"
+import { Field, FieldError } from "ui/components/ui/field"
 import { Flex } from "ui/components/ui/flex"
 import { Heading } from "ui/components/ui/heading"
 import { Input } from "ui/components/ui/input"
@@ -92,6 +93,13 @@ export function Feeds({ workspace }: { workspace: Workspace }) {
         permissions, or platform choices hold items for review.
       </Text>
       <Failure error={query.error ?? refresh.error ?? remove.error} />
+      <Button
+        variant="outline"
+        disabled={query.isFetching}
+        onClick={() => void query.refetch()}
+      >
+        {query.isError ? "Retry feeds" : "Refresh feeds"}
+      </Button>
       {query.isPending && <Box render={<output />}>Loading feeds…</Box>}
       {query.data?.length === 0 && (
         <Text>Add a feed to import articles into this workspace.</Text>
@@ -195,6 +203,8 @@ export function FeedFields({
     ),
   )
 
+  const customName = useRef(Boolean(feed))
+
   const initial: typeof FeedForm.Type = {
     url: feed?.url ?? "",
     name: feed?.name ?? "",
@@ -225,54 +235,87 @@ export function FeedFields({
     >
       <form.Field name="url">
         {(field) => (
-          <label htmlFor="feeds-field-1" {...stylex.props(deskStyles.label)}>
-            Feed URL
-            <Input
-              id="feeds-field-1"
-              type="url"
-              value={field.state.value}
-              onBlur={field.handleBlur}
-              onChange={(event) => {
-                field.handleChange(event.target.value)
+          <Field
+            invalid={field.state.meta.errors.length > 0}
+            touched={field.state.meta.isTouched}
+          >
+            <label htmlFor="feeds-field-1" {...stylex.props(deskStyles.label)}>
+              Feed URL
+              <Input
+                id="feeds-field-1"
+                type="url"
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={(event) => {
+                  field.handleChange(event.target.value)
 
-                if (URL.canParse(event.target.value))
-                  form.setFieldValue(
-                    "name",
-                    new URL(event.target.value).hostname,
-                  )
-              }}
-            />
-          </label>
+                  if (!customName.current && URL.canParse(event.target.value))
+                    form.setFieldValue(
+                      "name",
+                      new URL(event.target.value).hostname,
+                    )
+                }}
+              />
+            </label>
+            {field.state.meta.errors.length > 0 && (
+              <FieldError match>
+                <FormErrors errors={field.state.meta.errors} />
+              </FieldError>
+            )}
+          </Field>
         )}
       </form.Field>
       <form.Field name="name">
         {(field) => (
-          <label htmlFor="feeds-field-2" {...stylex.props(deskStyles.label)}>
-            Feed name
-            <Input
-              id="feeds-field-2"
-              value={field.state.value}
-              onBlur={field.handleBlur}
-              onChange={(event) => field.handleChange(event.target.value)}
-            />
-          </label>
+          <Field
+            invalid={field.state.meta.errors.length > 0}
+            touched={field.state.meta.isTouched}
+          >
+            <label htmlFor="feeds-field-2" {...stylex.props(deskStyles.label)}>
+              Feed name
+              <Input
+                id="feeds-field-2"
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={(event) => {
+                  customName.current = true
+                  field.handleChange(event.target.value)
+                }}
+              />
+            </label>
+            {field.state.meta.errors.length > 0 && (
+              <FieldError match>
+                <FormErrors errors={field.state.meta.errors} />
+              </FieldError>
+            )}
+          </Field>
         )}
       </form.Field>
       <form.Field name="mode">
         {(field) => (
-          <Choice
-            label="Import mode"
-            value={field.state.value}
-            options={[
-              { value: "draft", label: "Draft" },
-              { value: "automatic", label: "Automatic" },
-            ]}
-            onBlur={field.handleBlur}
-            onChange={(mode) => {
-              if (mode === "draft" || mode === "automatic")
-                field.handleChange(mode)
-            }}
-          />
+          <Field
+            invalid={field.state.meta.errors.length > 0}
+            touched={field.state.meta.isTouched}
+          >
+            <Choice
+              label="Import mode"
+              value={field.state.value}
+              options={[
+                { value: "draft", label: "Draft" },
+                { value: "automatic", label: "Automatic" },
+              ]}
+              onBlur={field.handleBlur}
+              onChange={(mode) => {
+                if (mode === "draft" || mode === "automatic")
+                  field.handleChange(mode)
+              }}
+            />
+            {field.state.meta.errors.length > 0 && (
+              <FieldError match>
+                <FormErrors errors={field.state.meta.errors} />
+              </FieldError>
+            )}
+          </Field>
         )}
       </form.Field>
       {(["includeImages", "includeVideos", "enabled"] as const).map((name) => (
@@ -292,16 +335,39 @@ export function FeedFields({
       ))}
       <Heading render={<h3>Target channels</h3>} />
       <Failure error={channels.error} />
+      <Button
+        variant="ghost"
+        disabled={channels.isFetching}
+        onClick={() => void channels.refetch()}
+      >
+        {channels.isError ? "Retry channels" : "Refresh channels"}
+      </Button>
+      {channels.isPending && <Box render={<output />}>Loading channels…</Box>}
+      {channels.data?.channels.length === 0 && (
+        <Text>
+          Connect a channel for automatic publishing. You can import drafts
+          without a channel.
+        </Text>
+      )}
       <form.Field name="channelIds">
         {(field) => (
           <>
             {channels.data?.channels
-              .filter((channel) => channel.status === "connected")
+              .filter(
+                (channel) =>
+                  channel.status === "connected" ||
+                  field.state.value.includes(channel.id),
+              )
               .map((channel) => (
                 <Check
                   key={channel.id}
                   label={channel.displayName}
                   checked={field.state.value.includes(channel.id)}
+                  disabled={
+                    save.isPending ||
+                    (channel.status !== "connected" &&
+                      !field.state.value.includes(channel.id))
+                  }
                   onChange={(checked) =>
                     field.handleChange(
                       checked
@@ -310,6 +376,26 @@ export function FeedFields({
                     )
                   }
                 />
+              ))}
+            {field.state.value
+              .filter(
+                (id) =>
+                  channels.data &&
+                  !channels.data.channels.some((channel) => channel.id === id),
+              )
+              .map((id) => (
+                <Button
+                  key={id}
+                  variant="outline"
+                  disabled={save.isPending}
+                  onClick={() =>
+                    field.handleChange(
+                      field.state.value.filter((item) => item !== id),
+                    )
+                  }
+                >
+                  Remove unavailable channel {id}
+                </Button>
               ))}
           </>
         )}

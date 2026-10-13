@@ -5,6 +5,7 @@ import { OperationGate } from "server/services/operation-gate"
 import { CredentialCrypto } from "auth/services/crypto"
 import { CoreDb } from "db/services/core"
 import type { AppConfig, WorkerBindings } from "env/server"
+import type { MediaListInput } from "rpc/contracts/app"
 import { ApiError, Media, Name } from "rpc/contracts/models"
 
 const ImageLimit = 10000000
@@ -471,6 +472,14 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
     }
 
     return {
+      list: Effect.fn("MediaService.list")(function* (
+        userId: string,
+        input: typeof MediaListInput.Type,
+      ) {
+        yield* db.workspaceAccess(userId, input.workspaceId)
+
+        return yield* db.listMedia(input)
+      }),
       upload: gate.wrap(upload),
       download,
       publicDownload,

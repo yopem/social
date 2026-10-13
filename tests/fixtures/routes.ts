@@ -14,6 +14,7 @@ import type { AppConfig } from "env/server"
 import { WorkerResources } from "env/server"
 
 import { fixtureError, fixtureJson, fixtureSignIn } from "./auth"
+import { backendWorkflowFixture } from "./backend-workflows"
 import { fixtureConnections } from "./connections"
 import {
   deletionLegacyOtherFixture,
@@ -136,6 +137,17 @@ export function fixtureRequest(request: Request, config: AppConfig) {
       return yield* Effect.fail(fixtureError("Fixture workspace missing"))
     const userId = session.user.id
     const workspaceId = workspace.id
+
+    if (
+      path.startsWith("/__fixtures/backend-workflows/") &&
+      request.method === "POST"
+    )
+      return yield* backendWorkflowFixture(
+        request,
+        config,
+        session.user,
+        workspaceId,
+      )
 
     if (
       [

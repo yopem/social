@@ -1,7 +1,7 @@
 import * as stylex from "@stylexjs/stylex"
-import { useForm } from "@tanstack/react-form"
+import { useForm, useStore, type StandardSchemaV1 } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Effect, Schema } from "effect"
+import { DateTime, Effect, Option, Schema } from "effect"
 import { useRef, useState } from "react"
 
 import { withRpc } from "rpc/client"
@@ -23,7 +23,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from "ui/components/ui/dialog"
-import { Field, FieldLabel } from "ui/components/ui/field"
+import { Field, FieldError, FieldLabel } from "ui/components/ui/field"
 import { Flex } from "ui/components/ui/flex"
 import { Heading } from "ui/components/ui/heading"
 import { Input } from "ui/components/ui/input"
@@ -49,7 +49,7 @@ export function Composer({
 }: {
   workspace: Workspace
   post?: Post
-  onClose: () => void
+  onClose: (result?: Post | null) => void
 }) {
   const workspaceId = workspace.id
   const client = useQueryClient()
@@ -60,8 +60,38 @@ export function Composer({
     ),
   )
 
-  const [media, setMedia] = useState<readonly Media[]>([])
-  const [scheduled, setScheduled] = useState("")
+  const savedMedia = useQuery({
+    ...workspaceQuery(
+      workspaceId,
+      "media",
+      (rpc) =>
+        rpc.MediaList({ workspaceId, mediaIds: post?.content.mediaIds ?? [] }),
+      post?.content.mediaIds.join(",") ?? "",
+    ),
+    enabled: Boolean(post?.content.mediaIds.length),
+  })
+
+  const [uploadedMedia, setUploadedMedia] = useState<readonly Media[]>([])
+  const [removedMediaIds, setRemovedMediaIds] = useState<readonly string[]>([])
+
+  const removedMediaIdSet = new Set(removedMediaIds)
+
+  const media = [...(savedMedia.data ?? []), ...uploadedMedia].filter(
+    (item) => !removedMediaIdSet.has(item.id),
+  )
+
+  const [scheduled, setScheduled] = useState(() => {
+    if (!post?.scheduledAt) return ""
+
+    const value = DateTime.makeZoned(post.scheduledAt, {
+      timeZone: workspace.timezone,
+    })
+
+    return Option.isSome(value)
+      ? DateTime.formatIsoOffset(value.value).slice(0, 16)
+      : ""
+  })
+
   const actionRef = useRef<"draft" | "publish" | "schedule">("draft")
 
   const operation = useRef<{
@@ -105,7 +135,7 @@ export function Composer({
               }),
             )
 
-          if (action !== "draft")
+          if (action !== "draft" && !current.publishStarted)
             yield* validatePublishing(
               content,
               channels.data?.channels ?? [],
@@ -164,9 +194,9 @@ export function Composer({
         }),
     ),
     retry: false,
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       await client.invalidateQueries({ queryKey: ["workspace", workspaceId] })
-      onClose()
+      onClose(result)
     },
   })
 
@@ -189,11 +219,14 @@ export function Composer({
       ) ?? [],
   }
 
+  const validator: StandardSchemaV1<typeof initial> =
+    Schema.toStandardSchemaV1(ComposerForm)
+
   const form = useForm({
     defaultValues: initial,
     validators: {
-      onBlur: Schema.toStandardSchemaV1(ComposerForm),
-      onSubmit: Schema.toStandardSchemaV1(ComposerForm),
+      onBlur: validator,
+      onSubmit: validator,
     },
     onSubmit: ({ value }) =>
       mutation.mutate({
@@ -209,11 +242,23 @@ export function Composer({
       }),
   })
 
+  const selectedTargetIds = new Set(
+    useStore(form.store, (state) => state.values.channelIds),
+  )
+
   function resetConsent() {
     form.setFieldValue("overrides", (overrides) =>
       overrides.map((override) => ({ ...override, creatorConsent: false })),
     )
   }
+
+  const needsSavedMedia =
+    post?.content.mediaIds.some((id) => !removedMediaIdSet.has(id)) === true
+
+  const loadingMedia = needsSavedMedia && savedMedia.isPending
+
+  const mediaUnavailable =
+    needsSavedMedia && (savedMedia.isPending || savedMedia.isError)
 
   const locked = mutation.isPending || publishStarted || uncertainSave
 
@@ -239,7 +284,10 @@ export function Composer({
           >
             <form.Field name="text">
               {(field) => (
-                <Field>
+                <Field
+                  invalid={field.state.meta.errors.length > 0}
+                  touched={field.state.meta.isTouched}
+                >
                   <FieldLabel>Post text</FieldLabel>
                   <Textarea
                     rows={5}
@@ -251,6 +299,11 @@ export function Composer({
                       resetConsent()
                     }}
                   />
+                  {field.state.meta.errors.length > 0 && (
+                    <FieldError match>
+                      <FormErrors errors={field.state.meta.errors} />
+                    </FieldError>
+                  )}
                 </Field>
               )}
             </form.Field>
@@ -267,11 +320,12 @@ export function Composer({
                 disabled={locked || upload.isPending}
                 onChange={(event) => {
                   const file = event.target.files?.[0]
+                  event.currentTarget.value = ""
 
                   if (file)
                     upload.mutate(file, {
                       onSuccess: (uploaded) => {
-                        setMedia((items) => [...items, uploaded])
+                        setUploadedMedia((items) => [...items, uploaded])
                         form.setFieldValue("mediaIds", (ids) => [
                           ...ids,
                           uploaded.id,
@@ -295,26 +349,74 @@ export function Composer({
                   variant="ghost"
                   disabled={locked}
                   onClick={() => {
-                    setMedia(media.filter((current) => current.id !== item.id))
+                    setRemovedMediaIds((ids) => [...ids, item.id])
                     form.setFieldValue("mediaIds", (ids) =>
                       ids.filter((id) => id !== item.id),
                     )
-                    resetConsent()
+                    form.setFieldValue("overrides", (overrides) =>
+                      overrides.map((override) => ({
+                        ...override,
+                        photoCoverIndex: undefined,
+                        creatorConsent: false,
+                      })),
+                    )
                   }}
                 >
                   Remove {item.name}
                 </Button>
               </Flex>
             ))}
-            {post && post.content.mediaIds.length > 0 && (
-              <Text>
-                {post.content.mediaIds.length} saved attachment(s). Existing
-                attachments stay attached.
-              </Text>
+            {savedMedia.isError &&
+              post?.content.mediaIds
+                .filter((id) => !removedMediaIdSet.has(id))
+                .map((id) => (
+                  <Button
+                    key={id}
+                    variant="outline"
+                    disabled={locked}
+                    onClick={() => {
+                      setRemovedMediaIds((ids) => [...ids, id])
+                      form.setFieldValue("mediaIds", (ids) =>
+                        ids.filter((item) => item !== id),
+                      )
+                      form.setFieldValue("overrides", (overrides) =>
+                        overrides.map((override) => ({
+                          ...override,
+                          photoCoverIndex: undefined,
+                          creatorConsent: false,
+                        })),
+                      )
+                    }}
+                  >
+                    Remove unavailable attachment {id}
+                  </Button>
+                ))}
+            <Failure error={savedMedia.error} />
+            {loadingMedia && (
+              <Box render={<output />}>Loading saved attachments…</Box>
+            )}
+            {savedMedia.isError && (
+              <Button
+                variant="outline"
+                onClick={() => void savedMedia.refetch()}
+              >
+                Retry attachments
+              </Button>
             )}
             <Failure error={channels.error} />
+            <Button
+              variant="ghost"
+              disabled={channels.isFetching}
+              onClick={() => void channels.refetch()}
+            >
+              {channels.isError ? "Retry channels" : "Refresh channels"}
+            </Button>
             {channels.data?.channels
-              .filter((channel) => channel.status !== "disconnected")
+              .filter(
+                (channel) =>
+                  channel.status === "connected" ||
+                  selectedTargetIds.has(channel.id),
+              )
               .map((channel) => (
                 <form.Field key={channel.id} name="channelIds">
                   {(field) => (
@@ -322,7 +424,11 @@ export function Composer({
                       <Check
                         label={channel.displayName}
                         checked={field.state.value.includes(channel.id)}
-                        disabled={locked || channel.status !== "connected"}
+                        disabled={
+                          locked ||
+                          (channel.status !== "connected" &&
+                            !field.state.value.includes(channel.id))
+                        }
                         onChange={(checked) => {
                           field.handleChange(
                             checked
@@ -345,6 +451,7 @@ export function Composer({
                           {(overrides) => (
                             <TargetOptions
                               channel={channel}
+                              disabled={locked}
                               value={
                                 overrides.state.value.find(
                                   (override) =>
@@ -374,6 +481,39 @@ export function Composer({
                   )}
                 </form.Field>
               ))}
+            <form.Field name="channelIds">
+              {(field) => (
+                <>
+                  {field.state.value
+                    .filter(
+                      (id) =>
+                        channels.data &&
+                        !channels.data.channels.some(
+                          (channel) => channel.id === id,
+                        ),
+                    )
+                    .map((id) => (
+                      <Button
+                        key={id}
+                        variant="outline"
+                        disabled={locked}
+                        onClick={() => {
+                          field.handleChange(
+                            field.state.value.filter((item) => item !== id),
+                          )
+                          form.setFieldValue("overrides", (overrides) =>
+                            overrides.filter(
+                              (override) => override.channelId !== id,
+                            ),
+                          )
+                        }}
+                      >
+                        Remove unavailable channel {id}
+                      </Button>
+                    ))}
+                </>
+              )}
+            </form.Field>
             {channels.data?.channels.length === 0 && (
               <Text>
                 Connect a channel to publish. You can save a draft without a
@@ -395,6 +535,12 @@ export function Composer({
                 onChange={(event) => setScheduled(event.target.value)}
               />
             </label>
+            {post?.scheduledAt && (
+              <Text>
+                Save draft removes the current schedule. Use Schedule post to
+                keep or change the publish time.
+              </Text>
+            )}
             <Text tone="muted" size="small">
               Publish time uses {workspace.timezone}. Daylight-saving gaps and
               repeated times are rejected.
@@ -411,11 +557,14 @@ export function Composer({
                   <Text>{value.mediaIds.length} attachment(s)</Text>
                   {value.channelIds.map((id) => (
                     <Text key={id}>
-                      {
-                        channels.data?.channels.find(
-                          (channel) => channel.id === id,
-                        )?.displayName
-                      }
+                      {channels.data?.channels.find(
+                        (channel) => channel.id === id,
+                      )?.displayName ?? id}
+                      :{" "}
+                      {value.overrides.find(
+                        (override) => override.channelId === id,
+                      )?.text ??
+                        (value.text || "Media post")}
                     </Text>
                   ))}
                 </Box>
@@ -439,7 +588,10 @@ export function Composer({
               <Button
                 type="submit"
                 disabled={
-                  mutation.isPending || upload.isPending || uncertainSave
+                  mutation.isPending ||
+                  upload.isPending ||
+                  uncertainSave ||
+                  mediaUnavailable
                 }
                 onClick={() => {
                   actionRef.current = "publish"
@@ -450,7 +602,7 @@ export function Composer({
               <Button
                 type="submit"
                 variant="outline"
-                disabled={locked || upload.isPending}
+                disabled={locked || upload.isPending || mediaUnavailable}
                 onClick={() => {
                   actionRef.current = "schedule"
                 }}

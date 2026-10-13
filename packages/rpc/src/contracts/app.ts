@@ -1,4 +1,4 @@
-import { Schema } from "effect"
+import { DateTime, Option, Schema } from "effect"
 import { Rpc, RpcGroup } from "effect/rpc"
 
 import { JsonObject } from "rpc/contracts/json"
@@ -12,6 +12,7 @@ import {
   FeedMode,
   Id,
   Member,
+  Media,
   Name,
   Platform,
   Post,
@@ -28,6 +29,58 @@ const PostInput = Schema.Struct({ workspaceId: Id, postId: Id })
 
 const FeedInput = Schema.Struct({ workspaceId: Id, feedId: Id })
 
+export const WorkspaceTimezone = Name.check(
+  Schema.makeFilter((value) => Option.isSome(DateTime.zoneMakeNamed(value)), {
+    message: "Enter a valid IANA timezone.",
+  }),
+)
+
+const Instant = Schema.String.check(
+  Schema.makeFilter(
+    (value) => {
+      const parsed = DateTime.make(value)
+
+      return Option.isSome(parsed) && DateTime.formatIso(parsed.value) === value
+    },
+    { message: "Use a canonical UTC ISO timestamp." },
+  ),
+)
+
+export const PostCursor = Schema.Struct({ createdAt: Instant, id: Id })
+
+export const PostListPageInput = Schema.Struct({
+  workspaceId: Id,
+  filter: Schema.Literals(["all", "draft", "queue", "sent", "calendar"]),
+  channelId: Schema.optional(Id),
+  scheduledFrom: Schema.optional(Instant),
+  scheduledBefore: Schema.optional(Instant),
+  limit: Schema.optional(
+    Schema.Int.check(
+      Schema.isGreaterThanOrEqualTo(1),
+      Schema.isLessThanOrEqualTo(100),
+    ),
+  ),
+  cursor: Schema.optional(PostCursor),
+}).check(
+  Schema.makeFilter(
+    (value) =>
+      !value.scheduledFrom ||
+      !value.scheduledBefore ||
+      value.scheduledFrom < value.scheduledBefore,
+    { message: "Schedule range must end after its start." },
+  ),
+)
+
+export const PostListPageResult = Schema.Struct({
+  items: Schema.Array(Post),
+  nextCursor: Schema.NullOr(PostCursor),
+})
+
+export const MediaListInput = Schema.Struct({
+  workspaceId: Id,
+  mediaIds: Schema.Array(Id).check(Schema.isMaxLength(20)),
+})
+
 export class AppRpc extends RpcGroup.make(
   Rpc.make("AccountDelete", {
     payload: { confirmation: Schema.Literal("DELETE") },
@@ -35,7 +88,7 @@ export class AppRpc extends RpcGroup.make(
     error: ApiError,
   }),
   Rpc.make("WorkspaceCreate", {
-    payload: { name: Name, kind: WorkspaceKind, timezone: Name },
+    payload: { name: Name, kind: WorkspaceKind, timezone: WorkspaceTimezone },
     success: Workspace,
     error: ApiError,
   }),
@@ -112,6 +165,16 @@ export class AppRpc extends RpcGroup.make(
       filter: Schema.Literals(["all", "draft", "queue", "sent"]),
     },
     success: Schema.Array(Post),
+    error: ApiError,
+  }),
+  Rpc.make("PostListPage", {
+    payload: PostListPageInput,
+    success: PostListPageResult,
+    error: ApiError,
+  }),
+  Rpc.make("MediaList", {
+    payload: MediaListInput,
+    success: Schema.Array(Media),
     error: ApiError,
   }),
   Rpc.make("PostSave", {

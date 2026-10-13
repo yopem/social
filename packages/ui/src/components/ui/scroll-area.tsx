@@ -38,7 +38,7 @@ const styles = stylex.create({
     "[data-has-overflow-y]": { paddingInlineEnd: "0.625rem" },
   },
   fill: { blockSize: "100%", inlineSize: "100%" },
-  clampContentMinWidth: { minInlineSize: 0 },
+  intrinsicContentMinWidth: { minInlineSize: "auto" },
   scrollbar: {
     display: "flex",
     margin: "0.25rem",
@@ -117,7 +117,7 @@ export function ScrollArea({
         <ScrollAreaPrimitive.Content
           {...stylex.props(
             fill && styles.fill,
-            clampContentMinWidth && styles.clampContentMinWidth,
+            !clampContentMinWidth && styles.intrinsicContentMinWidth,
           )}
           data-slot="scroll-area-content"
         >

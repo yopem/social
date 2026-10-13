@@ -15,6 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "ui/components/ui/dialog"
+import { Field, FieldError } from "ui/components/ui/field"
 import { Heading } from "ui/components/ui/heading"
 import { Input } from "ui/components/ui/input"
 import { Stack } from "ui/components/ui/stack"
@@ -31,6 +32,7 @@ import {
   accountDeletionMutation,
   effectMutation,
   rpcMutation,
+  sessionQuery,
   workspaceQuery,
 } from "@/features/desk/queries"
 import { InviteForm } from "@/features/desk/schema"
@@ -147,6 +149,8 @@ export function Members({
 }) {
   const client = useQueryClient()
 
+  const session = useQuery(sessionQuery())
+
   const query = useQuery(
     workspaceQuery(workspaceId, "members", (rpc) =>
       rpc.WorkspaceMembers({ workspaceId }),
@@ -191,6 +195,13 @@ export function Members({
       {transfer.isSuccess && (
         <Box render={<output />}>Ownership transferred.</Box>
       )}
+      <Button
+        variant="outline"
+        disabled={query.isFetching}
+        onClick={() => void query.refetch()}
+      >
+        {query.isError ? "Retry members" : "Refresh members"}
+      </Button>
       {query.isPending && <Box render={<output />}>Loading members…</Box>}
       {query.data?.map((member) => (
         <Box key={member.user.id} surface="divided">
@@ -199,6 +210,8 @@ export function Members({
           </Text>
           {member.role === "owner" ? (
             <Text>Workspace owner cannot be removed.</Text>
+          ) : member.user.id === session.data?.user?.id ? (
+            <Text>This is your membership.</Text>
           ) : (
             <>
               {canTransfer && (
@@ -285,33 +298,56 @@ export function InviteFields({ workspaceId }: { workspaceId: string }) {
     >
       <form.Field name="email">
         {(field) => (
-          <label htmlFor="settings-field-1" {...stylex.props(deskStyles.label)}>
-            Invitation email
-            <Input
-              id="settings-field-1"
-              type="email"
-              value={field.state.value}
-              onChange={(event) => field.handleChange(event.target.value)}
-              onBlur={field.handleBlur}
-            />
-          </label>
+          <Field
+            invalid={field.state.meta.errors.length > 0}
+            touched={field.state.meta.isTouched}
+          >
+            <label
+              htmlFor="settings-field-1"
+              {...stylex.props(deskStyles.label)}
+            >
+              Invitation email
+              <Input
+                id="settings-field-1"
+                type="email"
+                value={field.state.value}
+                onChange={(event) => field.handleChange(event.target.value)}
+                onBlur={field.handleBlur}
+              />
+            </label>
+            {field.state.meta.errors.length > 0 && (
+              <FieldError match>
+                <FormErrors errors={field.state.meta.errors} />
+              </FieldError>
+            )}
+          </Field>
         )}
       </form.Field>
       <form.Field name="role">
         {(field) => (
-          <Choice
-            label="Invitation role"
-            value={field.state.value}
-            onBlur={field.handleBlur}
-            options={[
-              { value: "editor", label: "Editor" },
-              { value: "admin", label: "Admin" },
-            ]}
-            onChange={(role) => {
-              if (role === "editor" || role === "admin")
-                field.handleChange(role)
-            }}
-          />
+          <Field
+            invalid={field.state.meta.errors.length > 0}
+            touched={field.state.meta.isTouched}
+          >
+            <Choice
+              label="Invitation role"
+              value={field.state.value}
+              onBlur={field.handleBlur}
+              options={[
+                { value: "editor", label: "Editor" },
+                { value: "admin", label: "Admin" },
+              ]}
+              onChange={(role) => {
+                if (role === "editor" || role === "admin")
+                  field.handleChange(role)
+              }}
+            />
+            {field.state.meta.errors.length > 0 && (
+              <FieldError match>
+                <FormErrors errors={field.state.meta.errors} />
+              </FieldError>
+            )}
+          </Field>
         )}
       </form.Field>
       <form.Subscribe selector={(state) => state.errors}>

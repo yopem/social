@@ -66,9 +66,10 @@ effectTest(
           .fill("https://fixtures.example.test/news.xml"),
       )
       yield* step(() =>
-        page
-          .getByRole("combobox", { name: "Import mode" })
-          .selectOption("automatic"),
+        page.getByRole("combobox", { name: "Import mode" }).click(),
+      )
+      yield* step(() =>
+        page.getByRole("option", { name: "Automatic", exact: true }).click(),
       )
       yield* step(() =>
         page.getByRole("checkbox", { name: "Alex on YouTube" }).check(),

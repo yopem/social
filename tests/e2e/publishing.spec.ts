@@ -16,7 +16,7 @@ function signIn(page: Page, identity = "owner") {
 
     if (identity === "editor") {
       yield* step(() =>
-        page.getByRole("button", { name: /^Workspace:/ }).click(),
+        page.getByRole("combobox", { name: /^Workspace:/ }).click(),
       )
       yield* step(() =>
         page
@@ -40,12 +40,12 @@ effectTest(
       yield* signIn(page)
       yield* step(() =>
         expect(
-          page.getByRole("button", { name: "Workspace: Alex Morgan" }),
+          page.getByRole("combobox", { name: "Workspace: Alex Morgan" }),
         ).toBeVisible(),
       )
       yield* signIn(page)
       yield* step(() =>
-        page.getByRole("button", { name: "Workspace: Alex Morgan" }).click(),
+        page.getByRole("combobox", { name: "Workspace: Alex Morgan" }).click(),
       )
       yield* step(() =>
         expect(
@@ -121,7 +121,7 @@ effectTest(
         ).toBeVisible(),
       )
       yield* step(() =>
-        page.getByRole("button", { name: /^Workspace:/ }).click(),
+        page.getByRole("combobox", { name: /^Workspace:/ }).click(),
       )
       yield* step(() =>
         page
@@ -134,19 +134,22 @@ effectTest(
           .fill("Second organization"),
       )
       yield* step(() =>
-        page
-          .getByRole("combobox", { name: "Workspace type" })
-          .selectOption("organization"),
+        page.getByRole("combobox", { name: "Workspace type" }).click(),
+      )
+      yield* step(() =>
+        page.getByRole("option", { name: "Organization", exact: true }).click(),
       )
       yield* step(() =>
         page
+          .getByRole("dialog", { name: "Create workspace", exact: true })
           .getByRole("button", { name: "Create workspace", exact: true })
-          .last()
           .click(),
       )
       yield* step(() =>
         expect(
-          page.getByRole("button", { name: "Workspace: Second organization" }),
+          page.getByRole("combobox", {
+            name: "Workspace: Second organization",
+          }),
         ).toBeVisible(),
       )
       yield* step(() =>
@@ -313,9 +316,7 @@ effectTest(
         page.getByRole("checkbox", { name: "Alex on X" }).check(),
       )
       yield* step(() =>
-        page
-          .getByRole("textbox", { name: "Publish at" })
-          .fill("2030-01-15T10:30"),
+        page.getByLabel("Publish at", { exact: true }).fill("2030-01-15T10:30"),
       )
       yield* step(() =>
         page
@@ -358,9 +359,10 @@ effectTest(
           .fill("https://fixtures.example.test/news.xml"),
       )
       yield* step(() =>
-        page
-          .getByRole("combobox", { name: "Import mode" })
-          .selectOption("draft"),
+        page.getByRole("combobox", { name: "Import mode" }).click(),
+      )
+      yield* step(() =>
+        page.getByRole("option", { name: "Draft", exact: true }).click(),
       )
       yield* step(() =>
         page.getByRole("button", { name: "Save feed", exact: true }).click(),

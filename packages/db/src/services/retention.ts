@@ -9,6 +9,7 @@ import { accountOperations } from "db/schema/deletion"
 import { appSessions } from "db/schema/session"
 import {
   socialAttempts,
+  socialCredentials,
   socialInbox,
   socialRefreshLocks,
 } from "db/schema/social"
@@ -75,6 +76,16 @@ function makeRetention(binding: D1Database) {
       ),
     )
 
+    const expiredAttempts = db
+      .select({ id: socialAttempts.id })
+      .from(socialAttempts)
+      .where(expiredAttempt)
+      .orderBy(socialAttempts.id)
+      .limit(500)
+
+    const pendingCredential = sql`json_valid(${socialCredentials.key}) AND json_extract(${socialCredentials.key}, '$[0]')='attempt' AND json_extract(${socialCredentials.key}, '$[1]') IN (${expiredAttempts})`
+    const pendingLock = sql`json_valid(${socialRefreshLocks.key}) AND json_extract(${socialRefreshLocks.key}, '$[0]')='attempt' AND json_extract(${socialRefreshLocks.key}, '$[1]') IN (${expiredAttempts})`
+
     const oldInbox = and(
       eq(socialInbox.state, "complete"),
       sql`coalesce(${socialInbox.completed_at}, ${socialInbox.received_at}) < ${cutoff}`,
@@ -109,6 +120,8 @@ function makeRetention(binding: D1Database) {
                   .limit(500),
               ),
             ),
+          db.delete(socialCredentials).where(pendingCredential),
+          db.delete(socialRefreshLocks).where(pendingLock),
           db
             .delete(socialAttempts)
             .where(
@@ -159,15 +172,17 @@ function makeRetention(binding: D1Database) {
         DatabaseRunResult,
         DatabaseRunResult,
         DatabaseRunResult,
+        DatabaseRunResult,
+        DatabaseRunResult,
       ]),
     )(results).pipe(Effect.mapError(failure))
 
     return yield* Schema.decodeUnknownEffect(CleanupResult)({
       expiredSessions: rows[0].meta.changes,
       expiredSignIns: rows[1].meta.changes,
-      expiredAttempts: rows[2].meta.changes,
-      expiredLocks: rows[3].meta.changes,
-      staleCompleted: rows[4].meta.changes,
+      expiredAttempts: rows[4].meta.changes,
+      expiredLocks: rows[5].meta.changes,
+      staleCompleted: rows[6].meta.changes,
     }).pipe(Effect.mapError(failure))
   })
 

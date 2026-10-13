@@ -2,8 +2,8 @@ import * as stylex from "@stylexjs/stylex"
 import { Schema } from "effect"
 import { useId, type ReactNode } from "react"
 
+import { Box } from "ui/components/ui/box"
 import { Checkbox } from "ui/components/ui/checkbox"
-import { Flex } from "ui/components/ui/flex"
 import { Heading } from "ui/components/ui/heading"
 import {
   Select,
@@ -20,6 +20,7 @@ import { errorMessage } from "@/features/desk/queries"
 export const deskStyles = stylex.create({
   stack: { display: "grid", gap: 16, minWidth: 0 },
   label: { display: "grid", gap: 8, fontSize: 14, minWidth: 0 },
+  labelText: { fontSize: 14, fontWeight: 500, lineHeight: 1.5 },
   check: { display: "flex", gap: 10, alignItems: "center", minHeight: 44 },
 })
 
@@ -42,7 +43,11 @@ export function Choice({
 
   return (
     <Stack spacing="tight">
-      <label id={`${id}-label`} htmlFor={id}>
+      <label
+        id={`${id}-label`}
+        htmlFor={id}
+        {...stylex.props(deskStyles.labelText)}
+      >
         {label}
       </label>
       <Select
@@ -129,7 +134,7 @@ export function PageHeading({
   children?: ReactNode
 }) {
   return (
-    <Flex render={<header />} spacing="normal" wrap align="center">
+    <Box render={<header />} region="pageHeader">
       <Heading
         render={
           <h1>
@@ -139,6 +144,6 @@ export function PageHeading({
         size="title"
       />
       {children}
-    </Flex>
+    </Box>
   )
 }

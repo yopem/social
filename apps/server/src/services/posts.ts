@@ -4,6 +4,7 @@ import { SocialService } from "server/services/social"
 import { MediaService } from "server/storage/media"
 
 import { CoreDb } from "db/services/core"
+import type { PostListPageInput } from "rpc/contracts/app"
 import type { Delivery, Post, PostContent } from "rpc/contracts/models"
 import { ApiError } from "rpc/contracts/models"
 
@@ -123,6 +124,27 @@ function makePosts() {
     ) {
       return Effect.gen(function* () {
         yield* db.workspaceAccess(userId, workspaceId)
+        const operation = yield* db.publicationOperation(workspaceId, postId)
+
+        if (
+          operation.operation_key !== null &&
+          operation.operation_key !== operationKey
+        )
+          return yield* Effect.fail(
+            new ApiError({
+              code: "conflict",
+              message: "Post belongs to another publication operation.",
+            }),
+          )
+
+        if (
+          operation.operation_key === operationKey &&
+          (operation.dispatch_status === "dispatching" ||
+            ["published", "partial", "failed", "cancelled"].includes(
+              operation.state,
+            ))
+        )
+          return yield* db.getPost(workspaceId, postId)
         const post = yield* db.getPost(workspaceId, postId)
 
         if (post.content.channelIds.length === 0) {
@@ -141,7 +163,13 @@ function makePosts() {
         )
 
         yield* social.prepare(userId, workspaceId, post, files)
-        const claimed = yield* db.claimPost(workspaceId, postId, operationKey)
+
+        const claimed = yield* db.claimPost(
+          workspaceId,
+          postId,
+          operationKey,
+          post,
+        )
 
         if (!claimed) return yield* db.getPost(workspaceId, postId)
 
@@ -240,6 +268,14 @@ function makePosts() {
       cancel: gate.wrap(cancel),
       remove: gate.wrap(remove),
       list,
+      listPage: Effect.fn("PostService.listPage")(function* (
+        userId: string,
+        input: typeof PostListPageInput.Type,
+      ) {
+        yield* db.workspaceAccess(userId, input.workspaceId)
+
+        return yield* db.listPostsPage(input)
+      }),
     }
   })
 }

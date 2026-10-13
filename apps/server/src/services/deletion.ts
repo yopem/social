@@ -14,38 +14,43 @@ function makeDeletion() {
         const workspaces = yield* db.begin(userId)
 
         for (const workspace of workspaces) {
-          let cursor: string | undefined
+          for (const prefix of [
+            `${workspace.workspace_id}/`,
+            `feed-snapshots/${workspace.workspace_id}/`,
+          ]) {
+            let cursor: string | undefined
 
-          do {
-            const objects = yield* Effect.tryPromise({
-              try: () =>
-                resources.MEDIA.list({
-                  prefix: `${workspace.workspace_id}/`,
-                  cursor,
-                }),
-              catch: () =>
-                new ApiError({
-                  code: "storage-failure",
-                  message: "Media deletion failed. Retry account deletion.",
-                }),
-            })
-
-            if (objects.objects.length) {
-              yield* Effect.tryPromise({
+            do {
+              const objects = yield* Effect.tryPromise({
                 try: () =>
-                  resources.MEDIA.delete(
-                    objects.objects.map((object) => object.key),
-                  ),
+                  resources.MEDIA.list({
+                    prefix,
+                    cursor,
+                  }),
                 catch: () =>
                   new ApiError({
                     code: "storage-failure",
                     message: "Media deletion failed. Retry account deletion.",
                   }),
               })
-            }
 
-            cursor = objects.truncated ? objects.cursor : undefined
-          } while (cursor !== undefined)
+              if (objects.objects.length) {
+                yield* Effect.tryPromise({
+                  try: () =>
+                    resources.MEDIA.delete(
+                      objects.objects.map((object) => object.key),
+                    ),
+                  catch: () =>
+                    new ApiError({
+                      code: "storage-failure",
+                      message: "Media deletion failed. Retry account deletion.",
+                    }),
+                })
+              }
+
+              cursor = objects.truncated ? objects.cursor : undefined
+            } while (cursor !== undefined)
+          }
         }
 
         yield* db.finish(userId)

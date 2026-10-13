@@ -10,6 +10,16 @@ import { mergeStylexProps, stylexProps } from "ui/lib/stylex"
 import { tokens } from "ui/styles/tokens.stylex"
 
 const styles = stylex.create({
+  root: {
+    color: tokens["--foreground"],
+    fontFamily: tokens["--font-sans"],
+    fontSize: "1rem",
+    fontWeight: 400,
+    lineHeight: 1.6,
+    margin: 0,
+    overflowWrap: "anywhere",
+    fontVariantNumeric: "tabular-nums",
+  },
   muted: { color: tokens["--muted-foreground"] },
   danger: {
     color: tokens["--destructive-foreground"],
@@ -54,6 +64,7 @@ export function Text({
       ...mergeStylexProps(
         stylexProps(
           className,
+          styles.root,
           tone && styles[tone],
           size && styles[size],
           weight && styles[weight],

@@ -13,8 +13,11 @@ import {
   gt,
   lt,
   isNull,
+  isNotNull,
   inArray,
   desc,
+  or,
+  gte,
 } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/d1"
 import { alias } from "drizzle-orm/sqlite-core"
@@ -53,7 +56,14 @@ import {
 } from "db/schema/core"
 import { accountDeletions, deletionWorkspaces } from "db/schema/deletion"
 import { DatabaseRunResult, validateOperation } from "db/services/validation"
+import {
+  MediaListInput,
+  PostListPageInput,
+  PostListPageResult,
+  WorkspaceTimezone,
+} from "rpc/contracts/app"
 import { WorkspaceKind } from "rpc/contracts/models"
+import type { Post } from "rpc/contracts/models"
 import {
   ApiError,
   Channel,
@@ -181,6 +191,28 @@ function makeCore(db: D1Database) {
       )
     }
 
+    const publicationOperation = Effect.fnUntraced(function* (
+      workspaceId: string,
+      id: string,
+    ) {
+      return yield* query(
+        Schema.Struct({
+          state: PostState,
+          operation_key: Schema.NullOr(Schema.String),
+          dispatch_status: Schema.NullOr(Schema.String),
+        }),
+        () =>
+          client
+            .select({
+              state: posts.state,
+              operation_key: posts.operation_key,
+              dispatch_status: posts.dispatch_status,
+            })
+            .from(posts)
+            .where(and(eq(posts.workspace_id, workspaceId), eq(posts.id, id))),
+      ).pipe(Effect.flatMap(required))
+    })
+
     function listWorkspaces(userId: string) {
       return query(WorkspaceRow, () =>
         client
@@ -268,6 +300,7 @@ function makeCore(db: D1Database) {
       workspaceAccess,
       listWorkspaces,
       getPost,
+      publicationOperation,
       getFeed,
       channel,
       provisionUser: Effect.fn("core.provisionUser")(function* (
@@ -355,6 +388,12 @@ function makeCore(db: D1Database) {
         kind: typeof WorkspaceKind.Type,
         timezone: string,
       ) {
+        yield* Schema.decodeUnknownEffect(WorkspaceTimezone)(timezone).pipe(
+          Effect.mapError(() =>
+            failure("invalid-input", "Invalid workspace timezone"),
+          ),
+        )
+
         const value = yield* Schema.decodeUnknownEffect(Workspace)({
           id: crypto.randomUUID(),
           name,
@@ -754,6 +793,126 @@ function makeCore(db: D1Database) {
           ),
         )
       },
+      listPostsPage: Effect.fn("core.listPostsPage")(function* (
+        input: typeof PostListPageInput.Type,
+      ) {
+        const value = yield* Schema.decodeUnknownEffect(PostListPageInput)(
+          input,
+        ).pipe(
+          Effect.mapError(() => failure("invalid-input", "Invalid post page")),
+        )
+
+        const states = Match.value(value.filter).pipe(
+          Match.when("draft", () =>
+            inArray(posts.state, ["draft", "needs-review"]),
+          ),
+          Match.when("queue", () =>
+            inArray(posts.state, ["scheduled", "pending"]),
+          ),
+          Match.when("sent", () =>
+            inArray(posts.state, ["published", "partial", "failed"]),
+          ),
+          Match.when("calendar", () =>
+            or(isNotNull(posts.scheduled_at), eq(posts.state, "cancelled")),
+          ),
+          Match.orElse(() => undefined),
+        )
+
+        const limit = value.limit ?? 50
+
+        const rows = yield* query(
+          Schema.Struct({ id: Schema.String, created_at: Schema.String }),
+          () =>
+            client
+              .select({ id: posts.id, created_at: posts.created_at })
+              .from(posts)
+              .where(
+                and(
+                  eq(posts.workspace_id, value.workspaceId),
+                  states,
+                  value.channelId
+                    ? sql`EXISTS(SELECT 1 FROM json_each(${posts.content}, '$.channelIds') WHERE value=${value.channelId})`
+                    : undefined,
+                  value.scheduledFrom
+                    ? gte(posts.scheduled_at, value.scheduledFrom)
+                    : undefined,
+                  value.scheduledBefore
+                    ? lt(posts.scheduled_at, value.scheduledBefore)
+                    : undefined,
+                  value.cursor
+                    ? or(
+                        lt(posts.created_at, value.cursor.createdAt),
+                        and(
+                          eq(posts.created_at, value.cursor.createdAt),
+                          lt(posts.id, value.cursor.id),
+                        ),
+                      )
+                    : undefined,
+                ),
+              )
+              .orderBy(desc(posts.created_at), desc(posts.id))
+              .limit(limit + 1),
+        )
+
+        const selected = rows.slice(0, limit)
+        const last = selected.at(-1)
+
+        const items = yield* Effect.forEach(
+          selected,
+          (row) => getPost(value.workspaceId, row.id),
+          { concurrency: 4 },
+        )
+
+        return yield* Schema.decodeUnknownEffect(PostListPageResult)({
+          items,
+          nextCursor:
+            rows.length > limit && last
+              ? { createdAt: last.created_at, id: last.id }
+              : null,
+        }).pipe(
+          Effect.mapError(() =>
+            failure("storage-failure", "Invalid post page result"),
+          ),
+        )
+      }),
+      listMedia: Effect.fn("core.listMedia")(function* (
+        input: typeof MediaListInput.Type,
+      ) {
+        const value = yield* Schema.decodeUnknownEffect(MediaListInput)(
+          input,
+        ).pipe(
+          Effect.mapError(() => failure("invalid-input", "Invalid media list")),
+        )
+
+        if (!value.mediaIds.length) return []
+
+        const rows = yield* query(MediaRow, () =>
+          client
+            .select({ data: media.data, object_key: media.object_key })
+            .from(media)
+            .where(
+              and(
+                eq(media.workspace_id, value.workspaceId),
+                inArray(media.id, [...value.mediaIds]),
+              ),
+            ),
+        )
+
+        return yield* Effect.forEach(value.mediaIds, (id) => {
+          const row = rows.find((item) => item.data.id === id)
+
+          return row
+            ? Schema.decodeUnknownEffect(Media)({
+                ...row.data,
+                url: `/media/${encodeURIComponent(id)}`,
+              }).pipe(
+                Effect.mapError(() =>
+                  failure("storage-failure", "Invalid stored media"),
+                ),
+              )
+            : Effect.fail(failure("not-found", "Media not found"))
+        })
+      }),
       savePost: Effect.fn("core.savePost")(function* (
         workspaceId: string,
         content: PostContent,
@@ -971,10 +1130,11 @@ function makeCore(db: D1Database) {
         workspaceId: string,
         id: string,
         operationKey: string,
+        expected?: Pick<Post, "content" | "scheduledAt" | "updatedAt">,
       ) {
         const stamp = yield* now()
 
-        return yield* query(Schema.Struct({ id: Schema.String }), () =>
+        const claimed = yield* query(Schema.Struct({ id: Schema.String }), () =>
           client
             .update(posts)
             .set({
@@ -985,14 +1145,35 @@ function makeCore(db: D1Database) {
               updated_at: stamp,
             })
             .where(
-              sql`workspace_id=${workspaceId} AND id=${id} AND ((state IN ('draft','scheduled') AND operation_key IS NULL AND ${operationKey} NOT LIKE 'scheduled:%') OR (state='pending' AND dispatch_status IN ('leased','enqueued') AND operation_key=${operationKey}))`,
+              sql`workspace_id=${workspaceId} AND id=${id} AND ((state IN ('draft','scheduled') AND operation_key IS NULL AND ${operationKey} NOT LIKE 'scheduled:%') OR (state='pending' AND dispatch_status IN ('leased','enqueued') AND operation_key=${operationKey})) AND (${expected === undefined ? 1 : 0} OR (content=${expected ? JSON.stringify(expected.content) : null} AND scheduled_at IS ${expected?.scheduledAt ?? null} AND updated_at=${expected?.updatedAt ?? null}))`,
             )
             .returning({ id: posts.id }),
         ).pipe(Effect.map((rows) => rows.length === 1))
+
+        if (claimed || expected === undefined) return claimed
+
+        const current = yield* publicationOperation(workspaceId, id)
+
+        if (
+          current.operation_key === operationKey &&
+          (current.dispatch_status === "dispatching" ||
+            ["published", "partial", "failed", "cancelled"].includes(
+              current.state,
+            ))
+        )
+          return false
+
+        return yield* Effect.fail(
+          failure(
+            "conflict",
+            "Post changed before publication. Review it and try again.",
+          ),
+        )
       }),
       claimDuePosts: Effect.fn("core.claimDuePosts")(function* (limit: number) {
         const stamp = yield* now()
         const leaseUntil = yield* now(300000)
+        const cutoff = yield* now(-900000)
 
         return yield* query(
           Schema.Struct({ id: Schema.String, workspace_id: Schema.String }),
@@ -1007,7 +1188,7 @@ function makeCore(db: D1Database) {
                 updated_at: stamp,
               })
               .where(
-                sql`id IN (SELECT id FROM posts WHERE (state='scheduled' AND scheduled_at<=${stamp} AND operation_key IS NULL) OR (state='pending' AND dispatch_status='leased' AND lease_until<=${stamp}) ORDER BY scheduled_at LIMIT ${Math.max(1, Math.min(100, Math.floor(limit)))}) AND ((state='scheduled' AND operation_key IS NULL) OR (state='pending' AND dispatch_status='leased' AND lease_until<=${stamp}))`,
+                sql`id IN (SELECT id FROM posts WHERE (state='scheduled' AND scheduled_at<=${stamp} AND operation_key IS NULL) OR (state='pending' AND dispatch_status IN ('leased','enqueued') AND operation_key='scheduled:'||id AND (lease_until<=${stamp} OR (dispatch_status='enqueued' AND lease_until IS NULL AND updated_at<=${cutoff}))) ORDER BY scheduled_at LIMIT ${Math.max(1, Math.min(100, Math.floor(limit)))}) AND ((state='scheduled' AND operation_key IS NULL) OR (state='pending' AND dispatch_status IN ('leased','enqueued') AND operation_key='scheduled:'||id AND (lease_until<=${stamp} OR (dispatch_status='enqueued' AND lease_until IS NULL AND updated_at<=${cutoff}))))`,
               )
               .returning({ id: posts.id, workspace_id: posts.workspace_id }),
         ).pipe(
@@ -1018,16 +1199,17 @@ function makeCore(db: D1Database) {
           ),
         )
       }),
-      markPostEnqueued(
-        this: void,
+      markPostEnqueued: Effect.fn("core.markPostEnqueued")(function* (
         workspaceId: string,
         id: string,
         operationKey: string,
       ) {
-        return write(() =>
+        const leaseUntil = yield* now(900000)
+
+        return yield* write(() =>
           client
             .update(posts)
-            .set({ dispatch_status: "enqueued", lease_until: null })
+            .set({ dispatch_status: "enqueued", lease_until: leaseUntil })
             .where(
               and(
                 eq(posts.workspace_id, workspaceId),
@@ -1038,7 +1220,7 @@ function makeCore(db: D1Database) {
               ),
             ),
         )
-      },
+      }),
       saveMedia(this: void, value: Media & { readonly objectKey: string }) {
         return Schema.decodeUnknownEffect(Media)(value).pipe(
           Effect.mapError(() => failure("invalid-input", "Invalid media")),
@@ -1220,8 +1402,8 @@ function makeCore(db: D1Database) {
                   "review_reason",
                 ),
                 operation_key: sql<string | null>`NULL`.as("operation_key"),
-                dispatch_status: sql<string | null>`NULL`.as("dispatch_status"),
                 lease_until: sql<string | null>`NULL`.as("lease_until"),
+                dispatch_status: sql<string | null>`NULL`.as("dispatch_status"),
               })
               .from(feeds)
               .where(
@@ -1276,10 +1458,7 @@ function makeCore(db: D1Database) {
               ),
         ).pipe(Effect.flatMap(required))
 
-        if (!item.post_id)
-          return yield* Effect.fail(
-            failure("conflict", "Feed item has no stored post"),
-          )
+        if (!item.post_id) return { post: null, created: false }
 
         return {
           post: yield* getPost(workspaceId, item.post_id),
@@ -1308,9 +1487,17 @@ function makeCore(db: D1Database) {
               ),
         ).pipe(
           Effect.flatMap((rows) =>
-            rows[0]?.post_id
-              ? getPost(workspaceId, rows[0].post_id)
-              : Effect.succeed(null),
+            Effect.gen(function* () {
+              const row = rows[0]
+
+              if (!row) return null
+
+              const post = row.post_id
+                ? yield* getPost(workspaceId, row.post_id)
+                : null
+
+              return { post }
+            }),
           ),
         )
       },
@@ -1483,6 +1670,10 @@ function makeCore(db: D1Database) {
         operations.getPost,
         Schema.Tuple([Schema.String, Schema.String]),
       ),
+      publicationOperation: validateOperation(
+        operations.publicationOperation,
+        Schema.Tuple([Schema.String, Schema.String]),
+      ),
       getFeed: validateOperation(
         operations.getFeed,
         Schema.Tuple([Schema.String, Schema.String]),
@@ -1548,6 +1739,14 @@ function makeCore(db: D1Database) {
         operations.disconnectChannel,
         Schema.Tuple([Schema.String, Schema.String]),
       ),
+      listPostsPage: validateOperation(
+        operations.listPostsPage,
+        Schema.Tuple([PostListPageInput]),
+      ),
+      listMedia: validateOperation(
+        operations.listMedia,
+        Schema.Tuple([MediaListInput]),
+      ),
       listPosts: validateOperation(
         operations.listPosts,
         Schema.Tuple([
@@ -1587,7 +1786,20 @@ function makeCore(db: D1Database) {
       ),
       claimPost: validateOperation(
         operations.claimPost,
-        Schema.Tuple([Schema.String, Schema.String, Schema.String]),
+        Schema.Tuple([
+          Schema.String,
+          Schema.String,
+          Schema.String,
+          Schema.optionalKey(
+            Schema.UndefinedOr(
+              Schema.Struct({
+                content: PostContent,
+                scheduledAt: Schema.NullOr(Schema.String),
+                updatedAt: Schema.String,
+              }),
+            ),
+          ),
+        ]),
       ),
       claimDuePosts: validateOperation(
         operations.claimDuePosts,

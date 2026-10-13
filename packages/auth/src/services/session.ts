@@ -60,6 +60,22 @@ export function checkAuthentication<A, R>(
   )
 }
 
+const PkceVerifier = Schema.String.check(
+  Schema.isTrimmed(),
+  Schema.isPattern(/^[A-Za-z0-9._~-]{43,128}$/),
+)
+
+const LoginReturnTarget = Schema.String.check(
+  Schema.isTrimmed(),
+  Schema.isPattern(/^\/(?:invite)?(?:[?#][^\\]*)?$/),
+  Schema.isPattern(/^[!-~]+$/),
+)
+
+const LoginAttempt = Schema.Struct({
+  verifier: PkceVerifier,
+  returnTo: LoginReturnTarget,
+})
+
 function makeSession(config: AppConfig) {
   return Effect.gen(function* () {
     const db = yield* CoreDb
@@ -232,6 +248,21 @@ function makeSession(config: AppConfig) {
               }),
             )
 
+          const returnTargets = new URL(request.url).searchParams.getAll(
+            "returnTo",
+          )
+
+          const returnTo = returnTargets[0] ?? "/"
+
+          if (
+            returnTargets.length > 1 ||
+            !Schema.is(LoginReturnTarget)(returnTo)
+          )
+            return new Response("Invalid login return target", {
+              status: 400,
+              headers: { "cache-control": "no-store" },
+            })
+
           const result = yield* Effect.tryPromise({
             try: () =>
               client.authorize(config.AUTH_CALLBACK_URL, "code", {
@@ -245,7 +276,11 @@ function makeSession(config: AppConfig) {
             return yield* Effect.fail(upstreamError())
           const nonce = `${crypto.randomUUID()}${crypto.randomUUID()}`
           const nonceHash = yield* cipher.hash(nonce)
-          const verifier = yield* cipher.encrypt(result.challenge.verifier)
+
+          const verifier = yield* cipher.encrypt(
+            JSON.stringify({ verifier: result.challenge.verifier, returnTo }),
+          )
+
           yield* db.saveAuthAttempt({
             state: result.challenge.state,
             nonceHash,
@@ -295,14 +330,29 @@ function makeSession(config: AppConfig) {
             })
           }
 
-          const verifier = yield* cipher.decrypt(attempt.success.verifier)
+          const stored = yield* cipher.decrypt(attempt.success.verifier)
+
+          // Old attempts contain only the PKCE verifier and return to the desk.
+          const decoded = Schema.is(PkceVerifier)(stored)
+            ? Effect.succeed({ verifier: stored, returnTo: "/" })
+            : Schema.decodeUnknownEffect(Schema.fromJsonString(LoginAttempt))(
+                stored,
+              )
+
+          const login = yield* decoded.pipe(Effect.result)
+
+          if (Result.isFailure(login))
+            return new Response("Invalid OAuth callback", {
+              status: 400,
+              headers: { "set-cookie": cleared, "cache-control": "no-store" },
+            })
 
           const exchanged = yield* Effect.tryPromise({
             try: (signal) =>
               authClient(config, signal).exchange(
                 code,
                 config.AUTH_CALLBACK_URL,
-                verifier,
+                login.success.verifier,
               ),
             catch: upstreamError,
           })
@@ -339,10 +389,10 @@ function makeSession(config: AppConfig) {
             refreshExpiresAt: now + 604800000,
           })
 
-          return response(config.APP_ORIGIN, [
-            cleared,
-            ...tokens(issued.access, issued.refresh),
-          ])
+          return response(
+            new URL(login.success.returnTo, config.APP_ORIGIN).href,
+            [cleared, ...tokens(issued.access, issued.refresh)],
+          )
         })
       },
       logout(request: Request) {

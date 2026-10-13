@@ -14,6 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "ui/components/ui/dialog"
+import { Field, FieldError } from "ui/components/ui/field"
 import { Input } from "ui/components/ui/input"
 import {
   Select,
@@ -143,51 +144,81 @@ export function WorkspaceFields({
     >
       <form.Field name="name">
         {(field) => (
-          <label
-            htmlFor="workspaces-field-1"
-            {...stylex.props(deskStyles.label)}
+          <Field
+            invalid={field.state.meta.errors.length > 0}
+            touched={field.state.meta.isTouched}
           >
-            Workspace name
-            <Input
-              id="workspaces-field-1"
-              value={field.state.value}
-              onChange={(event) => field.handleChange(event.target.value)}
-              onBlur={field.handleBlur}
-            />
-          </label>
+            <label
+              htmlFor="workspaces-field-1"
+              {...stylex.props(deskStyles.label)}
+            >
+              Workspace name
+              <Input
+                id="workspaces-field-1"
+                value={field.state.value}
+                onChange={(event) => field.handleChange(event.target.value)}
+                onBlur={field.handleBlur}
+              />
+            </label>
+            {field.state.meta.errors.length > 0 && (
+              <FieldError match>
+                <FormErrors errors={field.state.meta.errors} />
+              </FieldError>
+            )}
+          </Field>
         )}
       </form.Field>
       <form.Field name="kind">
         {(field) => (
-          <Choice
-            label="Workspace type"
-            value={field.state.value}
-            options={[
-              { value: "personal", label: "Personal" },
-              { value: "organization", label: "Organization" },
-            ]}
-            onBlur={field.handleBlur}
-            onChange={(value) => {
-              if (value === "personal" || value === "organization")
-                field.handleChange(value)
-            }}
-          />
+          <Field
+            invalid={field.state.meta.errors.length > 0}
+            touched={field.state.meta.isTouched}
+          >
+            <Choice
+              label="Workspace type"
+              value={field.state.value}
+              options={[
+                { value: "personal", label: "Personal" },
+                { value: "organization", label: "Organization" },
+              ]}
+              onBlur={field.handleBlur}
+              onChange={(value) => {
+                if (value === "personal" || value === "organization")
+                  field.handleChange(value)
+              }}
+            />
+            {field.state.meta.errors.length > 0 && (
+              <FieldError match>
+                <FormErrors errors={field.state.meta.errors} />
+              </FieldError>
+            )}
+          </Field>
         )}
       </form.Field>
       <form.Field name="timezone">
         {(field) => (
-          <label
-            htmlFor="workspaces-field-2"
-            {...stylex.props(deskStyles.label)}
+          <Field
+            invalid={field.state.meta.errors.length > 0}
+            touched={field.state.meta.isTouched}
           >
-            Timezone
-            <Input
-              id="workspaces-field-2"
-              value={field.state.value}
-              onChange={(event) => field.handleChange(event.target.value)}
-              onBlur={field.handleBlur}
-            />
-          </label>
+            <label
+              htmlFor="workspaces-field-2"
+              {...stylex.props(deskStyles.label)}
+            >
+              Timezone
+              <Input
+                id="workspaces-field-2"
+                value={field.state.value}
+                onChange={(event) => field.handleChange(event.target.value)}
+                onBlur={field.handleBlur}
+              />
+            </label>
+            {field.state.meta.errors.length > 0 && (
+              <FieldError match>
+                <FormErrors errors={field.state.meta.errors} />
+              </FieldError>
+            )}
+          </Field>
         )}
       </form.Field>
       <form.Subscribe selector={(state) => state.errors}>

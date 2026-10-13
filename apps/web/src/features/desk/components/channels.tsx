@@ -1,5 +1,6 @@
 import * as stylex from "@stylexjs/stylex"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
 
 import { Platform, type Workspace } from "rpc/contracts/models"
@@ -68,9 +69,20 @@ export function Channels({
         access.
       </Text>
       <Failure error={query.error ?? connect.error ?? disconnect.error} />
+      <Button
+        variant="outline"
+        disabled={query.isFetching}
+        onClick={() => void query.refetch()}
+      >
+        {query.isError ? "Retry channels" : "Refresh channels"}
+      </Button>
       {query.isPending && <Box render={<output />}>Loading channels…</Box>}
       {attempt && manager && (
-        <AccountSelection workspaceId={workspaceId} attemptId={attempt} />
+        <AccountSelection
+          key={attempt}
+          workspaceId={workspaceId}
+          attemptId={attempt}
+        />
       )}
       {Platform.literals.map((platform) => {
         const availability = query.data?.platforms.find(
@@ -197,7 +209,16 @@ export function AccountSelection({
   )
 
   const [selected, setSelected] = useState<readonly string[]>([])
-  const [confirmed, setConfirmed] = useState(false)
+  const navigate = useNavigate()
+
+  function dismiss() {
+    void navigate({
+      to: "/channels",
+      search: { workspace: workspaceId },
+      replace: true,
+    })
+  }
+
   const client = useQueryClient()
 
   const select = useMutation(
@@ -218,12 +239,27 @@ export function AccountSelection({
         workspace.
       </Text>
       <Failure error={query.error ?? select.error} />
+      {query.isError && (
+        <Button
+          variant="outline"
+          disabled={query.isFetching || select.isPending}
+          onClick={() => void query.refetch()}
+        >
+          Retry discovered accounts
+        </Button>
+      )}
+      {query.data?.length === 0 && (
+        <Text>
+          No accounts were found. Dismiss this selection and connect again.
+        </Text>
+      )}
       {query.isPending && <Box render={<output />}>Discovering accounts…</Box>}
       {query.data?.map((account) => (
         <Check
           key={account.accountId}
           label={account.displayName}
           checked={selected.includes(account.accountId)}
+          disabled={select.isPending}
           onChange={(checked) =>
             setSelected(
               checked
@@ -234,14 +270,14 @@ export function AccountSelection({
         />
       ))}
       <Button
-        disabled={selected.length === 0 || select.isPending || confirmed}
-        onClick={() =>
-          select.mutate(selected, { onSuccess: () => setConfirmed(true) })
-        }
+        disabled={selected.length === 0 || select.isPending}
+        onClick={() => select.mutate(selected, { onSuccess: dismiss })}
       >
         Confirm selected accounts
       </Button>
-      {confirmed && <Box render={<output />}>Selected accounts connected.</Box>}
+      <Button variant="ghost" disabled={select.isPending} onClick={dismiss}>
+        Dismiss account selection
+      </Button>
     </Box>
   )
 }

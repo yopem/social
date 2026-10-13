@@ -310,12 +310,12 @@ function makeFeeds() {
 
             if (existing) {
               // Queue retries must recover a durable draft after a failed send.
-              if (feed.mode === "automatic" && existing.state === "draft")
+              if (feed.mode === "automatic" && existing.post?.state === "draft")
                 yield* send({
                   type: "publish",
                   workspaceId,
-                  postId: existing.id,
-                  operationKey: `rss:${existing.id}`,
+                  postId: existing.post.id,
+                  operationKey: `rss:${existing.post.id}`,
                 })
               continue
             }
@@ -407,7 +407,7 @@ function makeFeeds() {
                 reason,
               )
 
-              if (!result.created) {
+              if (!result.created || !result.post) {
                 yield* discard(workspaceId, ids)
 
                 return

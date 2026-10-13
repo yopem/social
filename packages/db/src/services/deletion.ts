@@ -502,7 +502,7 @@ function makeDeletion(binding: D1Database) {
                     ),
                 ),
               ),
-              sql`json_extract(${deliveries.data}, '$.state') IN ('accepted','processing','unknown') OR (json_extract(${deliveries.data}, '$.state')='scheduled' AND json_extract(${deliveries.data}, '$.providerPostId') IS NOT NULL)`,
+              sql`(json_extract(${deliveries.data}, '$.state') IN ('accepted','processing','unknown') OR (json_extract(${deliveries.data}, '$.state')='scheduled' AND json_extract(${deliveries.data}, '$.providerPostId') IS NOT NULL))`,
             ),
           ),
       )

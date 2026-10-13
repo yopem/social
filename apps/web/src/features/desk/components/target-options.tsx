@@ -1,15 +1,17 @@
 import * as stylex from "@stylexjs/stylex"
 import { useQuery } from "@tanstack/react-query"
 import { Effect, Schema } from "effect"
-import { useState } from "react"
+import { useId, useState } from "react"
 
 import type { Channel, Media, PlatformOverride } from "rpc/contracts/models"
 import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
+import { Field, FieldDescription, FieldLabel } from "ui/components/ui/field"
 import { Heading } from "ui/components/ui/heading"
 import { Input } from "ui/components/ui/input"
 import { Stack } from "ui/components/ui/stack"
 import { Text } from "ui/components/ui/text"
+import { Textarea } from "ui/components/ui/textarea"
 
 import { Check, Choice, Failure, deskStyles } from "@/components/desk-ui"
 import { workspaceQuery } from "@/features/desk/queries"
@@ -24,84 +26,112 @@ export function TargetOptions({
   value,
   onChange,
   media,
+  disabled = false,
 }: {
   channel: Channel
   value: PlatformOverride
   onChange: (value: PlatformOverride) => void
   media: readonly Media[]
+  disabled?: boolean
 }) {
+  const titleId = useId()
   const [expanded, setExpanded] = useState(false)
 
   function update(patch: Partial<PlatformOverride>) {
     onChange({ ...value, ...patch })
   }
 
-  if (channel.platform === "tiktok")
-    return (
-      <>
-        <Button
-          variant="outline"
-          onClick={() => setExpanded(!expanded)}
-          aria-expanded={expanded}
-        >
-          TikTok options
-        </Button>
-        {expanded && (
-          <TikTokOptions
-            channel={channel}
-            value={value}
-            onChange={onChange}
-            media={media}
-          />
-        )}
-      </>
-    )
-
-  if (channel.platform !== "youtube" && channel.platform !== "linkedin")
-    return null
-
   return (
     <Stack render={<section />} aria-label={`${channel.displayName} options`}>
-      {channel.platform === "youtube" && (
+      <Field>
+        <FieldLabel>Text override for {channel.displayName}</FieldLabel>
+        <Textarea
+          rows={3}
+          maxLength={100_000}
+          disabled={disabled}
+          value={value.text ?? ""}
+          onChange={(event) =>
+            update({
+              text: event.target.value.trim() ? event.target.value : undefined,
+              creatorConsent: false,
+            })
+          }
+        />
+        <FieldDescription>
+          Optional. Leave blank to use the shared post text.
+        </FieldDescription>
+      </Field>
+      {channel.platform === "tiktok" && (
         <>
-          <label
-            htmlFor="target-options-field-1"
-            {...stylex.props(deskStyles.label)}
+          <Button
+            variant="outline"
+            disabled={disabled}
+            onClick={() => setExpanded(!expanded)}
+            aria-expanded={expanded}
           >
-            YouTube title
-            <Input
-              id="target-options-field-1"
-              value={value.title ?? ""}
-              onChange={(event) => update({ title: event.target.value })}
+            TikTok options
+          </Button>
+          {expanded && (
+            <TikTokOptions
+              channel={channel}
+              value={value}
+              onChange={onChange}
+              media={media}
+              disabled={disabled}
             />
-          </label>
-          <Choice
-            label="Made for kids"
-            value={
-              value.madeForKids === undefined ? "" : String(value.madeForKids)
-            }
-            options={booleanChoices}
-            onChange={(choice) => update({ madeForKids: choice === "true" })}
-          />
-          <Text>Video is required. Choose the audience before publishing.</Text>
+          )}
         </>
       )}
-      <Choice
-        label={`${channel.platform === "youtube" ? "YouTube" : "LinkedIn"} visibility`}
-        value={value.visibility ?? ""}
-        options={(channel.platform === "youtube"
-          ? ["public", "private", "unlisted"]
-          : ["public"]
-        ).map((visibility) => ({ value: visibility, label: visibility }))}
-        onChange={(visibility) => {
-          if (
-            visibility === "public" ||
-            visibility === "private" ||
-            visibility === "unlisted"
-          )
-            update({ visibility })
-        }}
-      />
+      {(channel.platform === "youtube" || channel.platform === "linkedin") && (
+        <>
+          {channel.platform === "youtube" && (
+            <>
+              <label htmlFor={titleId} {...stylex.props(deskStyles.label)}>
+                YouTube title
+                <Input
+                  id={titleId}
+                  disabled={disabled}
+                  value={value.title ?? ""}
+                  onChange={(event) => update({ title: event.target.value })}
+                />
+              </label>
+              <Choice
+                disabled={disabled}
+                label="Made for kids"
+                value={
+                  value.madeForKids === undefined
+                    ? ""
+                    : String(value.madeForKids)
+                }
+                options={booleanChoices}
+                onChange={(choice) =>
+                  update({ madeForKids: choice === "true" })
+                }
+              />
+              <Text>
+                Video is required. Choose the audience before publishing.
+              </Text>
+            </>
+          )}
+          <Choice
+            disabled={disabled}
+            label={`${channel.platform === "youtube" ? "YouTube" : "LinkedIn"} visibility`}
+            value={value.visibility ?? ""}
+            options={(channel.platform === "youtube"
+              ? ["public", "private", "unlisted"]
+              : ["public"]
+            ).map((visibility) => ({ value: visibility, label: visibility }))}
+            onChange={(visibility) => {
+              if (
+                visibility === "public" ||
+                visibility === "private" ||
+                visibility === "unlisted"
+              )
+                update({ visibility })
+            }}
+          />
+        </>
+      )}
     </Stack>
   )
 }
@@ -111,11 +141,13 @@ export function TikTokOptions({
   value,
   onChange,
   media,
+  disabled = false,
 }: {
   channel: Channel
   value: PlatformOverride
   onChange: (value: PlatformOverride) => void
   media: readonly Media[]
+  disabled?: boolean
 }) {
   const query = useQuery(
     workspaceQuery(
@@ -206,6 +238,15 @@ export function TikTokOptions({
     <Stack render={<section />} aria-label="TikTok creator settings">
       <Heading render={<h3>Creator preview</h3>} />
       <Failure error={query.error} />
+      {query.isError && (
+        <Button
+          variant="outline"
+          disabled={disabled || query.isFetching}
+          onClick={() => void query.refetch()}
+        >
+          Retry creator information
+        </Button>
+      )}
       {query.isPending && (
         <Box render={<output />}>Loading creator information…</Box>
       )}
@@ -224,7 +265,7 @@ export function TikTokOptions({
         label="Privacy level"
         value={value.privacyLevel ?? ""}
         options={privacyLevels.map((level) => ({ value: level, label: level }))}
-        disabled={!creator}
+        disabled={disabled || !creator}
         onChange={(privacyLevel) => update({ privacyLevel })}
       />
       {fields.map((field) => (
@@ -247,7 +288,7 @@ export function TikTokOptions({
                     disabled: field.restricted && choice.value === "true",
                   }))
             }
-            disabled={!creator}
+            disabled={disabled || !creator}
             onChange={(choice) =>
               update({
                 [field.key]: field.inverted
@@ -263,6 +304,7 @@ export function TikTokOptions({
       ))}
       {media.length > 0 && media.every((item) => item.kind === "image") && (
         <Choice
+          disabled={disabled}
           label="Photo cover"
           value={
             value.photoCoverIndex === undefined
@@ -279,7 +321,7 @@ export function TikTokOptions({
       <Check
         label="I approve publishing to this TikTok account"
         checked={value.creatorConsent === true}
-        disabled={!creator}
+        disabled={disabled || !creator}
         onChange={(creatorConsent) =>
           onChange({
             ...value,

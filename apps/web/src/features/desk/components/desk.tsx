@@ -1,13 +1,22 @@
 import * as stylex from "@stylexjs/stylex"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
+import {
+  CalendarDaysIcon,
+  ChartNoAxesCombinedIcon,
+  FileTextIcon,
+  LayersIcon,
+  ListOrderedIcon,
+  RadioIcon,
+  RssIcon,
+  SettingsIcon,
+} from "lucide-react"
 
 import type { Workspace } from "rpc/contracts/models"
 import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
 import { Flex } from "ui/components/ui/flex"
 import { Heading } from "ui/components/ui/heading"
-import { Stack } from "ui/components/ui/stack"
 import { Text } from "ui/components/ui/text"
 import { tokens } from "ui/styles/tokens.stylex"
 
@@ -23,16 +32,25 @@ import { AccountDeletionSettings, Settings } from "./settings"
 import { Workspaces } from "./workspaces"
 
 const styles = stylex.create({
+  brandIcon: { color: tokens["--primary"], flexShrink: 0 },
   link: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 44,
     padding: "10px 12px",
+    fontWeight: 500,
     borderRadius: 6,
     textDecoration: "none",
-    color: tokens["--foreground"],
+    color: {
+      default: tokens["--foreground"],
+      '[aria-current="page"]': tokens["--sidebar-accent-foreground"],
+    },
     fontSize: 14,
     backgroundColor: {
       default: "transparent",
       ":hover": tokens["--accent"],
-      '[aria-current="page"]': tokens["--accent"],
+      '[aria-current="page"]': tokens["--sidebar-accent"],
     },
     ":focus-visible": {
       outline: `2px solid ${tokens["--ring"]}`,
@@ -49,7 +67,7 @@ const styles = stylex.create({
     color: tokens["--foreground"],
     transform: { default: "translateY(-200%)", ":focus": "translateY(0)" },
   },
-  login: { width: "min(540px, 100%)", margin: "10vh auto" },
+  context: { marginBlockEnd: 24 },
 })
 
 export type DeskView =
@@ -62,13 +80,13 @@ export type DeskView =
   | "settings"
 
 const navigation = [
-  { to: "/", label: "Queue" },
-  { to: "/drafts", label: "Drafts" },
-  { to: "/calendar", label: "Calendar" },
-  { to: "/channels", label: "Channels" },
-  { to: "/rss", label: "RSS automation" },
-  { to: "/analytics", label: "Analytics" },
-  { to: "/settings", label: "Settings" },
+  { to: "/", label: "Queue", icon: ListOrderedIcon },
+  { to: "/drafts", label: "Drafts", icon: FileTextIcon },
+  { to: "/calendar", label: "Calendar", icon: CalendarDaysIcon },
+  { to: "/channels", label: "Channels", icon: RadioIcon },
+  { to: "/rss", label: "RSS automation", icon: RssIcon },
+  { to: "/analytics", label: "Analytics", icon: ChartNoAxesCombinedIcon },
+  { to: "/settings", label: "Settings", icon: SettingsIcon },
 ] as const
 
 export function Desk({ view }: { view: DeskView }) {
@@ -84,25 +102,18 @@ export function Desk({ view }: { view: DeskView }) {
 
   if (session.isPending)
     return (
-      <Box
-        render={<Stack render={<main />} spacing="loose" />}
-        padding="spacious"
-        xstyle={styles.login}
-        aria-busy="true"
-      >
-        <Heading render={<h1>Publishing desk</h1>} />
-        <Box render={<output />}>Loading your workspace…</Box>
+      <Box render={<main />} region="panel" aria-busy="true">
+        <Heading render={<h1>Publishing desk</h1>} size="title" />
+        <Box render={<output />} aria-live="polite">
+          Loading your workspace…
+        </Box>
       </Box>
     )
 
   if (!session.data?.user)
     return (
-      <Box
-        render={<Stack render={<main />} spacing="loose" />}
-        padding="spacious"
-        xstyle={styles.login}
-      >
-        <Heading render={<h1>Publishing desk</h1>} />
+      <Box render={<main />} region="panel">
+        <Heading render={<h1>Publishing desk</h1>} size="title" />
         {session.isSuccess && session.data.user === null ? (
           <>
             <Text>Sign in to manage your publishing workspace.</Text>
@@ -138,14 +149,17 @@ export function Desk({ view }: { view: DeskView }) {
         Skip to content
       </a>
       <Box layout="split">
-        <Box
-          render={<Stack render={<aside />} spacing="loose" />}
-          surface="sidebar"
-          padding="comfortable"
-        >
-          <Text size="large" weight="semibold">
-            Publishing desk
-          </Text>
+        <Box render={<aside />} region="sidebar">
+          <Flex align="center" spacing="normal">
+            <LayersIcon
+              size={22}
+              aria-hidden="true"
+              {...stylex.props(styles.brandIcon)}
+            />
+            <Text size="large" weight="semibold">
+              Publishing desk
+            </Text>
+          </Flex>
           <Workspaces
             workspaces={session.data.workspaces}
             selected={workspace}
@@ -157,13 +171,7 @@ export function Desk({ view }: { view: DeskView }) {
               })
             }}
           />
-          <Flex
-            render={<nav />}
-            aria-label="Publishing"
-            spacing="tight"
-            wrap
-            direction="responsive"
-          >
+          <Box render={<nav />} region="navigation" aria-label="Publishing">
             {navigation.map((item) => (
               <Link
                 key={item.to}
@@ -172,33 +180,36 @@ export function Desk({ view }: { view: DeskView }) {
                 activeOptions={{ exact: true }}
                 {...stylex.props(styles.link)}
               >
+                <item.icon size={18} aria-hidden="true" />
                 {item.label}
               </Link>
             ))}
-          </Flex>
-          <Text>{session.data.user.name}</Text>
-          <Failure error={signOut.error} />
-          <Button
-            variant="ghost"
-            loading={signOut.isPending}
-            onClick={() =>
-              signOut.mutate(undefined, {
-                onSuccess: () => {
-                  window.location.assign("/")
-                },
-              })
-            }
-          >
-            Sign out
-          </Button>
-          <LegalLinks />
+          </Box>
+          <Box render={<footer />} region="footer">
+            <Text size="small" weight="semibold">
+              {session.data.user.name}
+            </Text>
+            <Failure error={signOut.error} />
+            <Button
+              variant="ghost"
+              loading={signOut.isPending}
+              onClick={() =>
+                signOut.mutate(undefined, {
+                  onSuccess: () => {
+                    window.location.assign("/")
+                  },
+                })
+              }
+            >
+              Sign out
+            </Button>
+            <LegalLinks />
+          </Box>
         </Box>
-        <Box
-          render={<main />}
-          id="main-content"
-          tabIndex={-1}
-          padding="responsive"
-        >
+        <Box render={<main />} region="content" id="main-content" tabIndex={-1}>
+          <Text tone="muted" size="small" xstyle={styles.context}>
+            {workspace?.name ?? "Your account"} / Publishing
+          </Text>
           <Failure error={session.error} />
           {session.isError && (
             <Button

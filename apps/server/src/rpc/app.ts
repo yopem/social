@@ -4,6 +4,7 @@ import { FeedService } from "server/services/feeds"
 import { OperationGate } from "server/services/operation-gate"
 import { PostService } from "server/services/posts"
 import { SocialService } from "server/services/social"
+import { MediaService } from "server/storage/media"
 
 import { CoreDb } from "db/services/core"
 import type { AppConfig } from "env/server"
@@ -19,6 +20,7 @@ export function rpcHandlers(config: AppConfig) {
       const feeds = yield* FeedService
       const deletion = yield* AccountDeletion
       const gate = yield* OperationGate
+      const media = yield* MediaService
 
       function guarded<A, E, R>(operation: Effect.Effect<A, E, R>) {
         return Effect.flatMap(CurrentUser, (user) =>
@@ -119,6 +121,10 @@ export function rpcHandlers(config: AppConfig) {
           Effect.flatMap(CurrentUser, (user) =>
             posts.list(user.id, input.workspaceId, input.filter),
           ),
+        PostListPage: (input) =>
+          Effect.flatMap(CurrentUser, (user) => posts.listPage(user.id, input)),
+        MediaList: (input) =>
+          Effect.flatMap(CurrentUser, (user) => media.list(user.id, input)),
         PostSave: (input) =>
           Effect.flatMap(CurrentUser, (user) =>
             posts.save(
