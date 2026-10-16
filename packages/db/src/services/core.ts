@@ -12,6 +12,7 @@ import {
   exists,
   gt,
   lt,
+  lte,
   isNull,
   isNotNull,
   inArray,
@@ -820,48 +821,90 @@ function makeCore(db: D1Database) {
 
         const limit = value.limit ?? 50
 
-        const rows = yield* query(
-          Schema.Struct({ id: Schema.String, created_at: Schema.String }),
-          () =>
-            client
-              .select({ id: posts.id, created_at: posts.created_at })
-              .from(posts)
-              .where(
-                and(
-                  eq(posts.workspace_id, value.workspaceId),
-                  states,
-                  value.channelId
-                    ? sql`EXISTS(SELECT 1 FROM json_each(${posts.content}, '$.channelIds') WHERE value=${value.channelId})`
-                    : undefined,
-                  value.scheduledFrom
-                    ? gte(posts.scheduled_at, value.scheduledFrom)
-                    : undefined,
-                  value.scheduledBefore
-                    ? lt(posts.scheduled_at, value.scheduledBefore)
-                    : undefined,
-                  value.cursor
-                    ? or(
-                        lt(posts.created_at, value.cursor.createdAt),
-                        and(
-                          eq(posts.created_at, value.cursor.createdAt),
-                          lt(posts.id, value.cursor.id),
-                        ),
-                      )
-                    : undefined,
-                ),
-              )
-              .orderBy(desc(posts.created_at), desc(posts.id))
-              .limit(limit + 1),
+        const rows = yield* query(PostRow, () =>
+          client
+            .select()
+            .from(posts)
+            .where(
+              and(
+                eq(posts.workspace_id, value.workspaceId),
+                states,
+                value.channelId
+                  ? sql`EXISTS(SELECT 1 FROM json_each(${posts.content}, '$.channelIds') WHERE value=${value.channelId})`
+                  : undefined,
+                value.scheduledFrom
+                  ? gte(posts.scheduled_at, value.scheduledFrom)
+                  : undefined,
+                value.scheduledBefore
+                  ? lt(posts.scheduled_at, value.scheduledBefore)
+                  : undefined,
+                value.cursor
+                  ? or(
+                      lt(posts.created_at, value.cursor.createdAt),
+                      and(
+                        eq(posts.created_at, value.cursor.createdAt),
+                        lt(posts.id, value.cursor.id),
+                      ),
+                    )
+                  : undefined,
+              ),
+            )
+            .orderBy(desc(posts.created_at), desc(posts.id))
+            .limit(limit + 1),
         )
 
         const selected = rows.slice(0, limit)
         const last = selected.at(-1)
 
-        const items = yield* Effect.forEach(
-          selected,
-          (row) => getPost(value.workspaceId, row.id),
-          { concurrency: 4 },
-        )
+        const rankedDeliveries = client
+          .select({
+            id: deliveries.id,
+            post_id: deliveries.post_id,
+            data: deliveries.data,
+            rank: sql<number>`row_number() over (partition by ${deliveries.post_id} order by ${deliveries.id})`.as(
+              "delivery_rank",
+            ),
+          })
+          .from(deliveries)
+          .where(
+            inArray(
+              deliveries.post_id,
+              selected.map((row) => row.id),
+            ),
+          )
+          .as("ranked_deliveries")
+
+        const storedDeliveries = selected.length
+          ? yield* query(
+              Schema.Struct({
+                post_id: Schema.String,
+                ...DeliveryRow.fields,
+              }),
+              () =>
+                client
+                  .select({
+                    post_id: rankedDeliveries.post_id,
+                    data: rankedDeliveries.data,
+                  })
+                  .from(rankedDeliveries)
+                  .where(lte(rankedDeliveries.rank, sql`40`))
+                  .orderBy(rankedDeliveries.id),
+            )
+          : []
+
+        const items = selected.map((row) => ({
+          id: row.id,
+          workspaceId: row.workspace_id,
+          content: row.content,
+          state: row.state,
+          scheduledAt: row.scheduled_at,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          reviewReason: row.review_reason,
+          deliveries: storedDeliveries
+            .filter((item) => item.post_id === row.id)
+            .map((item) => item.data),
+        }))
 
         return yield* Schema.decodeUnknownEffect(PostListPageResult)({
           items,

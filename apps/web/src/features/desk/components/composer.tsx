@@ -16,6 +16,7 @@ import {
 } from "rpc/contracts/models"
 import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
+import { Card, CardPanel } from "ui/components/ui/card"
 import {
   Dialog,
   DialogHeader,
@@ -24,14 +25,17 @@ import {
   DialogTitle,
 } from "ui/components/ui/dialog"
 import { Field, FieldError, FieldLabel } from "ui/components/ui/field"
-import { Flex } from "ui/components/ui/flex"
 import { Heading } from "ui/components/ui/heading"
+import { HStack } from "ui/components/ui/hstack"
 import { Input } from "ui/components/ui/input"
+import { ScrollArea } from "ui/components/ui/scroll-area"
+import { Separator } from "ui/components/ui/separator"
 import { Stack } from "ui/components/ui/stack"
 import { Text } from "ui/components/ui/text"
 import { Textarea } from "ui/components/ui/textarea"
 
-import { Check, Failure, FormErrors, deskStyles } from "@/components/desk-ui"
+import { deskStyles } from "@/components/desk-styles"
+import { Check, Failure, FormErrors } from "@/components/desk-ui"
 import { validatePublishing } from "@/features/desk/publishing"
 import {
   effectMutation,
@@ -276,10 +280,10 @@ export function Composer({
         <DialogPanel>
           <form
             {...stylex.props(deskStyles.stack)}
-            onSubmit={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              void form.handleSubmit()
+            action={async () => {
+              // Clear stale schema paths before TanStack checks field validity.
+              await form.validate("submit")
+              await form.handleSubmit()
             }}
           >
             <form.Field name="text">
@@ -341,7 +345,14 @@ export function Composer({
               <Box render={<output />}>Uploading media…</Box>
             )}
             {media.map((item) => (
-              <Flex key={item.id} spacing="normal" wrap align="center">
+              <HStack
+                key={item.id}
+                xstyle={[
+                  deskStyles.rowGap,
+                  deskStyles.wrap,
+                  deskStyles.alignCenter,
+                ]}
+              >
                 <a href={item.url} target="_blank" rel="noreferrer">
                   {item.name}
                 </a>
@@ -364,53 +375,58 @@ export function Composer({
                 >
                   Remove {item.name}
                 </Button>
-              </Flex>
+              </HStack>
             ))}
             {savedMedia.isError &&
               post?.content.mediaIds
                 .filter((id) => !removedMediaIdSet.has(id))
                 .map((id) => (
-                  <Button
-                    key={id}
-                    variant="outline"
-                    disabled={locked}
-                    onClick={() => {
-                      setRemovedMediaIds((ids) => [...ids, id])
-                      form.setFieldValue("mediaIds", (ids) =>
-                        ids.filter((item) => item !== id),
-                      )
-                      form.setFieldValue("overrides", (overrides) =>
-                        overrides.map((override) => ({
-                          ...override,
-                          photoCoverIndex: undefined,
-                          creatorConsent: false,
-                        })),
-                      )
-                    }}
-                  >
-                    Remove unavailable attachment {id}
-                  </Button>
+                  <HStack key={id}>
+                    <Button
+                      variant="outline"
+                      disabled={locked}
+                      onClick={() => {
+                        setRemovedMediaIds((ids) => [...ids, id])
+                        form.setFieldValue("mediaIds", (ids) =>
+                          ids.filter((item) => item !== id),
+                        )
+                        form.setFieldValue("overrides", (overrides) =>
+                          overrides.map((override) => ({
+                            ...override,
+                            photoCoverIndex: undefined,
+                            creatorConsent: false,
+                          })),
+                        )
+                      }}
+                    >
+                      Remove unavailable attachment {id}
+                    </Button>
+                  </HStack>
                 ))}
             <Failure error={savedMedia.error} />
             {loadingMedia && (
               <Box render={<output />}>Loading saved attachments…</Box>
             )}
             {savedMedia.isError && (
-              <Button
-                variant="outline"
-                onClick={() => void savedMedia.refetch()}
-              >
-                Retry attachments
-              </Button>
+              <HStack>
+                <Button
+                  variant="outline"
+                  onClick={() => void savedMedia.refetch()}
+                >
+                  Retry attachments
+                </Button>
+              </HStack>
             )}
             <Failure error={channels.error} />
-            <Button
-              variant="ghost"
-              disabled={channels.isFetching}
-              onClick={() => void channels.refetch()}
-            >
-              {channels.isError ? "Retry channels" : "Refresh channels"}
-            </Button>
+            <HStack>
+              <Button
+                variant="ghost"
+                disabled={channels.isFetching}
+                onClick={() => void channels.refetch()}
+              >
+                {channels.isError ? "Retry channels" : "Refresh channels"}
+              </Button>
+            </HStack>
             {channels.data?.channels
               .filter(
                 (channel) =>
@@ -493,23 +509,24 @@ export function Composer({
                         ),
                     )
                     .map((id) => (
-                      <Button
-                        key={id}
-                        variant="outline"
-                        disabled={locked}
-                        onClick={() => {
-                          field.handleChange(
-                            field.state.value.filter((item) => item !== id),
-                          )
-                          form.setFieldValue("overrides", (overrides) =>
-                            overrides.filter(
-                              (override) => override.channelId !== id,
-                            ),
-                          )
-                        }}
-                      >
-                        Remove unavailable channel {id}
-                      </Button>
+                      <HStack key={id}>
+                        <Button
+                          variant="outline"
+                          disabled={locked}
+                          onClick={() => {
+                            field.handleChange(
+                              field.state.value.filter((item) => item !== id),
+                            )
+                            form.setFieldValue("overrides", (overrides) =>
+                              overrides.filter(
+                                (override) => override.channelId !== id,
+                              ),
+                            )
+                          }}
+                        >
+                          Remove unavailable channel {id}
+                        </Button>
+                      </HStack>
                     ))}
                 </>
               )}
@@ -520,6 +537,7 @@ export function Composer({
                 channel.
               </Text>
             )}
+            <Separator />
             <label
               htmlFor="composer-field-2"
               {...stylex.props(deskStyles.label)}
@@ -541,40 +559,44 @@ export function Composer({
                 keep or change the publish time.
               </Text>
             )}
-            <Text tone="muted" size="small">
+            <Text
+              xstyle={[deskStyles.text, deskStyles.muted, deskStyles.small]}
+            >
               Publish time uses {workspace.timezone}. Daylight-saving gaps and
               repeated times are rejected.
             </Text>
             <form.Subscribe selector={(state) => state.values}>
               {(value) => (
-                <Box
-                  render={<section />}
-                  aria-label="Post preview"
-                  surface="preview"
-                >
-                  <Heading render={<h3>Preview</h3>} />
-                  <Text>{value.text || "Media post"}</Text>
-                  <Text>{value.mediaIds.length} attachment(s)</Text>
-                  {value.channelIds.map((id) => (
-                    <Text key={id}>
-                      {channels.data?.channels.find(
-                        (channel) => channel.id === id,
-                      )?.displayName ?? id}
-                      :{" "}
-                      {value.overrides.find(
-                        (override) => override.channelId === id,
-                      )?.text ??
-                        (value.text || "Media post")}
-                    </Text>
-                  ))}
-                </Box>
+                <Card render={<section />} aria-label="Post preview">
+                  <CardPanel>
+                    <Stack>
+                      <Heading render={<h3>Preview</h3>} />
+                      <Text>{value.text || "Media post"}</Text>
+                      <Text>{value.mediaIds.length} attachment(s)</Text>
+                      {value.channelIds.map((id) => (
+                        <Text key={id}>
+                          {channels.data?.channels.find(
+                            (channel) => channel.id === id,
+                          )?.displayName ?? id}
+                          :{" "}
+                          {value.overrides.find(
+                            (override) => override.channelId === id,
+                          )?.text ??
+                            (value.text || "Media post")}
+                        </Text>
+                      ))}
+                    </Stack>
+                  </CardPanel>
+                </Card>
               )}
             </form.Subscribe>
-            <form.Subscribe selector={(state) => state.errors}>
-              {(errors) => <FormErrors errors={errors} />}
-            </form.Subscribe>
-            <Failure error={mutation.error} />
-            <Flex spacing="normal" wrap align="center">
+            <HStack
+              xstyle={[
+                deskStyles.rowGap,
+                deskStyles.wrap,
+                deskStyles.alignCenter,
+              ]}
+            >
               <Button
                 type="submit"
                 variant="outline"
@@ -609,7 +631,14 @@ export function Composer({
               >
                 Schedule post
               </Button>
-            </Flex>
+            </HStack>
+            {/* Keep validation space so onBlur does not move submit controls. */}
+            <ScrollArea xstyle={deskStyles.formErrors}>
+              <form.Subscribe selector={(state) => state.errors}>
+                {(errors) => <FormErrors errors={errors} />}
+              </form.Subscribe>
+              <Failure error={mutation.error} />
+            </ScrollArea>
             {publishStarted && mutation.error && (
               <Text>
                 Publish outcome may be uncertain. Check uses the same post and

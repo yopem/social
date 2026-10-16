@@ -11,6 +11,10 @@ import { Schema } from "effect"
 
 import { Box } from "ui/components/ui/box"
 import { themeMarker, lightTheme, rootStyles } from "ui/styles/tokens.stylex"
+import "@fontsource-variable/inter"
+import "@fontsource/ibm-plex-mono/latin-400.css"
+import "@fontsource/ibm-plex-mono/latin-500.css"
+
 import "ui/styles/styles.css"
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(

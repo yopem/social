@@ -4,16 +4,29 @@ import { expect } from "@playwright/test"
 import { Effect, Schema } from "effect"
 import { Buffer } from "node:buffer"
 
-import { E2EFailure, check, effectTest, responseJson, step } from "./effect"
+import {
+  E2EFailure,
+  check,
+  effectTest,
+  navigateWithSession,
+  responseJson,
+  step,
+} from "./effect"
 
-function signIn(page: Page) {
+function createSession(page: Page) {
   return Effect.gen(function* () {
     const response = yield* step(() =>
       page.request.post("/__fixtures/session", { data: { identity: "owner" } }),
     )
 
     yield* check(() => expect(response.ok()).toBeTruthy())
-    yield* step(() => page.goto("/"))
+  })
+}
+
+function signIn(page: Page, path = "/") {
+  return Effect.gen(function* () {
+    yield* createSession(page)
+    yield* navigateWithSession(page, () => page.goto(path))
   })
 }
 
@@ -65,15 +78,19 @@ effectTest(
       yield* step(() =>
         page.getByRole("button", { name: "Save draft", exact: true }).click(),
       )
-      yield* step(() => page.reload())
-      yield* step(() =>
-        page.getByRole("link", { name: "Drafts", exact: true }).click(),
-      )
+      yield* step(() => expect(page.getByRole("dialog")).toHaveCount(0))
+      yield* navigateWithSession(page, () => page.goto("/drafts"))
 
       const article = page
         .getByRole("article")
         .filter({ hasText: "Saved attachment workflow" })
 
+      yield* step(() => expect(article).toBeVisible())
+      yield* step(() =>
+        expect(
+          page.getByText("No posts match this view.", { exact: true }),
+        ).toHaveCount(0),
+      )
       yield* step(() =>
         article.getByRole("button", { name: "Edit post", exact: true }).click(),
       )
@@ -95,7 +112,8 @@ effectTest(
       yield* step(() =>
         page.getByRole("button", { name: "Save draft", exact: true }).click(),
       )
-      yield* step(() => page.reload())
+      yield* step(() => expect(page.getByRole("dialog")).toHaveCount(0))
+      yield* navigateWithSession(page, () => page.reload())
       yield* step(() =>
         article.getByRole("button", { name: "Edit post", exact: true }).click(),
       )
@@ -117,15 +135,16 @@ effectTest(
   "feed URL edits preserve custom names and retain unavailable targets for removal",
   ({ page }) =>
     Effect.gen(function* () {
-      yield* signIn(page)
-      yield* step(() =>
+      yield* createSession(page)
+
+      const seeded = yield* step(() =>
         page.request.post("/__fixtures/channels", {
           data: { scenario: "mixed" },
         }),
       )
-      yield* step(() =>
-        page.getByRole("link", { name: "RSS automation", exact: true }).click(),
-      )
+
+      yield* check(() => expect(seeded.ok()).toBeTruthy())
+      yield* navigateWithSession(page, () => page.goto("/rss"))
       yield* step(() =>
         page.getByRole("button", { name: "Add feed", exact: true }).click(),
       )
@@ -155,7 +174,7 @@ effectTest(
       yield* step(() =>
         page.getByRole("button", { name: "Save feed", exact: true }).click(),
       )
-      yield* step(() => page.reload())
+      yield* step(() => expect(page.getByRole("dialog")).toHaveCount(0))
       yield* step(() =>
         page
           .getByRole("article")
@@ -176,6 +195,7 @@ effectTest(
       yield* step(() =>
         page.getByRole("button", { name: "Save feed", exact: true }).click(),
       )
+      yield* step(() => expect(page.getByRole("dialog")).toHaveCount(0))
       yield* step(() =>
         page.getByRole("link", { name: "Channels", exact: true }).click(),
       )
@@ -183,6 +203,14 @@ effectTest(
         page
           .getByRole("button", { name: "Disconnect Alex on X", exact: true })
           .click(),
+      )
+      yield* step(() =>
+        expect(
+          page.getByRole("button", {
+            name: "Disconnect Alex on X",
+            exact: true,
+          }),
+        ).toHaveCount(0),
       )
       yield* step(() =>
         page.getByRole("link", { name: "RSS automation", exact: true }).click(),
@@ -200,20 +228,39 @@ effectTest(
         ).toBeChecked(),
       )
       yield* step(() =>
-        page
-          .getByRole("checkbox", { name: "Alex on X", exact: true })
-          .uncheck(),
+        page.getByRole("checkbox", { name: "Alex on X", exact: true }).click(),
+      )
+      yield* step(() =>
+        expect(
+          page.getByRole("checkbox", { name: "Alex on X", exact: true }),
+        ).toHaveCount(0),
       )
       yield* step(() =>
         page.getByRole("button", { name: "Save feed", exact: true }).click(),
       )
-      yield* step(() => page.reload())
+      yield* step(() => expect(page.getByRole("dialog")).toHaveCount(0))
+      yield* navigateWithSession(page, () => page.reload())
       yield* step(() =>
         page
           .getByRole("article")
           .filter({ hasText: "Custom workflow feed" })
           .getByRole("button", { name: "Edit feed", exact: true })
           .click(),
+      )
+      yield* step(() =>
+        expect(page.getByLabel("Feed URL", { exact: true })).toHaveValue(
+          "https://example.net/feed",
+        ),
+      )
+      yield* step(() =>
+        expect(page.getByLabel("Feed name", { exact: true })).toHaveValue(
+          "Custom workflow feed",
+        ),
+      )
+      yield* step(() =>
+        expect(
+          page.getByRole("checkbox", { name: "Alex on Bluesky", exact: true }),
+        ).toBeVisible(),
       )
       yield* step(() =>
         expect(
@@ -229,37 +276,92 @@ effectTest(
     }),
 )
 
-for (const path of [
-  "/",
-  "/drafts",
-  "/channels",
-  "/rss",
-  "/analytics",
-  "/settings",
-]) {
+for (const { path, retries } of [
+  {
+    path: "/",
+    retries: [
+      ["channels", "ChannelList"],
+      ["posts", "PostListPage"],
+    ],
+  },
+  {
+    path: "/drafts",
+    retries: [
+      ["channels", "ChannelList"],
+      ["posts", "PostListPage"],
+    ],
+  },
+  { path: "/channels", retries: [["channels", "ChannelList"]] },
+  { path: "/rss", retries: [["feeds", "FeedList"]] },
+  {
+    path: "/analytics",
+    retries: [
+      ["analytics", "AnalyticsRead"],
+      ["channels", "ChannelList"],
+    ],
+  },
+  { path: "/settings", retries: [["members", "WorkspaceMembers"]] },
+] as const) {
   effectTest(`workspace query failure offers retry on ${path}`, ({ page }) =>
     Effect.gen(function* () {
-      yield* signIn(page)
+      const failedQueries = new Set<string>()
+
       yield* step(() =>
-        page.route("**/rpc", (route) =>
-          route.request().postData()?.includes("SessionRead")
-            ? route.continue()
-            : route.abort("failed"),
-        ),
+        page.route("**/rpc{,/}", async (route) => {
+          const body = route.request().postData()
+
+          if (body?.includes("SessionRead")) return route.continue()
+
+          await route.abort("failed")
+
+          for (const [, tag] of retries)
+            if (body?.includes(`"tag":"${tag}"`)) failedQueries.add(tag)
+        }),
       )
-      yield* step(() => page.goto(path))
+      yield* signIn(page, path)
       yield* step(() =>
         expect(
           page.getByRole("button", { name: /^Retry / }).first(),
         ).toBeVisible(),
       )
-      yield* step(() => page.unroute("**/rpc"))
+
+      if (path === "/" || path === "/drafts")
+        yield* step(() =>
+          expect(page.getByRole("button", { name: /^Retry / })).toHaveCount(2),
+        )
+
       yield* step(() =>
-        page
-          .getByRole("button", { name: /^Retry / })
-          .first()
-          .click(),
+        expect
+          .poll(() => retries.every(([, tag]) => failedQueries.has(tag)))
+          .toBeTruthy(),
       )
+      yield* step(() => page.unroute("**/rpc{,/}"))
+
+      for (const [name, tag] of retries) {
+        const retry = page.getByRole("button", {
+          name: `Retry ${name}`,
+          exact: true,
+        })
+
+        yield* step(async () => {
+          const [response] = await Promise.all([
+            page.waitForResponse(
+              (response) =>
+                ["/rpc", "/rpc/"].includes(new URL(response.url()).pathname) &&
+                response.request().method() === "POST" &&
+                Boolean(
+                  response.request().postData()?.includes(`"tag":"${tag}"`),
+                ),
+            ),
+            retry.click(),
+          ])
+
+          expect(response.ok()).toBeTruthy()
+          await response.finished()
+          await expect(retry).toHaveCount(0)
+        })
+      }
+
       yield* step(() =>
         expect(page.getByRole("button", { name: /^Retry / })).toHaveCount(0),
       )
@@ -277,7 +379,7 @@ effectTest(
           data: { scenario: "mixed" },
         }),
       )
-      yield* step(() => page.reload())
+      yield* navigateWithSession(page, () => page.reload())
       yield* step(() =>
         page.getByRole("button", { name: "Create post", exact: true }).click(),
       )
@@ -299,8 +401,9 @@ effectTest(
         ).toContainText("Published"),
       )
       yield* step(() =>
-        page.getByRole("button", { name: "History", exact: true }).click(),
+        page.getByRole("tab", { name: "Queue", exact: true }).focus(),
       )
+      yield* step(() => page.keyboard.press("ArrowRight"))
       yield* step(() =>
         expect(
           page
@@ -310,16 +413,16 @@ effectTest(
       )
       yield* step(() =>
         expect(
-          page.getByRole("button", { name: "History", exact: true }),
-        ).toHaveAttribute("aria-pressed", "true"),
+          page.getByRole("tab", { name: "History", exact: true }),
+        ).toHaveAttribute("aria-selected", "true"),
       )
       yield* step(() =>
-        page.getByRole("button", { name: "Queue", exact: true }).click(),
+        page.getByRole("tab", { name: "Queue", exact: true }).click(),
       )
       yield* step(() =>
         expect(
-          page.getByRole("button", { name: "Queue", exact: true }),
-        ).toHaveAttribute("aria-pressed", "true"),
+          page.getByRole("tab", { name: "Queue", exact: true }),
+        ).toHaveAttribute("aria-selected", "true"),
       )
       yield* step(() =>
         page.getByRole("link", { name: "Drafts", exact: true }).click(),
@@ -344,6 +447,9 @@ effectTest(
     Effect.gen(function* () {
       yield* signIn(page)
       yield* step(() => page.setViewportSize({ width: 320, height: 800 }))
+      yield* step(() =>
+        page.getByRole("button", { name: "Toggle Sidebar" }).click(),
+      )
       yield* step(() =>
         page.getByRole("link", { name: "Calendar", exact: true }).click(),
       )
@@ -428,7 +534,7 @@ effectTest("account confirmation clears attempt from URL", ({ page }) =>
     )
 
     yield* check(() => expect(discovered.ok()).toBeTruthy())
-    yield* step(() =>
+    yield* navigateWithSession(page, () =>
       page.goto(`/channels?attempt=${encodeURIComponent(attempt.id)}`),
     )
     yield* step(() =>
@@ -444,7 +550,7 @@ effectTest("account confirmation clears attempt from URL", ({ page }) =>
         .click(),
     )
     yield* step(() => expect(page).not.toHaveURL(/attempt=/))
-    yield* step(() => page.reload())
+    yield* navigateWithSession(page, () => page.reload())
     yield* step(() =>
       expect(
         page.getByRole("region", { name: "Discovered accounts", exact: true }),
@@ -457,13 +563,13 @@ effectTest(
   "scheduled post edit keeps time and disconnected target can be removed",
   ({ page }) =>
     Effect.gen(function* () {
-      yield* signIn(page)
+      yield* createSession(page)
       yield* step(() =>
         page.request.post("/__fixtures/channels", {
           data: { scenario: "mixed" },
         }),
       )
-      yield* step(() => page.reload())
+      yield* navigateWithSession(page, () => page.goto("/"))
       yield* step(() =>
         page.getByRole("button", { name: "Create post", exact: true }).click(),
       )
@@ -504,20 +610,33 @@ effectTest(
           .click(),
       )
       yield* step(() =>
+        expect(
+          page.getByRole("button", {
+            name: "Disconnect Alex on X",
+            exact: true,
+          }),
+        ).toHaveCount(0),
+      )
+      yield* step(() =>
         page.getByRole("link", { name: "Drafts", exact: true }).click(),
       )
       yield* step(() =>
         article.getByRole("button", { name: "Edit post", exact: true }).click(),
       )
-      yield* step(() =>
-        page
-          .getByRole("checkbox", { name: "Alex on X", exact: true })
-          .uncheck(),
-      )
+
+      const disconnectedTarget = page.getByRole("checkbox", {
+        name: "Alex on X",
+        exact: true,
+      })
+
+      yield* step(() => expect(disconnectedTarget).toBeChecked())
+      yield* step(() => disconnectedTarget.click())
+      yield* step(() => expect(disconnectedTarget).toHaveCount(0))
       yield* step(() =>
         page.getByRole("button", { name: "Save draft", exact: true }).click(),
       )
-      yield* step(() => page.reload())
+      yield* step(() => expect(page.getByRole("dialog")).toHaveCount(0))
+      yield* navigateWithSession(page, () => page.reload())
       yield* step(() =>
         article.getByRole("button", { name: "Edit post", exact: true }).click(),
       )
@@ -562,38 +681,10 @@ effectTest(
   "server filtering finds older scheduled posts and excludes next-day boundary",
   ({ page }) =>
     Effect.gen(function* () {
-      yield* signIn(page)
-
-      yield* step(() =>
-        page.getByRole("combobox", { name: /^Workspace:/ }).click(),
-      )
-      yield* step(() =>
-        page
-          .getByRole("button", { name: "Create workspace", exact: true })
-          .click(),
-      )
-      yield* step(() =>
-        page
-          .getByLabel("Workspace name", { exact: true })
-          .fill("Pagination workflow workspace"),
-      )
-      yield* step(() =>
-        page.getByLabel("Timezone", { exact: true }).fill("UTC"),
-      )
-      yield* step(() =>
-        page
-          .getByRole("dialog")
-          .getByRole("button", { name: "Create workspace", exact: true })
-          .click(),
-      )
-      yield* step(() => expect(page.getByRole("dialog")).toHaveCount(0))
-      const workspaceId = new URL(page.url()).searchParams.get("workspace")
-      yield* check(() => expect(workspaceId).toBeTruthy())
+      yield* createSession(page)
 
       const response = yield* step(() =>
-        page.request.post(
-          `/__fixtures/backend-workflows/setup?workspace=${encodeURIComponent(workspaceId ?? "")}`,
-        ),
+        page.request.post("/__fixtures/backend-workflows/setup"),
       )
 
       const fixture = yield* responseJson(
@@ -606,10 +697,18 @@ effectTest(
         }),
       )
 
-      yield* step(() =>
+      yield* navigateWithSession(page, () =>
         page.goto(
           `/calendar?workspace=${encodeURIComponent(fixture.workspaceId)}`,
         ),
+      )
+      yield* step(() =>
+        expect(
+          page.getByRole("region", {
+            name: "Publication calendar",
+            exact: true,
+          }),
+        ).toBeVisible(),
       )
       yield* step(() =>
         page.getByLabel("Calendar date", { exact: true }).fill(fixture.day),
@@ -635,8 +734,27 @@ effectTest(
         }),
       )
       yield* step(() =>
-        page.goto(
+        page.getByRole("link", { name: "Drafts", exact: true }).click(),
+      )
+      yield* step(() =>
+        expect(page).toHaveURL(
           `/drafts?workspace=${encodeURIComponent(fixture.workspaceId)}`,
+        ),
+      )
+      yield* step(() =>
+        page.getByRole("button", { name: "All dates", exact: true }).click(),
+      )
+      yield* step(() =>
+        page
+          .getByRole("combobox", { name: "Channel filter", exact: true })
+          .click(),
+      )
+      yield* step(() =>
+        page.getByRole("option", { name: "All channels", exact: true }).click(),
+      )
+      yield* step(() =>
+        expect(page.getByLabel("Calendar date", { exact: true })).toHaveValue(
+          "",
         ),
       )
       yield* step(() => expect(page.getByRole("article")).toHaveCount(50))
@@ -673,7 +791,7 @@ effectTest(
       )
 
       yield* check(() => expect(seeded.ok()).toBeTruthy())
-      yield* step(() => page.reload())
+      yield* navigateWithSession(page, () => page.reload())
       yield* step(() =>
         page.getByRole("button", { name: "Create post", exact: true }).click(),
       )
@@ -691,7 +809,7 @@ effectTest(
           .fill("Submitted title"),
       )
       yield* step(() =>
-        page.route("**/rpc", async (route) => {
+        page.route("**/rpc{,/}", async (route) => {
           if (route.request().postData()?.includes("PostSave"))
             await new Promise<void>((resolve) => setTimeout(resolve, 1500))
           await route.continue()
@@ -821,7 +939,7 @@ effectTest("uncertain publication stays visible in Queue", ({ page }) =>
     )
 
     yield* check(() => expect(seeded.ok()).toBeTruthy())
-    yield* step(() => page.reload())
+    yield* navigateWithSession(page, () => page.reload())
     yield* step(() =>
       page.getByRole("button", { name: "Create post", exact: true }).click(),
     )
@@ -837,8 +955,8 @@ effectTest("uncertain publication stays visible in Queue", ({ page }) =>
     yield* step(() => expect(page.getByRole("dialog")).toHaveCount(0))
     yield* step(() =>
       expect(
-        page.getByRole("button", { name: "Queue", exact: true }),
-      ).toHaveAttribute("aria-pressed", "true"),
+        page.getByRole("tab", { name: "Queue", exact: true }),
+      ).toHaveAttribute("aria-selected", "true"),
     )
     yield* step(() =>
       expect(
@@ -863,9 +981,9 @@ effectTest(
       )
 
       yield* check(() => expect(seeded.ok()).toBeTruthy())
-      yield* step(() => page.reload())
+      yield* navigateWithSession(page, () => page.reload())
       yield* step(() =>
-        page.route("**/rpc", async (route) => {
+        page.route("**/rpc{,/}", async (route) => {
           if (!route.request().postData()?.includes("PostPublish"))
             return route.continue()
           const response = await route.fetch()
@@ -917,7 +1035,7 @@ effectTest(
       )
 
       yield* check(() => expect(seeded.ok()).toBeTruthy())
-      yield* step(() => page.reload())
+      yield* navigateWithSession(page, () => page.reload())
 
       const uploads: string[] = []
       page.on("request", (request) => {
@@ -985,15 +1103,12 @@ effectTest(
         page.getByRole("button", { name: "Save draft", exact: true }).click(),
       )
       yield* step(() => expect(page.getByRole("dialog")).toHaveCount(0))
-      yield* step(() =>
-        page.getByRole("link", { name: "Drafts", exact: true }).click(),
-      )
-      yield* step(() => page.reload())
+      yield* navigateWithSession(page, () => page.goto("/drafts"))
       yield* step(() =>
         page
           .getByRole("article")
           .filter({ hasText: "Saved YouTube video workflow" })
-          .getByRole("button", { name: "Edit", exact: true })
+          .getByRole("button", { name: "Edit post", exact: true })
           .click(),
       )
       yield* step(() =>
@@ -1026,7 +1141,7 @@ effectTest(
       const saving = yield* step(async () => {
         const request = page.waitForRequest(
           (request) =>
-            request.url().endsWith("/rpc") &&
+            ["/rpc", "/rpc/"].includes(new URL(request.url()).pathname) &&
             Boolean(request.postData()?.includes('"tag":"PostSave"')),
         )
 
@@ -1062,7 +1177,7 @@ effectTest(
         page.getByRole("link", { name: "Queue", exact: true }).click(),
       )
       yield* step(() =>
-        page.getByRole("button", { name: "History", exact: true }).click(),
+        page.getByRole("tab", { name: "History", exact: true }).click(),
       )
 
       const published = page
@@ -1092,7 +1207,7 @@ effectTest(
   "per-account caption persists and blank override restores shared text",
   ({ page }) =>
     Effect.gen(function* () {
-      yield* signIn(page)
+      yield* createSession(page)
 
       const seeded = yield* step(() =>
         page.request.post("/__fixtures/channels", {
@@ -1101,7 +1216,7 @@ effectTest(
       )
 
       yield* check(() => expect(seeded.ok()).toBeTruthy())
-      yield* step(() => page.reload())
+      yield* navigateWithSession(page, () => page.goto("/"))
       yield* step(() =>
         page.getByRole("button", { name: "Create post", exact: true }).click(),
       )
@@ -1146,7 +1261,7 @@ effectTest(
       const saving = yield* step(async () => {
         const request = page.waitForRequest(
           (request) =>
-            request.url().endsWith("/rpc") &&
+            ["/rpc", "/rpc/"].includes(new URL(request.url()).pathname) &&
             Boolean(request.postData()?.includes('"tag":"PostSave"')),
         )
 
@@ -1196,17 +1311,14 @@ effectTest(
         ]),
       )
       yield* step(() => expect(page.getByRole("dialog")).toHaveCount(0))
-      yield* step(() =>
-        page.getByRole("link", { name: "Drafts", exact: true }).click(),
-      )
-      yield* step(() => page.reload())
+      yield* navigateWithSession(page, () => page.goto("/drafts"))
 
       const draft = page
         .getByRole("article")
         .filter({ hasText: "Shared caption workflow" })
 
       yield* step(() =>
-        draft.getByRole("button", { name: "Edit", exact: true }).click(),
+        draft.getByRole("button", { name: "Edit post", exact: true }).click(),
       )
       yield* step(() =>
         expect(
@@ -1235,7 +1347,7 @@ effectTest(
       const cleared = yield* step(async () => {
         const request = page.waitForRequest(
           (request) =>
-            request.url().endsWith("/rpc") &&
+            ["/rpc", "/rpc/"].includes(new URL(request.url()).pathname) &&
             Boolean(request.postData()?.includes('"tag":"PostSave"')),
         )
 
@@ -1265,9 +1377,9 @@ effectTest(
         ).toBeTruthy(),
       )
       yield* step(() => expect(page.getByRole("dialog")).toHaveCount(0))
-      yield* step(() => page.reload())
+      yield* navigateWithSession(page, () => page.reload())
       yield* step(() =>
-        draft.getByRole("button", { name: "Edit", exact: true }).click(),
+        draft.getByRole("button", { name: "Edit post", exact: true }).click(),
       )
       yield* step(() =>
         expect(

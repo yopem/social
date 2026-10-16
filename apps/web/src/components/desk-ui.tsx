@@ -14,15 +14,10 @@ import {
 } from "ui/components/ui/select"
 import { Stack } from "ui/components/ui/stack"
 import { Text } from "ui/components/ui/text"
+import { Wrap } from "ui/components/ui/wrap"
 
+import { deskStyles } from "@/components/desk-styles"
 import { errorMessage } from "@/features/desk/queries"
-
-export const deskStyles = stylex.create({
-  stack: { display: "grid", gap: 16, minWidth: 0 },
-  label: { display: "grid", gap: 8, fontSize: 14, minWidth: 0 },
-  labelText: { fontSize: 14, fontWeight: 500, lineHeight: 1.5 },
-  check: { display: "flex", gap: 10, alignItems: "center", minHeight: 44 },
-})
 
 export function Choice({
   label,
@@ -42,7 +37,7 @@ export function Choice({
   const id = useId()
 
   return (
-    <Stack spacing="tight">
+    <Stack>
       <label
         id={`${id}-label`}
         htmlFor={id}
@@ -51,6 +46,7 @@ export function Choice({
         {label}
       </label>
       <Select
+        items={options}
         value={value || null}
         onValueChange={(next) => onChange(next ?? "")}
         disabled={disabled}
@@ -100,7 +96,7 @@ export function Check({
 
 export function Failure({ error }: { error: unknown }) {
   return error ? (
-    <Text role="alert" tone="danger">
+    <Text role="alert">
       {errorMessage(
         error instanceof Error
           ? error
@@ -110,16 +106,29 @@ export function Failure({ error }: { error: unknown }) {
   ) : null
 }
 
+const FormIssue = Schema.Struct({ message: Schema.String })
+
+const FormIssues = Schema.Record(Schema.String, Schema.Array(FormIssue))
+
 export function FormErrors({ errors }: { errors: readonly unknown[] }) {
+  const messages = errors.flatMap((error) => {
+    if (Schema.is(Schema.String)(error)) return [error]
+
+    if (Schema.is(FormIssue)(error)) return [error.message]
+
+    if (Schema.is(FormIssues)(error))
+      return Object.values(error)
+        .flat()
+        .map((issue) => issue.message)
+
+    return ["Check the form fields."]
+  })
+
   return (
     <>
-      {errors.map((error, index) => (
-        <Text role="alert" key={index} tone="danger">
-          {Schema.is(Schema.String)(error)
-            ? error
-            : Schema.is(Schema.Struct({ message: Schema.String }))(error)
-              ? error.message
-              : "Check the form fields."}
+      {[...new Set(messages)].map((message) => (
+        <Text role="alert" key={message}>
+          {message}
         </Text>
       ))}
     </>
@@ -134,16 +143,15 @@ export function PageHeading({
   children?: ReactNode
 }) {
   return (
-    <Box render={<header />} region="pageHeader">
+    <Box render={<header />} xstyle={deskStyles.pageHeader}>
       <Heading
         render={
           <h1>
             <>{title}</>
           </h1>
         }
-        size="title"
       />
-      {children}
+      {children && <Wrap>{children}</Wrap>}
     </Box>
   )
 }

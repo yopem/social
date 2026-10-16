@@ -1,4 +1,9 @@
-import type { APIResponse, PlaywrightTestArgs } from "@playwright/test"
+import type {
+  APIResponse,
+  Page,
+  PlaywrightTestArgs,
+  Response,
+} from "@playwright/test"
 
 import { test } from "@playwright/test"
 import { Effect, Schema } from "effect"
@@ -15,6 +20,25 @@ export function step<A>(run: () => Promise<A>) {
         message:
           cause instanceof Error ? cause.message : "Browser step failed.",
       }),
+  })
+}
+
+export function navigateWithSession(
+  page: Page,
+  navigate: () => Promise<Response | null>,
+) {
+  return step(async () => {
+    const [response] = await Promise.all([
+      page.waitForResponse(
+        (item) =>
+          ["/rpc", "/rpc/"].includes(new URL(item.url()).pathname) &&
+          item.request().method() === "POST" &&
+          Boolean(item.request().postData()?.includes('"SessionRead"')),
+      ),
+      navigate(),
+    ])
+
+    await response.finished()
   })
 }
 

@@ -1,7 +1,7 @@
 import { expect } from "@playwright/test"
 import { Effect, Schema } from "effect"
 
-import { check, effectTest, step } from "./effect"
+import { check, effectTest, navigateWithSession, step } from "./effect"
 
 const RequestEnvelope = Schema.TaggedStruct("Request", {
   id: Schema.String,
@@ -40,7 +40,7 @@ for (const fault of ["upstream", "storage"] as const) {
         )
         const after = yield* step(() => request.storageState())
         yield* check(() => expect(after.cookies).toEqual(before.cookies))
-        yield* step(() => page.goto("/"))
+        yield* navigateWithSession(page, () => page.goto("/"))
         yield* step(() =>
           expect(
             page.getByRole("link", { name: "Settings", exact: true }),

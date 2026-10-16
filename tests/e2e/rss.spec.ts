@@ -1,7 +1,7 @@
 import { expect } from "@playwright/test"
 import { Effect } from "effect"
 
-import { check, effectTest, step } from "./effect"
+import { check, effectTest, navigateWithSession, step } from "./effect"
 
 effectTest(
   "RSS rejects local URLs before making a network request",
@@ -14,7 +14,7 @@ effectTest(
       )
 
       yield* check(() => expect(session.ok()).toBeTruthy())
-      yield* step(() => page.goto("/rss"))
+      yield* navigateWithSession(page, () => page.goto("/rss"))
       yield* step(() =>
         page.getByRole("button", { name: "Add feed", exact: true }).click(),
       )
@@ -56,7 +56,7 @@ effectTest(
       )
 
       yield* check(() => expect(channels.ok()).toBeTruthy())
-      yield* step(() => page.goto("/rss"))
+      yield* navigateWithSession(page, () => page.goto("/rss"))
       yield* step(() =>
         page.getByRole("button", { name: "Add feed", exact: true }).click(),
       )

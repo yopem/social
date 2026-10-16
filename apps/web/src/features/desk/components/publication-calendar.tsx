@@ -1,11 +1,14 @@
 import * as stylex from "@stylexjs/stylex"
 import { DateTime, Option, Schema } from "effect"
 
-import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
-import { Flex } from "ui/components/ui/flex"
+import { Card, CardPanel } from "ui/components/ui/card"
 import { Heading } from "ui/components/ui/heading"
+import { HStack } from "ui/components/ui/hstack"
+import { Stack } from "ui/components/ui/stack"
 import { Text } from "ui/components/ui/text"
+
+import { deskStyles } from "@/components/desk-styles"
 
 const styles = stylex.create({
   table: {
@@ -98,91 +101,105 @@ export function PublicationCalendar({
   }
 
   return (
-    <Box
-      render={<section />}
-      aria-label="Publication calendar"
-      surface="preview"
-    >
-      <Flex spacing="normal" wrap align="center">
-        <Button
-          variant="outline"
-          size="sm"
-          aria-label="Previous month"
-          onClick={() => move(-1)}
-        >
-          Previous
-        </Button>
-        <Heading render={<h2>{label}</h2>} />
-        <Button
-          variant="outline"
-          size="sm"
-          aria-label="Next month"
-          onClick={() => move(1)}
-        >
-          Next
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            const today = workspaceDate(DateTime.nowUnsafe(), timezone)
-            onMonthChange(today.slice(0, 7))
-            onSelect(today)
-          }}
-        >
-          Today
-        </Button>
-      </Flex>
-      <table {...stylex.props(styles.table)} aria-label={label}>
-        <thead>
-          <tr>
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-              <th key={day} scope="col">
-                <Text size="small">{day}</Text>
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {Array.from(
-            { length: Math.ceil((firstWeekday + dayCount) / 7) },
-            (_, week) => (
-              <tr key={week}>
-                {Array.from({ length: 7 }, (_, weekday) => {
-                  const day = week * 7 + weekday - firstWeekday + 1
-
-                  if (day < 1 || day > dayCount)
-                    return <td key={weekday} aria-label="No date" />
-                  const current = DateTime.add(first, { days: day - 1 })
-                  const key = DateTime.formatIsoDate(current)
-
-                  const dayLabel = DateTime.format(current, {
-                    dateStyle: "full",
-                  })
-
-                  return (
-                    <td key={weekday}>
-                      <Button
-                        size="icon-sm"
-                        variant={date === key ? "default" : "ghost"}
-                        aria-label={`Select ${dayLabel}`}
-                        aria-pressed={date === key}
-                        onClick={() => onSelect(key)}
-                      >
+    <Card render={<section />} aria-label="Publication calendar">
+      <CardPanel>
+        <Stack>
+          <HStack
+            xstyle={[
+              deskStyles.rowGap,
+              deskStyles.wrap,
+              deskStyles.alignCenter,
+            ]}
+          >
+            <Button
+              variant="outline"
+              size="sm"
+              aria-label="Previous month"
+              onClick={() => move(-1)}
+            >
+              Previous
+            </Button>
+            <Heading render={<h2>{label}</h2>} />
+            <Button
+              variant="outline"
+              size="sm"
+              aria-label="Next month"
+              onClick={() => move(1)}
+            >
+              Next
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                const today = workspaceDate(DateTime.nowUnsafe(), timezone)
+                onMonthChange(today.slice(0, 7))
+                onSelect(today)
+              }}
+            >
+              Today
+            </Button>
+          </HStack>
+          <table {...stylex.props(styles.table)} aria-label={label}>
+            <thead>
+              <tr>
+                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
+                  (day) => (
+                    <th key={day} scope="col">
+                      <Text xstyle={[deskStyles.text, deskStyles.small]}>
                         {day}
-                      </Button>
-                    </td>
-                  )
-                })}
+                      </Text>
+                    </th>
+                  ),
+                )}
               </tr>
-            ),
-          )}
-        </tbody>
-      </table>
-      <Text size="small" tone="muted">
-        {date ? `Posts for ${date}` : "Select a day to view scheduled posts."} ·{" "}
-        {timezone}
-      </Text>
-    </Box>
+            </thead>
+            <tbody>
+              {Array.from(
+                { length: Math.ceil((firstWeekday + dayCount) / 7) },
+                (_, week) => (
+                  <tr key={week}>
+                    {Array.from({ length: 7 }, (_, weekday) => {
+                      const day = week * 7 + weekday - firstWeekday + 1
+
+                      if (day < 1 || day > dayCount)
+                        return <td key={weekday} aria-label="No date" />
+                      const current = DateTime.add(first, { days: day - 1 })
+                      const key = DateTime.formatIsoDate(current)
+
+                      const dayLabel = DateTime.format(current, {
+                        dateStyle: "full",
+                      })
+
+                      return (
+                        <td key={weekday}>
+                          <HStack>
+                            <Button
+                              size="icon-sm"
+                              variant={date === key ? "default" : "ghost"}
+                              aria-label={`Select ${dayLabel}`}
+                              aria-pressed={date === key}
+                              onClick={() => onSelect(key)}
+                            >
+                              {day}
+                            </Button>
+                          </HStack>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ),
+              )}
+            </tbody>
+          </table>
+          <Text xstyle={[deskStyles.text, deskStyles.small, deskStyles.muted]}>
+            {date
+              ? `Posts for ${date}`
+              : "Select a day to view scheduled posts."}{" "}
+            · {timezone}
+          </Text>
+        </Stack>
+      </CardPanel>
+    </Card>
   )
 }

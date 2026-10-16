@@ -15,43 +15,16 @@ const styles = stylex.create({
     fontFamily: tokens["--font-sans"],
     fontSize: "1rem",
     fontWeight: 400,
-    lineHeight: 1.6,
+    lineHeight: 1.5,
     margin: 0,
-    overflowWrap: "anywhere",
-    fontVariantNumeric: "tabular-nums",
-  },
-  muted: { color: tokens["--muted-foreground"] },
-  danger: {
-    color: tokens["--destructive-foreground"],
-    overflowWrap: "anywhere",
-  },
-  small: { fontSize: "0.875rem" },
-  large: { fontSize: "1.125rem" },
-  semibold: { fontWeight: 650 },
-  preview: {
-    padding: `calc(${tokens["--spacing"]} * 4)`,
-    backgroundColor: tokens["--muted"],
-    borderRadius: tokens["--radius-sm"],
-    whiteSpace: "pre-wrap",
+    minInlineSize: 0,
     overflowWrap: "anywhere",
   },
 })
 
-export type TextProps = StyleXComponentProps<
-  ComponentProps<"p">,
-  {
-    tone?: "muted" | "danger"
-    size?: "small" | "large"
-    weight?: "semibold"
-    variant?: "preview"
-  }
->
+export type TextProps = StyleXComponentProps<ComponentProps<"p">>
 
 export function Text({
-  tone,
-  size,
-  weight,
-  variant,
   xstyle: consumerXstyle,
   className,
   ref,
@@ -62,15 +35,7 @@ export function Text({
     props: {
       "data-slot": "text",
       ...mergeStylexProps(
-        stylexProps(
-          className,
-          styles.root,
-          tone && styles[tone],
-          size && styles[size],
-          weight && styles[weight],
-          variant && styles[variant],
-          consumerXstyle,
-        ),
+        stylexProps(className, styles.root, consumerXstyle),
         restProps,
       ),
     },

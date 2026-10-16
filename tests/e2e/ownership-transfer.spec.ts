@@ -1,7 +1,13 @@
 import { expect } from "@playwright/test"
 import { Effect, Schema } from "effect"
 
-import { check, effectTest, responseJson, step } from "./effect"
+import {
+  check,
+  effectTest,
+  navigateWithSession,
+  responseJson,
+  step,
+} from "./effect"
 
 effectTest(
   "owner transfers shared workspace before account deletion",
@@ -18,7 +24,7 @@ effectTest(
       )
 
       yield* check(() => expect(setup.ok()).toBeTruthy())
-      yield* step(() => page.goto("/"))
+      yield* navigateWithSession(page, () => page.goto("/"))
       yield* step(() =>
         page.getByRole("combobox", { name: /^Workspace:/ }).click(),
       )
@@ -48,7 +54,7 @@ effectTest(
           page.getByText("Ownership transferred.", { exact: true }),
         ).toBeVisible(),
       )
-      yield* step(() => page.reload())
+      yield* navigateWithSession(page, () => page.reload())
       yield* step(() =>
         expect(page.locator("dd").filter({ hasText: /^admin$/ })).toBeVisible(),
       )

@@ -2,7 +2,13 @@ import { expect } from "@playwright/test"
 import { Effect, Schema } from "effect"
 import { request as httpRequest } from "node:http"
 
-import { check, effectTest, step, responseJson } from "./effect"
+import {
+  check,
+  effectTest,
+  navigateWithSession,
+  step,
+  responseJson,
+} from "./effect"
 
 for (const scenario of ["sole", "shared-owner", "shared-member"] as const) {
   effectTest(`account deletion: ${scenario}`, ({ page, request }) =>
@@ -16,7 +22,7 @@ for (const scenario of ["sole", "shared-owner", "shared-member"] as const) {
       )
 
       yield* check(() => expect(setup.ok()).toBeTruthy())
-      yield* step(() => page.goto("/"))
+      yield* navigateWithSession(page, () => page.goto("/"))
       yield* step(() =>
         page.getByRole("link", { name: "Settings", exact: true }).click(),
       )
@@ -129,7 +135,7 @@ effectTest(
       )
       const lease = yield* step(() => request.post("/__fixtures/deletion/hold"))
       yield* check(() => expect(lease.ok()).toBeTruthy())
-      yield* step(() => page.goto("/settings"))
+      yield* navigateWithSession(page, () => page.goto("/settings"))
       yield* step(() =>
         page
           .getByRole("button", { name: "Delete account", exact: true })
@@ -243,8 +249,8 @@ effectTest(
       )
 
       yield* check(() => expect(fenced.ok()).toBeTruthy())
-      yield* step(() => page.goto("/settings"))
-      yield* step(() => page.reload())
+      yield* navigateWithSession(page, () => page.goto("/settings"))
+      yield* navigateWithSession(page, () => page.reload())
       yield* step(() =>
         page
           .getByRole("button", { name: "Delete account", exact: true })
@@ -291,7 +297,7 @@ effectTest(
       )
 
       yield* check(() => expect(legacy.ok()).toBeTruthy())
-      yield* step(() => page.goto("/settings"))
+      yield* navigateWithSession(page, () => page.goto("/settings"))
       yield* step(() =>
         page
           .getByRole("button", { name: "Delete account", exact: true })

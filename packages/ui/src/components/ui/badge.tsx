@@ -13,7 +13,7 @@ const styles = stylex.create({
   root: {
     alignItems: "center",
     borderColor: "transparent",
-    borderRadius: tokens["--radius-sm"],
+    borderRadius: tokens["--radius-md"],
     borderStyle: "solid",
     borderWidth: 1,
     display: "inline-flex",
@@ -123,7 +123,7 @@ const styles = stylex.create({
       default: "1.25rem",
       "@media (min-width: 640px)": "1rem",
     },
-    borderRadius: "0.25rem",
+    borderRadius: "var(--radius-md)",
     fontSize: {
       default: "0.75rem",
       "@media (min-width: 640px)": "0.625rem",

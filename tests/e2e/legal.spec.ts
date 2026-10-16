@@ -2,7 +2,7 @@ import { expect } from "@playwright/test"
 import { Effect } from "effect"
 import { fileURLToPath } from "node:url"
 
-import { check, effectTest, step } from "./effect"
+import { check, effectTest, navigateWithSession, step } from "./effect"
 
 effectTest("legal pages serve public HTML without a session", ({ page }) =>
   Effect.gen(function* () {
@@ -49,55 +49,66 @@ effectTest("legal pages serve public HTML without a session", ({ page }) =>
   }),
 )
 
-effectTest("sign-in and workspace navigation expose legal pages", ({ page }) =>
-  Effect.gen(function* () {
-    yield* step(() => page.goto("/"))
-    yield* step(() =>
-      page.getByRole("link", { name: "Terms of Service", exact: true }).click(),
-    )
-    yield* step(() => expect(page).toHaveURL(/\/tos$/))
-    yield* step(() =>
-      page
-        .getByRole("navigation", { name: "Legal", exact: true })
-        .getByRole("link", { name: "Privacy Policy", exact: true })
-        .click(),
-    )
-    yield* step(() => expect(page).toHaveURL(/\/privacy-policy$/))
-    yield* step(() =>
-      page.getByRole("link", { name: "Publishing desk", exact: true }).click(),
-    )
+effectTest(
+  "sign-in exposes legal pages and workspace uses user menu",
+  ({ page }) =>
+    Effect.gen(function* () {
+      yield* navigateWithSession(page, () => page.goto("/"))
+      yield* step(() =>
+        page
+          .getByRole("link", { name: "Terms of Service", exact: true })
+          .click(),
+      )
+      yield* step(() => expect(page).toHaveURL(/\/tos$/))
+      yield* step(() =>
+        page
+          .getByRole("navigation", { name: "Legal", exact: true })
+          .getByRole("link", { name: "Privacy Policy", exact: true })
+          .click(),
+      )
+      yield* step(() => expect(page).toHaveURL(/\/privacy-policy$/))
+      yield* step(() =>
+        page
+          .getByRole("link", { name: "Publishing desk", exact: true })
+          .click(),
+      )
 
-    const session = yield* step(() =>
-      page.request.post("/__fixtures/session", { data: { identity: "owner" } }),
-    )
+      const session = yield* step(() =>
+        page.request.post("/__fixtures/session", {
+          data: { identity: "owner" },
+        }),
+      )
 
-    yield* check(() => expect(session.ok()).toBeTruthy())
-    yield* step(() => page.reload())
-    yield* step(() =>
-      expect(
-        page.getByRole("link", { name: "Terms of Service", exact: true }),
-      ).toBeVisible(),
-    )
-    yield* step(() =>
-      page.getByRole("link", { name: "Privacy Policy", exact: true }).click(),
-    )
-    yield* step(() =>
-      expect(
-        page.getByRole("heading", {
-          name: "Your choices and deletion",
-          level: 2,
-        }),
-      ).toBeVisible(),
-    )
-    yield* step(() =>
-      expect(
-        page.getByRole("link", {
-          name: "Google account permissions",
-          exact: true,
-        }),
-      ).toHaveAttribute("href", "https://myaccount.google.com/permissions"),
-    )
-  }),
+      yield* check(() => expect(session.ok()).toBeTruthy())
+      yield* navigateWithSession(page, () => page.reload())
+      yield* step(() =>
+        expect(
+          page.getByRole("button", { name: "User menu", exact: true }),
+        ).toBeVisible(),
+      )
+      yield* step(() =>
+        expect(
+          page.getByRole("navigation", { name: "Legal", exact: true }),
+        ).toHaveCount(0),
+      )
+      yield* step(() => page.goto("/privacy-policy"))
+      yield* step(() =>
+        expect(
+          page.getByRole("heading", {
+            name: "Your choices and deletion",
+            level: 2,
+          }),
+        ).toBeVisible(),
+      )
+      yield* step(() =>
+        expect(
+          page.getByRole("link", {
+            name: "Google account permissions",
+            exact: true,
+          }),
+        ).toHaveAttribute("href", "https://myaccount.google.com/permissions"),
+      )
+    }),
 )
 
 effectTest(

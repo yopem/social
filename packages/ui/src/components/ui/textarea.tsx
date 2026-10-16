@@ -9,7 +9,7 @@ import * as stylex from "@stylexjs/stylex"
 import { Box } from "ui/components/ui/box"
 import type { StyleXComponentProps } from "ui/lib/stylex"
 import type { StyleXProps } from "ui/lib/stylex"
-import { isString } from "ui/lib/stylex"
+import { isString, stylexProps } from "ui/lib/stylex"
 import { themeMarker, tokens } from "ui/styles/tokens.stylex"
 
 const styles = stylex.create({
@@ -21,7 +21,7 @@ const styles = stylex.create({
         "color-mix(in oklab, var(--input, currentColor) 32%, transparent)",
     },
     borderColor: tokens["--input"],
-    borderRadius: tokens["--radius-lg"],
+    borderRadius: tokens["--radius-md"],
     borderStyle: "solid",
     borderWidth: 1,
     boxShadow: "0 1px 2px color-mix(in oklab, #000 5%, transparent)",
@@ -105,8 +105,11 @@ export function Textarea({
   return (
     <Box
       render={<span />}
-      className={wrapperClassName}
-      xstyle={[!unstyled && styles.control, controlXstyle]}
+      {...stylexProps(
+        wrapperClassName,
+        !unstyled && styles.control,
+        controlXstyle,
+      )}
       data-size={size}
       data-slot="textarea-control"
     >

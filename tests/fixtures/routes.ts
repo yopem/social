@@ -24,6 +24,7 @@ import {
 } from "./deletion"
 import { deletionGateFixture } from "./deletion-gate"
 import { deletionInvitationRace } from "./deletion-race"
+import { mediaLifetimeFixture, mediaRemoteFixture } from "./media"
 import { ownershipFixtureGuards } from "./ownership"
 import { reconciliationFixture } from "./reconciliation"
 import { retentionFixtureCleanup, retentionFixtureSetup } from "./retention"
@@ -137,6 +138,12 @@ export function fixtureRequest(request: Request, config: AppConfig) {
       return yield* Effect.fail(fixtureError("Fixture workspace missing"))
     const userId = session.user.id
     const workspaceId = workspace.id
+
+    if (path === "/__fixtures/media/lifetime" && request.method === "POST")
+      return yield* mediaLifetimeFixture(request, config, userId, workspaceId)
+
+    if (path === "/__fixtures/media/remote" && request.method === "POST")
+      return yield* mediaRemoteFixture(userId, workspaceId)
 
     if (
       path.startsWith("/__fixtures/backend-workflows/") &&

@@ -23,26 +23,15 @@ const styles = stylex.create({
     lineHeight: 1.25,
     margin: 0,
     letterSpacing: "-0.025em",
-    overflowWrap: "anywhere",
-    textWrap: "balance",
-  },
-  title: {
-    fontSize: { default: "2rem", "@media (max-width: 700px)": "1.75rem" },
-    fontWeight: 650,
-    letterSpacing: "-0.035em",
   },
 })
 
 export type HeadingTag = "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
 
-export type HeadingProps = StyleXComponentProps<
-  useRender.ComponentProps<"h2">,
-  { size?: "title" }
->
+export type HeadingProps = StyleXComponentProps<useRender.ComponentProps<"h2">>
 
 export function Heading({
   render,
-  size,
   xstyle: consumerXstyle,
   className,
   ...restProps
@@ -55,12 +44,7 @@ export function Heading({
     render,
     props: mergeStylexProps(
       {
-        ...stylexProps(
-          className,
-          styles.root,
-          size === "title" && styles.title,
-          xstyle,
-        ),
+        ...stylexProps(className, styles.root, xstyle),
         "data-slot": "heading",
       },
       props,

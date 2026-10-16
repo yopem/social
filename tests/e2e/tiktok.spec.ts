@@ -1,7 +1,7 @@
 import { expect } from "@playwright/test"
 import { Effect } from "effect"
 
-import { check, effectTest, step } from "./effect"
+import { check, effectTest, navigateWithSession, step } from "./effect"
 
 effectTest(
   "TikTok shows creator preview and requires explicit choices",
@@ -22,7 +22,7 @@ effectTest(
       )
 
       yield* check(() => expect(seeded.ok()).toBeTruthy())
-      yield* step(() => page.goto("/"))
+      yield* navigateWithSession(page, () => page.goto("/"))
       yield* step(() =>
         page.getByRole("button", { name: "Create post", exact: true }).click(),
       )

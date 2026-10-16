@@ -58,7 +58,7 @@ const styles = stylex.create({
       boxShadow: "0 0 0 1px var(--background), 0 0 0 3px var(--ring)",
     },
     "::before": {
-      borderRadius: "var(--button-inner-radius, calc(var(--radius-lg) - 1px))",
+      borderRadius: "var(--button-inner-radius, calc(var(--radius-md) - 1px))",
       content: '""',
       inset: 0,
       pointerEvents: "none",
@@ -280,7 +280,7 @@ const styles = stylex.create({
     color: tokens["--secondary-foreground"],
   },
   sizeDefault: {
-    borderRadius: tokens["--radius-lg"],
+    borderRadius: tokens["--radius-md"],
     blockSize: {
       default: "2.25rem",
       "@media (min-width: 640px)": "2rem",
@@ -288,7 +288,7 @@ const styles = stylex.create({
     paddingInline: "calc(0.75rem - 1px)",
   },
   sizeIcon: {
-    borderRadius: tokens["--radius-lg"],
+    borderRadius: tokens["--radius-md"],
     blockSize: {
       default: "2.25rem",
       "@media (min-width: 640px)": "2rem",
@@ -299,7 +299,7 @@ const styles = stylex.create({
     },
   },
   sizeIconLarge: {
-    borderRadius: tokens["--radius-lg"],
+    borderRadius: tokens["--radius-md"],
     blockSize: {
       default: "2.5rem",
       "@media (min-width: 640px)": "2.25rem",
@@ -310,7 +310,7 @@ const styles = stylex.create({
     },
   },
   sizeIconSmall: {
-    borderRadius: tokens["--radius-lg"],
+    borderRadius: tokens["--radius-md"],
     blockSize: {
       default: "2rem",
       "@media (min-width: 640px)": "1.75rem",
@@ -321,7 +321,7 @@ const styles = stylex.create({
     },
   },
   sizeIconXLarge: {
-    borderRadius: tokens["--radius-lg"],
+    borderRadius: tokens["--radius-md"],
     blockSize: {
       default: "2.75rem",
       "@media (min-width: 640px)": "2.5rem",
@@ -346,7 +346,7 @@ const styles = stylex.create({
     },
   },
   sizeLarge: {
-    borderRadius: tokens["--radius-lg"],
+    borderRadius: tokens["--radius-md"],
     blockSize: {
       default: "2.5rem",
       "@media (min-width: 640px)": "2.25rem",
@@ -354,7 +354,7 @@ const styles = stylex.create({
     paddingInline: "calc(0.875rem - 1px)",
   },
   sizeSmall: {
-    borderRadius: tokens["--radius-lg"],
+    borderRadius: tokens["--radius-md"],
     blockSize: {
       default: "2rem",
       "@media (min-width: 640px)": "1.75rem",
@@ -363,7 +363,7 @@ const styles = stylex.create({
     paddingInline: "calc(0.625rem - 1px)",
   },
   sizeXLarge: {
-    borderRadius: tokens["--radius-lg"],
+    borderRadius: tokens["--radius-md"],
     blockSize: {
       default: "2.75rem",
       "@media (min-width: 640px)": "2.5rem",

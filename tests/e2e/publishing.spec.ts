@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test"
 import { expect } from "@playwright/test"
 import { Effect } from "effect"
 
-import { check, effectTest, step } from "./effect"
+import { check, effectTest, navigateWithSession, step } from "./effect"
 
 function signIn(page: Page, identity = "owner") {
   return Effect.gen(function* () {
@@ -12,7 +12,7 @@ function signIn(page: Page, identity = "owner") {
     )
 
     yield* check(() => expect(response.ok()).toBeTruthy())
-    yield* step(() => page.goto("/"))
+    yield* navigateWithSession(page, () => page.goto("/"))
 
     if (identity === "editor") {
       yield* step(() =>
@@ -31,7 +31,7 @@ effectTest(
   "sign-in creates one default workspace and later sign-ins reuse it",
   ({ page }) =>
     Effect.gen(function* () {
-      yield* step(() => page.goto("/"))
+      yield* navigateWithSession(page, () => page.goto("/"))
       yield* step(() =>
         expect(
           page.getByRole("link", { name: "Sign in with Google" }),
@@ -109,7 +109,8 @@ effectTest(
       yield* step(() =>
         page.getByRole("button", { name: "Save draft", exact: true }).click(),
       )
-      yield* step(() => page.reload())
+      yield* step(() => expect(page.getByRole("dialog")).toHaveCount(0))
+      yield* navigateWithSession(page, () => page.reload())
       yield* step(() =>
         page.getByRole("link", { name: "Drafts", exact: true }).click(),
       )
@@ -162,29 +163,84 @@ effectTest(
     }),
 )
 
-effectTest(
-  "empty posts fail validation without showing untouched-field errors",
-  ({ page }) =>
-    Effect.gen(function* () {
-      yield* signIn(page)
-      yield* step(() =>
-        page.getByRole("button", { name: "Create post", exact: true }).click(),
-      )
-      yield* step(() =>
-        expect(
-          page.getByText("Add text or media before saving.", { exact: true }),
-        ).toHaveCount(0),
-      )
-      yield* step(() =>
-        page.getByRole("button", { name: "Save draft", exact: true }).click(),
-      )
-      yield* step(() =>
-        expect(
-          page.getByText("Add text or media before saving.", { exact: true }),
-        ).toBeVisible(),
-      )
-    }),
-)
+for (const width of [1280, 320]) {
+  effectTest(
+    `empty posts fail validation without showing untouched-field errors at ${width}px`,
+    ({ page }) =>
+      Effect.gen(function* () {
+        yield* step(() => page.setViewportSize({ width, height: 900 }))
+        yield* signIn(page)
+        yield* step(() =>
+          page
+            .getByRole("button", { name: "Create post", exact: true })
+            .click(),
+        )
+        yield* step(() =>
+          expect(
+            page.getByText("Add text or media before saving.", { exact: true }),
+          ).toHaveCount(0),
+        )
+        yield* step(() => expect(page.getByRole("alert")).toHaveCount(0))
+        yield* step(() =>
+          page.getByRole("textbox", { name: "Post text" }).focus(),
+        )
+        yield* step(() =>
+          page.getByRole("textbox", { name: "Post text" }).press("Tab"),
+        )
+        yield* step(() =>
+          expect(
+            page.getByText("Add text or media before saving.", { exact: true }),
+          ).toBeVisible(),
+        )
+        yield* step(() =>
+          page.getByRole("button", { name: "Save draft", exact: true }).click(),
+        )
+        yield* step(() =>
+          expect(
+            page.getByText("Add text or media before saving.", { exact: true }),
+          ).toBeVisible(),
+        )
+        yield* step(() => expect(page.getByRole("alert")).toHaveCount(1))
+        yield* step(() => expect(page.getByRole("dialog")).toBeVisible())
+        yield* step(() =>
+          page.getByRole("textbox", { name: "Post text" }).fill("   "),
+        )
+        yield* step(() =>
+          page.getByRole("button", { name: "Save draft", exact: true }).click(),
+        )
+        yield* step(() =>
+          expect(
+            page.getByText("Add text or media before saving.", { exact: true }),
+          ).toBeVisible(),
+        )
+        yield* step(() =>
+          page
+            .getByRole("textbox", { name: "Post text" })
+            .fill("Corrected empty draft."),
+        )
+        yield* step(() =>
+          page.getByRole("button", { name: "Save draft", exact: true }).click(),
+        )
+        yield* step(() => expect(page.getByRole("dialog")).toHaveCount(0))
+
+        if (width < 800)
+          yield* step(() =>
+            page
+              .getByRole("button", { name: "Toggle Sidebar", exact: true })
+              .click(),
+          )
+
+        yield* step(() =>
+          page.getByRole("link", { name: "Drafts", exact: true }).click(),
+        )
+        yield* step(() =>
+          expect(
+            page.getByText("Corrected empty draft.", { exact: true }),
+          ).toBeVisible(),
+        )
+      }),
+  )
+}
 
 effectTest("mixed delivery outcomes remain independent", ({ page }) =>
   Effect.gen(function* () {
@@ -197,7 +253,7 @@ effectTest("mixed delivery outcomes remain independent", ({ page }) =>
     )
 
     yield* check(() => expect(seeded.ok()).toBeTruthy())
-    yield* step(() => page.reload())
+    yield* navigateWithSession(page, () => page.reload())
     yield* step(() =>
       page.getByRole("button", { name: "Create post", exact: true }).click(),
     )
@@ -265,7 +321,7 @@ effectTest(
       )
 
       yield* check(() => expect(seeded.ok()).toBeTruthy())
-      yield* step(() => page.reload())
+      yield* navigateWithSession(page, () => page.reload())
       yield* step(() =>
         page.getByRole("button", { name: "Create post", exact: true }).click(),
       )
@@ -303,7 +359,7 @@ effectTest(
       )
 
       yield* check(() => expect(seeded.ok()).toBeTruthy())
-      yield* step(() => page.reload())
+      yield* navigateWithSession(page, () => page.reload())
       yield* step(() =>
         page.getByRole("button", { name: "Create post", exact: true }).click(),
       )
@@ -325,6 +381,9 @@ effectTest(
       )
       yield* step(() =>
         page.getByRole("link", { name: "Calendar", exact: true }).click(),
+      )
+      yield* step(() =>
+        page.getByLabel("Calendar date", { exact: true }).fill("2030-01-15"),
       )
       yield* step(() =>
         expect(

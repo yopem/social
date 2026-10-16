@@ -15,16 +15,19 @@ import {
   DialogTrigger,
 } from "ui/components/ui/dialog"
 import { Field, FieldError } from "ui/components/ui/field"
+import { HStack } from "ui/components/ui/hstack"
 import { Input } from "ui/components/ui/input"
 import {
   Select,
   SelectItem,
   SelectPopup,
   SelectTrigger,
+  SelectValue,
 } from "ui/components/ui/select"
 import { Stack } from "ui/components/ui/stack"
 
-import { Choice, Failure, FormErrors, deskStyles } from "@/components/desk-ui"
+import { deskStyles } from "@/components/desk-styles"
+import { Choice, Failure, FormErrors } from "@/components/desk-ui"
 import { rpcMutation } from "@/features/desk/queries"
 import { WorkspaceForm } from "@/features/desk/schema"
 
@@ -51,7 +54,7 @@ export function Workspaces({
           }}
         >
           <SelectTrigger aria-label={`Workspace: ${selected.name}`}>
-            {selected.name}
+            <SelectValue>{selected.name}</SelectValue>
           </SelectTrigger>
           <SelectPopup>
             {workspaces.map((workspace) => (
@@ -82,9 +85,11 @@ export function CreateWorkspace({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button variant="outline" />}>
-        Create workspace
-      </DialogTrigger>
+      <HStack>
+        <DialogTrigger render={<Button variant="outline" />}>
+          Create workspace
+        </DialogTrigger>
+      </HStack>
       <DialogPopup>
         <DialogHeader>
           <DialogTitle>Create workspace</DialogTitle>
@@ -225,9 +230,11 @@ export function WorkspaceFields({
         {(errors) => <FormErrors errors={errors} />}
       </form.Subscribe>
       <Failure error={mutation.error} />
-      <Button type="submit" loading={mutation.isPending}>
-        Create workspace
-      </Button>
+      <HStack>
+        <Button type="submit" loading={mutation.isPending}>
+          Create workspace
+        </Button>
+      </HStack>
     </form>
   )
 }

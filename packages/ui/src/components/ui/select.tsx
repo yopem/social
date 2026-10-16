@@ -54,7 +54,7 @@ const styles = stylex.create({
       "[aria-invalid]":
         "color-mix(in oklab, var(--destructive, currentColor) 36%, transparent)",
     },
-    borderRadius: tokens["--radius-lg"],
+    borderRadius: tokens["--radius-md"],
     borderStyle: "solid",
     borderWidth: 1,
     boxShadow: {
@@ -91,7 +91,7 @@ const styles = stylex.create({
       "[data-disabled]": "none",
     },
     "::before": {
-      borderRadius: "calc(var(--radius-lg, 0.625rem) - 1px)",
+      borderRadius: "calc(var(--radius-md) - 1px)",
       boxShadow: "0 1px rgb(0 0 0 / 0.04)",
       content: '""',
       inset: 0,
@@ -173,14 +173,14 @@ const styles = stylex.create({
     backgroundColor: tokens["--popover"],
     blockSize: "100%",
     borderColor: tokens["--border"],
-    borderRadius: tokens["--radius-lg"],
+    borderRadius: tokens["--radius-md"],
     borderStyle: "solid",
     borderWidth: 1,
     boxShadow: "0 10px 15px -3px color-mix(in oklab, #000 5%, transparent)",
     minInlineSize: "var(--anchor-width)",
     position: "relative",
     "::before": {
-      borderRadius: "calc(var(--radius-lg, 0.625rem) - 1px)",
+      borderRadius: "calc(var(--radius-md) - 1px)",
       boxShadow: {
         default: "0 1px rgb(0 0 0 / 0.04)",
         [stylex.when.ancestor('[data-theme="dark"]', themeMarker)]:
@@ -204,7 +204,7 @@ const styles = stylex.create({
         "calc(var(--anchor-width) + 1.25rem)",
     },
     alignItems: "center",
-    borderRadius: tokens["--radius-sm"],
+    borderRadius: tokens["--radius-md"],
     cursor: "default",
     display: "grid",
     fontSize: {
@@ -239,7 +239,7 @@ const styles = stylex.create({
     },
   },
   itemIndicator: { gridColumnStart: 1 },
-  itemText: { gridColumnStart: 2, minInlineSize: 0 },
+  itemText: { gridColumnStart: 2 },
   separator: {
     backgroundColor: tokens["--border"],
     blockSize: 1,

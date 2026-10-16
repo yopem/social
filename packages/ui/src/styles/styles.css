@@ -27,6 +27,13 @@
     font-weight: inherit;
   }
 
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+  }
+
   a {
     color: inherit;
     text-decoration: inherit;

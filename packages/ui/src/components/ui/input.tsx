@@ -28,7 +28,7 @@ const styles = stylex.create({
       ':has([aria-invalid="true"]):has(:focus-visible)':
         "color-mix(in oklab, var(--destructive, currentColor) 36%, transparent)",
     },
-    borderRadius: "var(--radius-lg)",
+    borderRadius: "var(--radius-md)",
     borderStyle: "solid",
     borderWidth: 1,
     boxShadow: {
@@ -61,7 +61,7 @@ const styles = stylex.create({
     position: "relative",
     transitionProperty: "box-shadow",
     "::before": {
-      borderRadius: "calc(var(--radius-lg) - 1px)",
+      borderRadius: "calc(var(--radius-md) - 1px)",
       boxShadow: {
         default:
           "var(--input-control-inset-shadow, var(--button-outline-inset-shadow))",
@@ -90,7 +90,7 @@ const styles = stylex.create({
       default: "2.125rem",
       "@media (min-width: 640px)": "1.875rem",
     },
-    minInlineSize: 0,
+
     outline: "none",
     paddingInline: "calc(0.75rem - 1px)",
     transition: "background-color 5000000s ease-in-out 0s",
@@ -179,7 +179,7 @@ export type InputProps = StyleXComponentProps<
     size?: "sm" | "default" | "lg" | number
     unstyled?: boolean
     nativeInput?: boolean
-    /** Applies StyleX styles to the decorative wrapper, including Group item geometry. */
+    /** Applies StyleX styles to the decorative wrapper, including its borders and corner radii in a Group. */
     controlXstyle?: StyleXProps["xstyle"]
   }
 >
@@ -230,12 +230,12 @@ export function Input({
   return (
     <Box
       render={<span />}
-      className={wrapperClassName}
-      xstyle={[
+      {...stylexProps(
+        wrapperClassName,
         !unstyled && styles.control,
         unstyled && styles.groupControl,
         controlXstyle,
-      ]}
+      )}
       data-size={size}
       data-slot="input-control"
     >

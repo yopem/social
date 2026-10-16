@@ -4,20 +4,24 @@ import * as stylex from "@stylexjs/stylex"
 import { Link } from "@tanstack/react-router"
 
 import { Box } from "ui/components/ui/box"
-import { Flex } from "ui/components/ui/flex"
+import { Button } from "ui/components/ui/button"
+import { Container } from "ui/components/ui/container"
 import { Heading } from "ui/components/ui/heading"
+import { Separator } from "ui/components/ui/separator"
 import { Stack } from "ui/components/ui/stack"
 import { Text } from "ui/components/ui/text"
+import { Wrap } from "ui/components/ui/wrap"
 import { tokens } from "ui/styles/tokens.stylex"
 
 const styles = stylex.create({
   page: {
-    width: "min(76ch, 100%)",
-    marginInline: "auto",
+    maxInlineSize: "76ch",
+    paddingBlock: `calc(${tokens["--spacing"]} * 10)`,
   },
   link: {
     color: tokens["--foreground"],
     textUnderlineOffset: 4,
+    ":hover": { textDecorationLine: "underline" },
     ":focus-visible": {
       outline: `2px solid ${tokens["--ring"]}`,
       outlineOffset: 4,
@@ -37,14 +41,16 @@ const styles = stylex.create({
 
 export function LegalLinks() {
   return (
-    <Flex render={<nav />} aria-label="Legal" spacing="normal" wrap>
-      <Link to="/tos" {...stylex.props(styles.link)}>
-        Terms of Service
-      </Link>
-      <Link to="/privacy-policy" {...stylex.props(styles.link)}>
-        Privacy Policy
-      </Link>
-    </Flex>
+    <Box render={<nav />} aria-label="Legal">
+      <Wrap>
+        <Button variant="link" size="xs" render={<Link to="/tos" />}>
+          Terms of Service
+        </Button>
+        <Button variant="link" size="xs" render={<Link to="/privacy-policy" />}>
+          Privacy Policy
+        </Button>
+      </Wrap>
+    </Box>
   )
 }
 
@@ -60,36 +66,36 @@ export function LegalPage({
       <a href="#legal-content" {...stylex.props(styles.skip)}>
         Skip to content
       </a>
-      <Box padding="responsive" xstyle={styles.page}>
-        <Stack spacing="loose">
-          <Flex render={<header />} spacing="normal" wrap>
-            <Link to="/" {...stylex.props(styles.link)}>
-              Publishing desk
-            </Link>
-            <LegalLinks />
-          </Flex>
-          <Stack
-            render={<main />}
-            id="legal-content"
-            tabIndex={-1}
-            spacing="loose"
-          >
-            <Heading render={<h1>{title}</h1>} size="title" />
-            <Text tone="muted" size="small">
-              Effective date: October 12, 2026
-            </Text>
-            {children}
-            <LegalSection title="Contact">
-              <Text>
-                Contact Yopem Social at{" "}
-                <a href="mailto:support@yopem.com">support@yopem.com</a> for
-                support, privacy questions, or data requests. Our public app is{" "}
-                <a href="https://social.yopem.com">social.yopem.com</a>.
-              </Text>
-            </LegalSection>
-          </Stack>
+      <Container xstyle={styles.page}>
+        <Stack>
+          <Box render={<header />}>
+            <Wrap>
+              <Link to="/" {...stylex.props(styles.link)}>
+                Publishing desk
+              </Link>
+              <LegalLinks />
+            </Wrap>
+          </Box>
+          <Separator />
+          <Box render={<main />} id="legal-content" tabIndex={-1}>
+            <Stack>
+              <Stack>
+                <Heading render={<h1>{title}</h1>} />
+                <Text>Effective date: October 12, 2026</Text>
+              </Stack>
+              {children}
+              <LegalSection title="Contact">
+                <Text>
+                  Contact Yopem Social at{" "}
+                  <a href="mailto:support@yopem.com">support@yopem.com</a> for
+                  support, privacy questions, or data requests. Our public app
+                  is <a href="https://social.yopem.com">social.yopem.com</a>.
+                </Text>
+              </LegalSection>
+            </Stack>
+          </Box>
         </Stack>
-      </Box>
+      </Container>
     </>
   )
 }
@@ -102,9 +108,11 @@ export function LegalSection({
   children: ReactNode
 }) {
   return (
-    <Stack render={<section />} spacing="normal">
-      <Heading>{title}</Heading>
-      {children}
-    </Stack>
+    <Box render={<section />}>
+      <Stack>
+        <Heading>{title}</Heading>
+        {children}
+      </Stack>
+    </Box>
   )
 }

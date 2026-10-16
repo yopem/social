@@ -463,6 +463,7 @@ function frontendRequest(
         "/rss",
         "/analytics",
         "/settings",
+        "/invite",
         "/tos",
         "/privacy-policy",
       ].includes(path)

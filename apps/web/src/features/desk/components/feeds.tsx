@@ -2,11 +2,13 @@ import * as stylex from "@stylexjs/stylex"
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Match, Schema } from "effect"
+import { RssIcon } from "lucide-react"
 import { useRef, useState } from "react"
 
 import type { Feed, Workspace } from "rpc/contracts/models"
 import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
+import { Card, CardHeader, CardTitle, CardPanel } from "ui/components/ui/card"
 import {
   Dialog,
   DialogHeader,
@@ -15,20 +17,28 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "ui/components/ui/dialog"
+import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  EmptyDescription,
+} from "ui/components/ui/empty"
 import { Field, FieldError } from "ui/components/ui/field"
-import { Flex } from "ui/components/ui/flex"
 import { Heading } from "ui/components/ui/heading"
+import { HStack } from "ui/components/ui/hstack"
 import { Input } from "ui/components/ui/input"
+import { Skeleton } from "ui/components/ui/skeleton"
 import { Stack } from "ui/components/ui/stack"
 import { Text } from "ui/components/ui/text"
 
+import { deskStyles } from "@/components/desk-styles"
 import {
   Check,
   Choice,
   Failure,
   FormErrors,
   PageHeading,
-  deskStyles,
 } from "@/components/desk-ui"
 import { rpcMutation, workspaceQuery } from "@/features/desk/queries"
 import { FeedForm } from "@/features/desk/schema"
@@ -69,7 +79,9 @@ export function Feeds({ workspace }: { workspace: Workspace }) {
             if (!next) setEditing(undefined)
           }}
         >
-          <DialogTrigger render={<Button />}>Add feed</DialogTrigger>
+          <HStack>
+            <DialogTrigger render={<Button />}>Add feed</DialogTrigger>
+          </HStack>
           <DialogPopup>
             <DialogHeader>
               <DialogTitle>{editing ? "Edit feed" : "Add feed"}</DialogTitle>
@@ -93,16 +105,33 @@ export function Feeds({ workspace }: { workspace: Workspace }) {
         permissions, or platform choices hold items for review.
       </Text>
       <Failure error={query.error ?? refresh.error ?? remove.error} />
-      <Button
-        variant="outline"
-        disabled={query.isFetching}
-        onClick={() => void query.refetch()}
-      >
-        {query.isError ? "Retry feeds" : "Refresh feeds"}
-      </Button>
-      {query.isPending && <Box render={<output />}>Loading feeds…</Box>}
+      <HStack>
+        <Button
+          variant="outline"
+          disabled={query.isFetching}
+          onClick={() => void query.refetch()}
+        >
+          {query.isError ? "Retry feeds" : "Refresh feeds"}
+        </Button>
+      </HStack>
+      {query.isPending && (
+        <Stack>
+          <Box render={<output />}>Loading feeds…</Box>
+          <Skeleton aria-hidden="true" />
+        </Stack>
+      )}
       {query.data?.length === 0 && (
-        <Text>Add a feed to import articles into this workspace.</Text>
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <RssIcon aria-hidden="true" />
+            </EmptyMedia>
+            <EmptyTitle>No feeds yet</EmptyTitle>
+            <EmptyDescription>
+              Add a feed to import articles into this workspace.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       )}
       {refresh.data && (
         <Box render={<output />}>
@@ -110,67 +139,79 @@ export function Feeds({ workspace }: { workspace: Workspace }) {
         </Box>
       )}
       {query.data?.map((feed) => (
-        <Box render={<article />} key={feed.id} surface="divided">
-          <Heading
-            render={
-              <h2>
-                <>{feed.name}</>
-              </h2>
-            }
-          />
-          <Text>{feed.url}</Text>
-          <Text>
-            {feed.mode === "automatic"
-              ? "Automatic publishing"
-              : "Draft review"}{" "}
-            · {feed.enabled ? "Enabled" : "Paused"}
-          </Text>
-          <Text>
-            Images: {feed.includeImages ? "Included" : "Excluded"} · Videos:{" "}
-            {feed.includeVideos ? "Included" : "Excluded"}
-          </Text>
-          {feed.error && <Text role="alert">{feed.error}</Text>}
-          {feed.lastCheckedAt && (
-            <Text>
-              Last checked:{" "}
-              {new Date(feed.lastCheckedAt).toLocaleString("en-US", {
-                timeZone: workspace.timezone,
-              })}
-            </Text>
-          )}
-          <Flex spacing="normal" wrap align="center">
-            <Button
-              variant="outline"
-              loading={refresh.isPending && refresh.variables === feed.id}
-              onClick={() => refresh.mutate(feed.id)}
-            >
-              Refresh feed
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setEditing(feed)
-                setOpen(true)
-              }}
-            >
-              Edit feed
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={remove.isPending}
-              onClick={() => {
-                if (
-                  window.confirm(
-                    "Delete this feed? Imported posts stay in your workspace.",
-                  )
-                )
-                  remove.mutate(feed.id)
-              }}
-            >
-              Delete feed
-            </Button>
-          </Flex>
-        </Box>
+        <Card render={<article />} key={feed.id}>
+          <CardHeader>
+            <CardTitle
+              render={
+                <h2>
+                  <>{feed.name}</>
+                </h2>
+              }
+            />
+          </CardHeader>
+          <CardPanel>
+            <Stack>
+              <Text>{feed.url}</Text>
+              <Text>
+                {feed.mode === "automatic"
+                  ? "Automatic publishing"
+                  : "Draft review"}{" "}
+                · {feed.enabled ? "Enabled" : "Paused"}
+              </Text>
+              <Text>
+                Images: {feed.includeImages ? "Included" : "Excluded"} · Videos:{" "}
+                {feed.includeVideos ? "Included" : "Excluded"}
+              </Text>
+              {feed.error && <Text role="alert">{feed.error}</Text>}
+              {feed.lastCheckedAt && (
+                <Text>
+                  Last checked:{" "}
+                  {new Date(feed.lastCheckedAt).toLocaleString("en-US", {
+                    timeZone: workspace.timezone,
+                  })}
+                </Text>
+              )}
+              <HStack
+                xstyle={[
+                  deskStyles.rowGap,
+                  deskStyles.wrap,
+                  deskStyles.alignCenter,
+                ]}
+              >
+                <Button
+                  variant="outline"
+                  loading={refresh.isPending && refresh.variables === feed.id}
+                  onClick={() => refresh.mutate(feed.id)}
+                >
+                  Refresh feed
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setEditing(feed)
+                    setOpen(true)
+                  }}
+                >
+                  Edit feed
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={remove.isPending}
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        "Delete this feed? Imported posts stay in your workspace.",
+                      )
+                    )
+                      remove.mutate(feed.id)
+                  }}
+                >
+                  Delete feed
+                </Button>
+              </HStack>
+            </Stack>
+          </CardPanel>
+        </Card>
       ))}
     </Stack>
   )
@@ -335,13 +376,15 @@ export function FeedFields({
       ))}
       <Heading render={<h3>Target channels</h3>} />
       <Failure error={channels.error} />
-      <Button
-        variant="ghost"
-        disabled={channels.isFetching}
-        onClick={() => void channels.refetch()}
-      >
-        {channels.isError ? "Retry channels" : "Refresh channels"}
-      </Button>
+      <HStack>
+        <Button
+          variant="ghost"
+          disabled={channels.isFetching}
+          onClick={() => void channels.refetch()}
+        >
+          {channels.isError ? "Retry channels" : "Refresh channels"}
+        </Button>
+      </HStack>
       {channels.isPending && <Box render={<output />}>Loading channels…</Box>}
       {channels.data?.channels.length === 0 && (
         <Text>
@@ -384,18 +427,19 @@ export function FeedFields({
                   !channels.data.channels.some((channel) => channel.id === id),
               )
               .map((id) => (
-                <Button
-                  key={id}
-                  variant="outline"
-                  disabled={save.isPending}
-                  onClick={() =>
-                    field.handleChange(
-                      field.state.value.filter((item) => item !== id),
-                    )
-                  }
-                >
-                  Remove unavailable channel {id}
-                </Button>
+                <HStack key={id}>
+                  <Button
+                    variant="outline"
+                    disabled={save.isPending}
+                    onClick={() =>
+                      field.handleChange(
+                        field.state.value.filter((item) => item !== id),
+                      )
+                    }
+                  >
+                    Remove unavailable channel {id}
+                  </Button>
+                </HStack>
               ))}
           </>
         )}
@@ -408,9 +452,11 @@ export function FeedFields({
         {(errors) => <FormErrors errors={errors} />}
       </form.Subscribe>
       <Failure error={save.error} />
-      <Button type="submit" loading={save.isPending}>
-        Save feed
-      </Button>
+      <HStack>
+        <Button type="submit" loading={save.isPending}>
+          Save feed
+        </Button>
+      </HStack>
     </form>
   )
 }

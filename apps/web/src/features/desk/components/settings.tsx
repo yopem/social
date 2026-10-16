@@ -7,6 +7,7 @@ import { useState } from "react"
 import { ApiError, type Workspace } from "rpc/contracts/models"
 import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
+import { Card, CardHeader, CardTitle, CardPanel } from "ui/components/ui/card"
 import {
   Dialog,
   DialogHeader,
@@ -16,18 +17,14 @@ import {
   DialogTrigger,
 } from "ui/components/ui/dialog"
 import { Field, FieldError } from "ui/components/ui/field"
-import { Heading } from "ui/components/ui/heading"
+import { HStack } from "ui/components/ui/hstack"
 import { Input } from "ui/components/ui/input"
+import { Skeleton } from "ui/components/ui/skeleton"
 import { Stack } from "ui/components/ui/stack"
 import { Text } from "ui/components/ui/text"
 
-import {
-  Choice,
-  Failure,
-  FormErrors,
-  PageHeading,
-  deskStyles,
-} from "@/components/desk-ui"
+import { deskStyles } from "@/components/desk-styles"
+import { Choice, Failure, FormErrors, PageHeading } from "@/components/desk-ui"
 import {
   accountDeletionMutation,
   effectMutation,
@@ -71,72 +68,84 @@ export function AccountDeletionSettings() {
   const [confirmation, setConfirmation] = useState("")
 
   return (
-    <Stack render={<section />}>
-      <Heading render={<h2>Delete account</h2>} />
-      <Text>
-        Delete your account, local credentials, and workspaces where you are the
-        only member. Shared workspace data stays for other members. Transfer
-        ownership of all shared workspaces first.
-      </Text>
-      <Text>
-        This does not delete posts on social platforms or revoke provider
-        access. Remove provider access on each platform. Account deletion cannot
-        be undone.
-      </Text>
-      <Dialog
-        open={open}
-        onOpenChange={(value) => {
-          if (!deletion.isPending) {
-            setOpen(value)
-            setConfirmation("")
-          }
-        }}
-      >
-        <DialogTrigger render={<Button variant="outline" />}>
-          Delete account
-        </DialogTrigger>
-        <DialogPopup>
-          <DialogHeader>
-            <DialogTitle>Delete account and data?</DialogTitle>
-          </DialogHeader>
-          <DialogPanel>
-            <Stack>
-              <Text>
-                Your account and sole-member workspace data will be permanently
-                deleted.
-              </Text>
-              <label
-                htmlFor="delete-account-confirmation"
-                {...stylex.props(deskStyles.label)}
-              >
-                Type DELETE to confirm
-                <Input
-                  id="delete-account-confirmation"
-                  value={confirmation}
-                  disabled={deletion.isPending}
-                  onChange={(event) => setConfirmation(event.target.value)}
-                />
-              </label>
-              <Failure error={deletion.error} />
-              <Button
-                disabled={confirmation !== "DELETE" || deletion.isPending}
-                loading={deletion.isPending}
-                onClick={() => deletion.mutate()}
-              >
-                Delete account and data
-              </Button>
-              <Button
-                variant="outline"
-                disabled={deletion.isPending}
-                onClick={() => setOpen(false)}
-              >
-                Cancel
-              </Button>
-            </Stack>
-          </DialogPanel>
-        </DialogPopup>
-      </Dialog>
-    </Stack>
+    <Card render={<section />}>
+      <CardHeader>
+        <CardTitle render={<h2>Delete account</h2>} />
+      </CardHeader>
+      <CardPanel>
+        <Stack>
+          <Text>
+            Delete your account, local credentials, and workspaces where you are
+            the only member. Shared workspace data stays for other members.
+            Transfer ownership of all shared workspaces first.
+          </Text>
+          <Text>
+            This does not delete posts on social platforms or revoke provider
+            access. Remove provider access on each platform. Account deletion
+            cannot be undone.
+          </Text>
+          <Dialog
+            open={open}
+            onOpenChange={(value) => {
+              if (!deletion.isPending) {
+                setOpen(value)
+                setConfirmation("")
+              }
+            }}
+          >
+            <HStack>
+              <DialogTrigger render={<Button variant="outline" />}>
+                Delete account
+              </DialogTrigger>
+            </HStack>
+            <DialogPopup>
+              <DialogHeader>
+                <DialogTitle>Delete account and data?</DialogTitle>
+              </DialogHeader>
+              <DialogPanel>
+                <Stack>
+                  <Text>
+                    Your account and sole-member workspace data will be
+                    permanently deleted.
+                  </Text>
+                  <label
+                    htmlFor="delete-account-confirmation"
+                    {...stylex.props(deskStyles.label)}
+                  >
+                    Type DELETE to confirm
+                    <Input
+                      id="delete-account-confirmation"
+                      value={confirmation}
+                      disabled={deletion.isPending}
+                      onChange={(event) => setConfirmation(event.target.value)}
+                    />
+                  </label>
+                  <Failure error={deletion.error} />
+                  <HStack>
+                    <Button
+                      disabled={confirmation !== "DELETE" || deletion.isPending}
+                      loading={deletion.isPending}
+                      onClick={() => deletion.mutate()}
+                    >
+                      Delete account and data
+                    </Button>
+                  </HStack>
+                  <HStack>
+                    <Button
+                      variant="outline"
+                      disabled={deletion.isPending}
+                      onClick={() => setOpen(false)}
+                    >
+                      Cancel
+                    </Button>
+                  </HStack>
+                </Stack>
+              </DialogPanel>
+            </DialogPopup>
+          </Dialog>
+        </Stack>
+      </CardPanel>
+    </Card>
   )
 }
 
@@ -178,78 +187,97 @@ export function Members({
   const [open, setOpen] = useState(false)
 
   return (
-    <Stack render={<section />}>
-      <Heading render={<h2>Members</h2>} />
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogTrigger render={<Button />}>Invite member</DialogTrigger>
-        <DialogPopup>
-          <DialogHeader>
-            <DialogTitle>Invite member</DialogTitle>
-          </DialogHeader>
-          <DialogPanel>
-            <InviteFields workspaceId={workspaceId} />
-          </DialogPanel>
-        </DialogPopup>
-      </Dialog>
-      <Failure error={query.error ?? remove.error ?? transfer.error} />
-      {transfer.isSuccess && (
-        <Box render={<output />}>Ownership transferred.</Box>
-      )}
-      <Button
-        variant="outline"
-        disabled={query.isFetching}
-        onClick={() => void query.refetch()}
-      >
-        {query.isError ? "Retry members" : "Refresh members"}
-      </Button>
-      {query.isPending && <Box render={<output />}>Loading members…</Box>}
-      {query.data?.map((member) => (
-        <Box key={member.user.id} surface="divided">
-          <Text>
-            {member.user.name} · {member.user.email} · {member.role}
-          </Text>
-          {member.role === "owner" ? (
-            <Text>Workspace owner cannot be removed.</Text>
-          ) : member.user.id === session.data?.user?.id ? (
-            <Text>This is your membership.</Text>
-          ) : (
-            <>
-              {canTransfer && (
-                <Button
-                  variant="outline"
-                  disabled={transfer.isPending || remove.isPending}
-                  loading={transfer.isPending}
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        `Transfer ownership to ${member.user.name}? You will become an admin and lose owner access.`,
-                      )
-                    )
-                      transfer.mutate(member.user.id)
-                  }}
-                >
-                  Transfer ownership
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                disabled={remove.isPending || transfer.isPending}
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      `Remove ${member.user.name} from this workspace?`,
-                    )
-                  )
-                    remove.mutate(member.user.id)
-                }}
-              >
-                Remove {member.user.name}
-              </Button>
-            </>
+    <Card render={<section />}>
+      <CardHeader>
+        <CardTitle render={<h2>Members</h2>} />
+      </CardHeader>
+      <CardPanel>
+        <Stack>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <HStack>
+              <DialogTrigger render={<Button />}>Invite member</DialogTrigger>
+            </HStack>
+            <DialogPopup>
+              <DialogHeader>
+                <DialogTitle>Invite member</DialogTitle>
+              </DialogHeader>
+              <DialogPanel>
+                <InviteFields workspaceId={workspaceId} />
+              </DialogPanel>
+            </DialogPopup>
+          </Dialog>
+          <Failure error={query.error ?? remove.error ?? transfer.error} />
+          {transfer.isSuccess && (
+            <Box render={<output />}>Ownership transferred.</Box>
           )}
-        </Box>
-      ))}
-    </Stack>
+          <HStack>
+            <Button
+              variant="outline"
+              disabled={query.isFetching}
+              onClick={() => void query.refetch()}
+            >
+              {query.isError ? "Retry members" : "Refresh members"}
+            </Button>
+          </HStack>
+          {query.isPending && (
+            <Stack>
+              <Box render={<output />}>Loading members…</Box>
+              <Skeleton aria-hidden="true" />
+            </Stack>
+          )}
+          {query.data?.map((member) => (
+            <Stack key={member.user.id} xstyle={deskStyles.divided}>
+              <Text>
+                {member.user.name} · {member.user.email} · {member.role}
+              </Text>
+              {member.role === "owner" ? (
+                <Text>Workspace owner cannot be removed.</Text>
+              ) : member.user.id === session.data?.user?.id ? (
+                <Text>This is your membership.</Text>
+              ) : (
+                <>
+                  {canTransfer && (
+                    <HStack>
+                      <Button
+                        variant="outline"
+                        disabled={transfer.isPending || remove.isPending}
+                        loading={transfer.isPending}
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `Transfer ownership to ${member.user.name}? You will become an admin and lose owner access.`,
+                            )
+                          )
+                            transfer.mutate(member.user.id)
+                        }}
+                      >
+                        Transfer ownership
+                      </Button>
+                    </HStack>
+                  )}
+                  <HStack>
+                    <Button
+                      variant="outline"
+                      disabled={remove.isPending || transfer.isPending}
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            `Remove ${member.user.name} from this workspace?`,
+                          )
+                        )
+                          remove.mutate(member.user.id)
+                      }}
+                    >
+                      Remove {member.user.name}
+                    </Button>
+                  </HStack>
+                </>
+              )}
+            </Stack>
+          ))}
+        </Stack>
+      </CardPanel>
+    </Card>
   )
 }
 
@@ -354,21 +382,25 @@ export function InviteFields({ workspaceId }: { workspaceId: string }) {
         {(errors) => <FormErrors errors={errors} />}
       </form.Subscribe>
       <Failure error={invite.error ?? copy.error} />
-      <Button type="submit" loading={invite.isPending}>
-        Create invite link
-      </Button>
+      <HStack>
+        <Button type="submit" loading={invite.isPending}>
+          Create invite link
+        </Button>
+      </HStack>
       {invite.data && (
         <>
           <label htmlFor="settings-field-2" {...stylex.props(deskStyles.label)}>
             Invite link
             <Input id="settings-field-2" readOnly value={invite.data.url} />
           </label>
-          <Button
-            variant="outline"
-            onClick={() => copy.mutate(invite.data.url)}
-          >
-            Copy invite link
-          </Button>
+          <HStack>
+            <Button
+              variant="outline"
+              onClick={() => copy.mutate(invite.data.url)}
+            >
+              Copy invite link
+            </Button>
+          </HStack>
           {copy.isSuccess && <Box render={<output />}>Invite link copied.</Box>}
           <Text>
             Share this link with the invited member. No email is sent.

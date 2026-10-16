@@ -10,7 +10,7 @@ import {
 import { CoreDb } from "db/services/core"
 import { SessionDb } from "db/services/session"
 import type { AppConfig } from "env/server"
-import { ApiError, Session } from "rpc/contracts/models"
+import { ApiError, Name, Session } from "rpc/contracts/models"
 
 const Identity = Schema.Literals(["owner", "editor", "outsider"])
 
@@ -71,10 +71,11 @@ function subject(namespace: string, identity: typeof Identity.Type) {
 
 export function fixtureSignIn(request: Request, config: AppConfig) {
   return Effect.gen(function* () {
-    const { identity, mode } = yield* fixtureJson(
+    const { identity, mode, name } = yield* fixtureJson(
       request,
       Schema.Struct({
         identity: Identity,
+        name: Schema.optional(Name),
         mode: Schema.optional(
           Schema.Literals([
             "expired-access",
@@ -98,10 +99,12 @@ export function fixtureSignIn(request: Request, config: AppConfig) {
         )).namespace
       : crypto.randomUUID()
 
-    const user = yield* db.provisionUser(
-      config.AUTH_ISSUER,
-      subject(namespace, identity),
-    )
+    const profile = subject(namespace, identity)
+
+    const user = yield* db.provisionUser(config.AUTH_ISSUER, {
+      ...profile,
+      name: name ?? profile.name,
+    })
 
     if (identity === "editor") {
       const owner = yield* db.provisionUser(

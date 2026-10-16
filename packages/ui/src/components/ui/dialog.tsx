@@ -51,7 +51,7 @@ const styles = stylex.create({
     backgroundClip: "padding-box",
     backgroundColor: tokens["--popover"],
     borderColor: tokens["--border"],
-    borderRadius: "0.875rem",
+    borderRadius: "var(--radius-md)",
     borderStyle: "solid",
     borderWidth: 1,
     boxShadow: "0 10px 15px -3px color-mix(in oklab, #000 5%, transparent)",
@@ -63,7 +63,7 @@ const styles = stylex.create({
     maxBlockSize: "100%",
     maxInlineSize: "32rem",
     minBlockSize: 0,
-    minInlineSize: 0,
+
     opacity: "calc(1 - var(--nested-dialogs))",
     outline: "none",
     position: "relative",
@@ -73,7 +73,7 @@ const styles = stylex.create({
     transitionTimingFunction: "ease-in-out",
     willChange: "transform",
     "::before": {
-      borderRadius: "calc(0.875rem - 1px)",
+      borderRadius: "calc(var(--radius-md) - 1px)",
       boxShadow: {
         default: "0 1px rgb(0 0 0 / 0.04)",
         [stylex.when.ancestor('[data-theme="dark"]', themeMarker)]:
@@ -127,8 +127,8 @@ const styles = stylex.create({
     gap: "0.5rem",
     paddingInline: "1.5rem",
     "@media (min-width: 640px)": {
-      borderEndEndRadius: "calc(0.875rem - 1px)",
-      borderEndStartRadius: "calc(0.875rem - 1px)",
+      borderEndEndRadius: "calc(var(--radius-md) - 1px)",
+      borderEndStartRadius: "calc(var(--radius-md) - 1px)",
       flexDirection: "row",
       justifyContent: "flex-end",
     },

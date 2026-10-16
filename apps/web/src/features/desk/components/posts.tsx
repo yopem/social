@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { DateTime, Match } from "effect"
+import { FileTextIcon } from "lucide-react"
 import { useState } from "react"
 
 import { withRpc } from "rpc/client"
@@ -14,13 +15,24 @@ import type { PostCursor } from "rpc/contracts/app"
 import type { Channel, Post, Workspace } from "rpc/contracts/models"
 import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
-import { Flex } from "ui/components/ui/flex"
+import { Card, CardPanel } from "ui/components/ui/card"
+import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  EmptyDescription,
+} from "ui/components/ui/empty"
 import { Heading } from "ui/components/ui/heading"
+import { HStack } from "ui/components/ui/hstack"
 import { Input } from "ui/components/ui/input"
+import { Skeleton } from "ui/components/ui/skeleton"
 import { Stack } from "ui/components/ui/stack"
+import { Tabs, TabsList, TabsTab, TabsPanel } from "ui/components/ui/tabs"
 import { Text } from "ui/components/ui/text"
 
-import { Choice, Failure, PageHeading, deskStyles } from "@/components/desk-ui"
+import { deskStyles } from "@/components/desk-styles"
+import { Choice, Failure, PageHeading } from "@/components/desk-ui"
 import { execute, rpcMutation, workspaceQuery } from "@/features/desk/queries"
 
 import { platformNames } from "./channels"
@@ -136,24 +148,9 @@ export function Posts({
 
   const rows = query.data?.pages.flatMap((page) => page.items)
 
-  return (
+  const results = (
     <Stack>
-      <PostControls
-        workspace={workspace}
-        view={view}
-        invalidDate={bounds === null}
-        history={history}
-        month={month}
-        date={date}
-        channelId={channelId}
-        channels={channels.data?.channels ?? []}
-        onCreate={() => setCompose(true)}
-        onHistoryChange={setHistory}
-        onMonthChange={setMonth}
-        onDateChange={setDate}
-        onChannelChange={setChannelId}
-      />
-      <Text tone="muted" size="small">
+      <Text xstyle={[deskStyles.text, deskStyles.muted, deskStyles.small]}>
         Workspace timezone: {workspace.timezone}. Review each destination
         outcome separately.
       </Text>
@@ -161,26 +158,22 @@ export function Posts({
         error={query.error ?? channels.error ?? cancel.error ?? remove.error}
       />
       {channels.isError && (
-        <Button variant="outline" onClick={() => void channels.refetch()}>
-          Retry channels
+        <HStack>
+          <Button variant="outline" onClick={() => void channels.refetch()}>
+            Retry channels
+          </Button>
+        </HStack>
+      )}
+      <HStack>
+        <Button
+          variant="outline"
+          disabled={query.isFetching}
+          onClick={() => void query.refetch()}
+        >
+          {query.isError ? "Retry posts" : "Refresh posts"}
         </Button>
-      )}
-      <Button
-        variant="outline"
-        disabled={query.isFetching}
-        onClick={() => void query.refetch()}
-      >
-        {query.isError ? "Retry posts" : "Refresh posts"}
-      </Button>
-      {query.isLoading && <Box render={<output />}>Loading posts…</Box>}
-      {rows?.length === 0 && (
-        <Box surface="preview">
-          <Text>No posts match this view.</Text>
-          <Text tone="muted">
-            Change the date or channel filter, or create a post.
-          </Text>
-        </Box>
-      )}
+      </HStack>
+      <PostListState loading={query.isLoading} posts={rows} />
       <PostReviewOutcome post={reviewOutcome} workspaceId={workspaceId} />
       {rows?.map((post) => (
         <PostCard
@@ -199,13 +192,38 @@ export function Posts({
         />
       ))}
       {query.hasNextPage && (
-        <Button
-          variant="outline"
-          loading={query.isFetchingNextPage}
-          onClick={() => void query.fetchNextPage()}
-        >
-          Load more posts
-        </Button>
+        <HStack>
+          <Button
+            variant="outline"
+            loading={query.isFetchingNextPage}
+            onClick={() => void query.fetchNextPage()}
+          >
+            Load more posts
+          </Button>
+        </HStack>
+      )}
+    </Stack>
+  )
+
+  const content = (
+    <Stack>
+      <PostControls
+        workspace={workspace}
+        view={view}
+        invalidDate={bounds === null}
+        month={month}
+        date={date}
+        channelId={channelId}
+        channels={channels.data?.channels ?? []}
+        onCreate={() => setCompose(true)}
+        onMonthChange={setMonth}
+        onDateChange={setDate}
+        onChannelChange={setChannelId}
+      />
+      {view === "queue" ? (
+        <TabsPanel value={history ? "history" : "queue"}>{results}</TabsPanel>
+      ) : (
+        results
       )}
       {compose && (
         <Composer
@@ -227,6 +245,53 @@ export function Posts({
         />
       )}
     </Stack>
+  )
+
+  if (view !== "queue") return content
+
+  return (
+    <Tabs
+      value={history ? "history" : "queue"}
+      onValueChange={(value) => {
+        if (value === "queue" || value === "history")
+          setHistory(value === "history")
+      }}
+    >
+      {content}
+    </Tabs>
+  )
+}
+
+export function PostListState({
+  loading,
+  posts,
+}: {
+  loading: boolean
+  posts: readonly Post[] | undefined
+}) {
+  if (loading) {
+    return (
+      <Stack>
+        <Box render={<output />}>Loading posts…</Box>
+        <Skeleton aria-hidden="true" />
+      </Stack>
+    )
+  }
+
+  if (posts?.length !== 0) return null
+
+  return (
+    <Empty>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <FileTextIcon aria-hidden="true" />
+        </EmptyMedia>
+        <EmptyTitle>No posts match this view.</EmptyTitle>
+        <EmptyDescription>
+          Change the date or channel filter, or create a post.
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   )
 }
 
@@ -250,99 +315,124 @@ export function PostCard({
   onDelete: (id: string) => void
 }) {
   return (
-    <Box render={<article />} surface="divided">
-      <Text variant="preview">{post.content.text || "Media post"}</Text>
-      <Text>
-        {post.state === "needs-review"
-          ? "Needs review"
-          : post.state.charAt(0).toUpperCase() + post.state.slice(1)}
-      </Text>
-      {post.scheduledAt && (
-        <Text>
-          <time dateTime={post.scheduledAt}>
-            {new Intl.DateTimeFormat("en-US", {
-              dateStyle: "medium",
-              timeStyle: "short",
-              timeZone: timezone,
-            }).format(new Date(post.scheduledAt))}
-          </time>{" "}
-          · {timezone}
-        </Text>
-      )}
-      {post.reviewReason && <Text>{post.reviewReason}</Text>}
-      {post.deliveries.length > 0 && (
-        <Box render={<section />} aria-label="Delivery results">
-          <Heading render={<h2>Delivery results</h2>} />
-          {post.deliveries.map((delivery) => (
-            <Box
-              render={<section />}
-              key={delivery.id}
-              aria-label={
-                channels.find((channel) => channel.id === delivery.channelId)
-                  ?.displayName ?? platformNames[delivery.platform]
-              }
-              surface="divided"
-            >
-              <Heading
-                render={
-                  <h3>
-                    <>
-                      {channels.find(
-                        (channel) => channel.id === delivery.channelId,
-                      )?.displayName ?? platformNames[delivery.platform]}
-                    </>
-                  </h3>
-                }
-              />
-              <Text>{states[delivery.state]}</Text>
-              {delivery.message && <Text>{delivery.message}</Text>}
-              {delivery.retryDisposition === "reconcile-first" && (
-                <Text>Outcome uncertain. Reconcile before retrying.</Text>
-              )}
-              {delivery.url && (
-                <a href={delivery.url} target="_blank" rel="noreferrer">
-                  View published post
-                </a>
-              )}
+    <Card render={<article />}>
+      <CardPanel>
+        <Stack>
+          <Text xstyle={[deskStyles.text, deskStyles.preview]}>
+            {post.content.text || "Media post"}
+          </Text>
+          <Text>
+            {post.state === "needs-review"
+              ? "Needs review"
+              : post.state.charAt(0).toUpperCase() + post.state.slice(1)}
+          </Text>
+          {post.scheduledAt && (
+            <Text>
+              <time dateTime={post.scheduledAt}>
+                {new Intl.DateTimeFormat("en-US", {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                  timeZone: timezone,
+                }).format(new Date(post.scheduledAt))}
+              </time>{" "}
+              · {timezone}
+            </Text>
+          )}
+          {post.reviewReason && <Text>{post.reviewReason}</Text>}
+          {post.deliveries.length > 0 && (
+            <Box render={<section />} aria-label="Delivery results">
+              <Heading render={<h2>Delivery results</h2>} />
+              {post.deliveries.map((delivery) => (
+                <Card
+                  render={<section />}
+                  key={delivery.id}
+                  aria-label={
+                    channels.find(
+                      (channel) => channel.id === delivery.channelId,
+                    )?.displayName ?? platformNames[delivery.platform]
+                  }
+                >
+                  <CardPanel>
+                    <Stack>
+                      <Heading
+                        render={
+                          <h3>
+                            <>
+                              {channels.find(
+                                (channel) => channel.id === delivery.channelId,
+                              )?.displayName ??
+                                platformNames[delivery.platform]}
+                            </>
+                          </h3>
+                        }
+                      />
+                      <Text>{states[delivery.state]}</Text>
+                      {delivery.message && <Text>{delivery.message}</Text>}
+                      {delivery.retryDisposition === "reconcile-first" && (
+                        <Text>
+                          Outcome uncertain. Reconcile before retrying.
+                        </Text>
+                      )}
+                      {delivery.url && (
+                        <a href={delivery.url} target="_blank" rel="noreferrer">
+                          View published post
+                        </a>
+                      )}
+                    </Stack>
+                  </CardPanel>
+                </Card>
+              ))}
             </Box>
-          ))}
-        </Box>
-      )}
-      <Flex spacing="normal" wrap align="center">
-        {["draft", "scheduled", "needs-review", "cancelled"].includes(
-          post.state,
-        ) && (
-          <Button
-            variant="outline"
-            onClick={() => {
-              onEdit(post)
-            }}
+          )}
+          <HStack
+            xstyle={[
+              deskStyles.rowGap,
+              deskStyles.wrap,
+              deskStyles.alignCenter,
+            ]}
           >
-            Edit post
-          </Button>
-        )}
-        {post.state === "scheduled" && (
-          <Button
-            variant="outline"
-            disabled={cancelling}
-            onClick={() => onCancel(post.id)}
-          >
-            Cancel scheduled post
-          </Button>
-        )}
-        {post.state === "draft" && (
-          <Button
-            variant="ghost"
-            disabled={removing}
-            onClick={() => {
-              if (window.confirm("Delete this draft?")) onDelete(post.id)
-            }}
-          >
-            Delete draft
-          </Button>
-        )}
-      </Flex>
-    </Box>
+            {["draft", "scheduled", "needs-review", "cancelled"].includes(
+              post.state,
+            ) && (
+              <HStack>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    onEdit(post)
+                  }}
+                >
+                  Edit post
+                </Button>
+              </HStack>
+            )}
+            {post.state === "scheduled" && (
+              <HStack>
+                <Button
+                  variant="outline"
+                  disabled={cancelling}
+                  onClick={() => onCancel(post.id)}
+                >
+                  Cancel scheduled post
+                </Button>
+              </HStack>
+            )}
+            {post.state === "draft" && (
+              <HStack>
+                <Button
+                  variant="ghost"
+                  disabled={removing}
+                  onClick={() => {
+                    if (window.confirm("Delete this draft?")) onDelete(post.id)
+                  }}
+                >
+                  Delete draft
+                </Button>
+              </HStack>
+            )}
+          </HStack>
+        </Stack>
+      </CardPanel>
+    </Card>
   )
 }
 
@@ -350,13 +440,11 @@ export function PostControls({
   workspace,
   view,
   invalidDate,
-  history,
   month,
   date,
   channelId,
   channels,
   onCreate,
-  onHistoryChange,
   onMonthChange,
   onDateChange,
   onChannelChange,
@@ -364,13 +452,11 @@ export function PostControls({
   workspace: Workspace
   view: "queue" | "drafts" | "calendar"
   invalidDate: boolean
-  history: boolean
   month: string
   date: string
   channelId: string
   channels: readonly Channel[]
   onCreate: () => void
-  onHistoryChange: (history: boolean) => void
   onMonthChange: (month: string) => void
   onDateChange: (date: string) => void
   onChannelChange: (channelId: string) => void
@@ -384,25 +470,15 @@ export function PostControls({
           Match.orElse(() => "Publishing queue"),
         )}
       >
-        <Button onClick={() => onCreate()}>Create post</Button>
+        <HStack>
+          <Button onClick={() => onCreate()}>Create post</Button>
+        </HStack>
       </PageHeading>
       {view === "queue" && (
-        <Flex spacing="normal" wrap align="center">
-          <Button
-            variant={history ? "outline" : "default"}
-            aria-pressed={!history}
-            onClick={() => onHistoryChange(false)}
-          >
-            Queue
-          </Button>
-          <Button
-            variant={history ? "default" : "outline"}
-            aria-pressed={history}
-            onClick={() => onHistoryChange(true)}
-          >
-            History
-          </Button>
-        </Flex>
+        <TabsList variant="underline" aria-label="Post view">
+          <TabsTab value="queue">Queue</TabsTab>
+          <TabsTab value="history">History</TabsTab>
+        </TabsList>
       )}
       {view === "calendar" && (
         <PublicationCalendar
@@ -416,7 +492,9 @@ export function PostControls({
           onSelect={onDateChange}
         />
       )}
-      <Flex spacing="normal" wrap align="center">
+      <HStack
+        xstyle={[deskStyles.rowGap, deskStyles.wrap, deskStyles.alignCenter]}
+      >
         <Choice
           label="Channel filter"
           value={channelId || "all"}
@@ -447,7 +525,7 @@ export function PostControls({
         <Button variant="ghost" onClick={() => onDateChange("")}>
           All dates
         </Button>
-      </Flex>
+      </HStack>
       {invalidDate && <Text role="alert">Choose a valid calendar date.</Text>}
     </>
   )

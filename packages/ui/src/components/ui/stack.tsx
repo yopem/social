@@ -1,8 +1,10 @@
 "use client"
 
-import { useRender } from "@base-ui/react/use-render"
+import type { ComponentPropsWithoutRef, RefAttributes } from "react"
+
 import * as stylex from "@stylexjs/stylex"
 
+import { Box } from "ui/components/ui/box"
 import type { StyleXComponentProps } from "ui/lib/stylex"
 import { mergeStylexProps, stylexProps } from "ui/lib/stylex"
 import { tokens } from "ui/styles/tokens.stylex"
@@ -11,23 +13,16 @@ const styles = stylex.create({
   root: {
     display: "flex",
     flexDirection: "column",
-    minInlineSize: 0,
+    gap: `calc(${tokens["--spacing"]} * 4)`,
   },
-  tight: { gap: `calc(${tokens["--spacing"]} * 2)` },
-  normal: { gap: `calc(${tokens["--spacing"]} * 4)` },
-  loose: { gap: `calc(${tokens["--spacing"]} * 6)` },
 })
 
-export type StackProps = StyleXComponentProps<
-  useRender.ComponentProps<"div">,
-  {
-    spacing?: "tight" | "normal" | "loose"
-  }
->
+type StackElementProps = ComponentPropsWithoutRef<"div"> &
+  RefAttributes<HTMLDivElement>
+
+export type StackProps = StyleXComponentProps<StackElementProps>
 
 export function Stack({
-  render,
-  spacing = "normal",
   xstyle: consumerXstyle,
   className,
   ref,
@@ -36,16 +31,11 @@ export function Stack({
   const props = restProps
   const xstyle = consumerXstyle
 
-  return useRender({
-    defaultTagName: "div",
-    render,
-    props: {
-      "data-slot": "stack",
-      ...mergeStylexProps(
-        stylexProps(className, styles.root, styles[spacing], xstyle),
-        props,
-      ),
-    },
-    ref,
-  })
+  return (
+    <Box
+      data-slot="stack"
+      {...mergeStylexProps(stylexProps(className, styles.root, xstyle), props)}
+      ref={ref}
+    />
+  )
 }

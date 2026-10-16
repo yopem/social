@@ -1,13 +1,78 @@
-import type { APIRequestContext, Page } from "@playwright/test"
+import type { APIRequestContext } from "@playwright/test"
+import type { Rpc, RpcGroup, RpcMessage } from "effect/rpc"
 
 import { expect } from "@playwright/test"
-import { Effect } from "effect"
+import { Data, Effect, Schema } from "effect"
+import { RpcSerialization } from "effect/rpc"
 
-import { Session } from "rpc/contracts/models"
+import type { AppRpc } from "rpc/contracts/app"
+import { Session, Workspace } from "rpc/contracts/models"
 
-import { check, effectTest, responseJson, step } from "./effect"
+import {
+  check,
+  effectTest,
+  E2EFailure,
+  navigateWithSession,
+  responseJson,
+  step,
+} from "./effect"
 
-function invitation(page: Page, request: APIRequestContext) {
+function invitationRpc<
+  A,
+  Tag extends "WorkspaceInvite" | "WorkspaceAcceptInvite",
+>(
+  request: APIRequestContext,
+  tag: Tag,
+  payload: Rpc.Payload<Rpc.ExtractTag<RpcGroup.Rpcs<typeof AppRpc>, Tag>>,
+  success: Schema.ConstraintDecoder<A>,
+) {
+  return Effect.gen(function* () {
+    const parser = RpcSerialization.ndjson.makeUnsafe()
+
+    const message = Data.taggedEnum<RpcMessage.RequestEncoded>().Request({
+      id: tag,
+      tag,
+      headers: [],
+      payload,
+    })
+
+    const body = yield* Schema.decodeUnknownEffect(Schema.String)(
+      parser.encode(message),
+    )
+
+    const response = yield* step(() =>
+      request.post("/rpc", {
+        data: body,
+        headers: { "content-type": "application/ndjson" },
+      }),
+    )
+
+    yield* check(() => expect(response.ok()).toBeTruthy())
+    const text = yield* step(() => response.text())
+
+    const messages = yield* Effect.try({
+      try: () => parser.decode(text),
+      catch: (cause) => new E2EFailure({ message: String(cause) }),
+    })
+
+    const result = yield* Schema.decodeUnknownEffect(
+      Schema.Struct({
+        _tag: Schema.Literal("Exit"),
+        requestId: Schema.Literal(tag),
+        exit: Schema.Struct({
+          _tag: Schema.Literal("Success"),
+          value: success,
+        }),
+      }),
+    )(messages[0])
+
+    return result.exit.value
+  }).pipe(
+    Effect.mapError((cause) => new E2EFailure({ message: String(cause) })),
+  )
+}
+
+function invitation(request: APIRequestContext) {
   return Effect.gen(function* () {
     const invitedResponse = yield* step(() =>
       request.post("/__fixtures/session", { data: { identity: "outsider" } }),
@@ -20,7 +85,36 @@ function invitation(page: Page, request: APIRequestContext) {
     )
 
     const owner = yield* responseJson(ownerResponse, Session)
-    yield* step(() => page.goto("/settings"))
+
+    const created = yield* invitationRpc(
+      request,
+      "WorkspaceInvite",
+      {
+        workspaceId: owner.workspaces[0].id,
+        email: invited.user.email,
+        role: "editor",
+      },
+      Schema.Struct({ url: Schema.String }),
+    )
+
+    return { url: created.url, workspace: owner.workspaces[0] }
+  })
+}
+
+effectTest("create invite link from Settings", ({ page, request }) =>
+  Effect.gen(function* () {
+    const invitedResponse = yield* step(() =>
+      request.post("/__fixtures/session", { data: { identity: "outsider" } }),
+    )
+
+    const invited = yield* responseJson(invitedResponse, Session)
+    yield* step(() =>
+      request.post("/__fixtures/session", { data: { identity: "owner" } }),
+    )
+    yield* navigateWithSession(page, () => page.goto("/settings"))
+    yield* step(() =>
+      page.getByRole("button", { name: "Invite member", exact: true }).click(),
+    )
     yield* step(() =>
       page
         .getByLabel("Invitation email", { exact: true })
@@ -39,9 +133,12 @@ function invitation(page: Page, request: APIRequestContext) {
       page.getByLabel("Invite link", { exact: true }).inputValue(),
     )
 
-    return { url, workspace: owner.workspaces[0] }
-  })
-}
+    yield* check(() => expect(new URL(url).pathname).toBe("/invite"))
+    yield* check(() =>
+      expect(new URL(url).searchParams.get("token")).toBeTruthy(),
+    )
+  }),
+)
 
 for (const suffix of [
   "",
@@ -75,14 +172,14 @@ for (const suffix of [
 }
 
 effectTest(
-  "invite requires explicit acceptance, refreshes session and cannot be reused",
+  "invite requires explicit acceptance, refreshes session and persists after reload",
   ({ page, request }) =>
     Effect.gen(function* () {
-      const { url, workspace } = yield* invitation(page, request)
+      const { url, workspace } = yield* invitation(request)
       yield* step(() =>
         request.post("/__fixtures/session", { data: { identity: "outsider" } }),
       )
-      yield* step(() => page.goto(url))
+      yield* navigateWithSession(page, () => page.goto(url))
       yield* step(() =>
         expect(
           page.getByRole("button", { name: "Accept invitation", exact: true }),
@@ -105,7 +202,7 @@ effectTest(
           }),
         ).toBeVisible(),
       )
-      yield* step(() => page.reload())
+      yield* navigateWithSession(page, () => page.reload())
       yield* step(() =>
         expect(
           page.getByRole("combobox", {
@@ -114,31 +211,50 @@ effectTest(
           }),
         ).toBeVisible(),
       )
-      yield* step(() => page.goto(url))
-      yield* step(() =>
-        page
-          .getByRole("button", { name: "Accept invitation", exact: true })
-          .click(),
-      )
-      yield* step(() =>
-        expect(page.getByRole("alert")).toContainText(
-          "may be expired, already used, or intended for another email",
-        ),
-      )
-      yield* step(() =>
-        expect(
-          page.getByRole("link", { name: "Back to publishing desk" }),
-        ).toBeVisible(),
-      )
     }),
+)
+
+effectTest("accepted invitation cannot be reused", ({ page, request }) =>
+  Effect.gen(function* () {
+    const { url } = yield* invitation(request)
+    yield* step(() =>
+      request.post("/__fixtures/session", { data: { identity: "outsider" } }),
+    )
+
+    const token = yield* Schema.decodeUnknownEffect(Schema.String)(
+      new URL(url).searchParams.get("token"),
+    ).pipe(
+      Effect.mapError(
+        () => new E2EFailure({ message: "Missing invitation token" }),
+      ),
+    )
+
+    yield* invitationRpc(request, "WorkspaceAcceptInvite", { token }, Workspace)
+    yield* navigateWithSession(page, () => page.goto(url))
+    yield* step(() =>
+      page
+        .getByRole("button", { name: "Accept invitation", exact: true })
+        .click(),
+    )
+    yield* step(() =>
+      expect(page.getByRole("alert")).toContainText(
+        "may be expired, already used, or intended for another email",
+      ),
+    )
+    yield* step(() =>
+      expect(
+        page.getByRole("link", { name: "Back to publishing desk" }),
+      ).toBeVisible(),
+    )
+  }),
 )
 
 effectTest(
   "wrong email cannot consume invitation; matching email can still accept",
   ({ page, request }) =>
     Effect.gen(function* () {
-      const { url } = yield* invitation(page, request)
-      yield* step(() => page.goto(url))
+      const { url } = yield* invitation(request)
+      yield* navigateWithSession(page, () => page.goto(url))
       yield* step(() =>
         page
           .getByRole("button", { name: "Accept invitation", exact: true })
@@ -149,7 +265,7 @@ effectTest(
       yield* step(() =>
         request.post("/__fixtures/session", { data: { identity: "outsider" } }),
       )
-      yield* step(() => page.reload())
+      yield* navigateWithSession(page, () => page.reload())
       yield* step(() =>
         page
           .getByRole("button", { name: "Accept invitation", exact: true })
@@ -164,7 +280,9 @@ effectTest(
   ({ page }) =>
     Effect.gen(function* () {
       const token = `${crypto.randomUUID()}${crypto.randomUUID()}`
-      yield* step(() => page.goto(`/invite?token=${token}`))
+      yield* navigateWithSession(page, () =>
+        page.goto(`/invite?token=${token}`),
+      )
       yield* step(() =>
         expect(
           page.getByRole("link", { name: "Sign in with Google" }),
@@ -185,7 +303,7 @@ effectTest(
   "invite session outage shows retry, not login or acceptance",
   ({ page, request }) =>
     Effect.gen(function* () {
-      const { url } = yield* invitation(page, request)
+      const { url } = yield* invitation(request)
       yield* step(() =>
         page.route("**/rpc{,/}", (route) => {
           const headers = route.request().headers()
@@ -196,7 +314,7 @@ effectTest(
           return route.continue({ headers })
         }),
       )
-      yield* step(() => page.goto(url))
+      yield* navigateWithSession(page, () => page.goto(url))
       yield* step(() => expect(page.getByRole("alert")).toBeVisible())
       yield* step(() =>
         expect(

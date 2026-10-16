@@ -8,6 +8,11 @@ import type { AppConfig, WorkerBindings } from "env/server"
 import type { MediaListInput } from "rpc/contracts/app"
 import { ApiError, Media, Name } from "rpc/contracts/models"
 
+// Cloudflare supplies this class at runtime.
+declare const FixedLengthStream: new (
+  length: number | bigint,
+) => Readonly<ReadableWritablePair<Uint8Array, Uint8Array>>
+
 const ImageLimit = 10000000
 
 const VideoLimit = 100000000
@@ -245,25 +250,173 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
             ),
           )
 
-          const stream = yield* Stream.toReadableStreamEffect(
-            Stream.concat(Stream.fromIterable(prefixChunks), remaining),
+          const chunks = Stream.concat(
+            Stream.fromIterable(prefixChunks),
+            remaining,
           )
 
           const id = crypto.randomUUID()
           const objectKey = `${workspaceId}/${id}`
 
-          const uploadBody = yield* Schema.decodeUnknownEffect(WorkerBody)(
-            stream,
-          ).pipe(Effect.mapError(storageFailure))
+          let linked = false
 
-          const stored = yield* Effect.tryPromise({
-            try: () =>
-              bindings.MEDIA.put(objectKey, uploadBody, {
-                httpMetadata: { contentType: type },
+          yield* Effect.addFinalizer(() =>
+            linked
+              ? Effect.void
+              : Effect.tryPromise({
+                  try: () => bindings.MEDIA.delete(objectKey),
+                  catch: storageFailure,
+                }).pipe(
+                  Effect.catch(() =>
+                    Effect.logError("Unlinked media could not be removed."),
+                  ),
+                ),
+          )
+
+          const stored = yield* Effect.gen(function* () {
+            if (declaredLength !== undefined) {
+              // R2 requires a stream with a known length after prefix validation.
+              const fixed = new FixedLengthStream(declaredLength)
+
+              const uploadBody = yield* Schema.decodeUnknownEffect(WorkerBody)(
+                fixed.readable,
+              ).pipe(Effect.mapError(storageFailure))
+
+              // Keep the upload error if writer abort also rejects R2 storage.
+              let producerError: ApiError | undefined
+
+              const [, object] = yield* Effect.all(
+                [
+                  Effect.gen(function* () {
+                    const writer = yield* Effect.acquireRelease(
+                      Effect.sync(() => fixed.writable.getWriter()),
+                      (resource) =>
+                        Effect.tryPromise({
+                          try: () => resource.abort(),
+                          catch: storageFailure,
+                        }).pipe(Effect.catch(() => Effect.void)),
+                    )
+
+                    yield* Stream.runForEach(chunks, (chunk) =>
+                      Effect.tryPromise({
+                        try: () => writer.write(chunk),
+                        catch: storageFailure,
+                      }),
+                    )
+                    yield* Effect.tryPromise({
+                      try: () => writer.close(),
+                      catch: storageFailure,
+                    })
+                  }).pipe(
+                    Effect.tapError((error) =>
+                      Effect.sync(() => {
+                        producerError = error
+                      }),
+                    ),
+                    Effect.scoped,
+                  ),
+                  Effect.tryPromise({
+                    try: () =>
+                      bindings.MEDIA.put(objectKey, uploadBody, {
+                        httpMetadata: { contentType: type },
+                      }),
+                    catch: storageFailure,
+                  }).pipe(Effect.uninterruptible),
+                ],
+                { concurrency: 2 },
+              ).pipe(
+                Effect.catch((error) => Effect.fail(producerError ?? error)),
+              )
+
+              return object
+            }
+
+            let completed = false
+
+            const multipart = yield* Effect.acquireRelease(
+              Effect.tryPromise({
+                try: () =>
+                  bindings.MEDIA.createMultipartUpload(objectKey, {
+                    httpMetadata: { contentType: type },
+                  }),
+                catch: storageFailure,
               }),
-            catch: (cause) =>
-              cause instanceof ApiError ? cause : storageFailure(),
-          })
+              (resource) =>
+                completed
+                  ? Effect.void
+                  : Effect.tryPromise({
+                      try: () => resource.abort(),
+                      catch: storageFailure,
+                    }).pipe(
+                      Effect.catch(() =>
+                        Effect.logWarning(
+                          "Media multipart upload could not be closed.",
+                        ),
+                      ),
+                    ),
+            )
+
+            const parts: Awaited<ReturnType<typeof multipart.uploadPart>>[] = []
+            // R2 requires 5 MiB parts, except for the final part.
+            const buffer = new Uint8Array(5 * 1024 * 1024)
+            let buffered = 0
+
+            yield* Stream.runForEach(chunks, (chunk) =>
+              Effect.gen(function* () {
+                let position = 0
+
+                while (position < chunk.byteLength) {
+                  const length = Math.min(
+                    buffer.length - buffered,
+                    chunk.byteLength - position,
+                  )
+
+                  buffer.set(
+                    chunk.subarray(position, position + length),
+                    buffered,
+                  )
+                  buffered += length
+                  position += length
+
+                  if (buffered === buffer.length) {
+                    parts.push(
+                      yield* Effect.tryPromise({
+                        try: () =>
+                          multipart.uploadPart(parts.length + 1, buffer),
+                        catch: storageFailure,
+                      }).pipe(Effect.uninterruptible),
+                    )
+                    buffered = 0
+                  }
+                }
+              }),
+            )
+
+            if (buffered > 0) {
+              parts.push(
+                yield* Effect.tryPromise({
+                  try: () =>
+                    multipart.uploadPart(
+                      parts.length + 1,
+                      buffer.subarray(0, buffered),
+                    ),
+                  catch: storageFailure,
+                }).pipe(Effect.uninterruptible),
+              )
+            }
+
+            return yield* Effect.tryPromise({
+              try: () => multipart.complete(parts),
+              catch: storageFailure,
+            }).pipe(
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  completed = true
+                }),
+              ),
+              Effect.uninterruptible,
+            )
+          }).pipe(Effect.scoped)
 
           if (!stored) return yield* Effect.fail(storageFailure())
 
@@ -285,17 +438,14 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
             ),
           )
 
+          // Wait for the write before cleanup can decide whether the object is linked.
           yield* db.saveMedia({ ...value, objectKey }).pipe(
-            Effect.onError(() =>
-              Effect.tryPromise({
-                try: () => bindings.MEDIA.delete(objectKey),
-                catch: storageFailure,
-              }).pipe(
-                Effect.catch(() =>
-                  Effect.logError("Unlinked media could not be removed."),
-                ),
-              ),
+            Effect.tap(() =>
+              Effect.sync(() => {
+                linked = true
+              }),
             ),
+            Effect.uninterruptible,
           )
 
           return value

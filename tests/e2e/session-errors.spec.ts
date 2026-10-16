@@ -3,7 +3,13 @@ import { Effect } from "effect"
 
 import { Session } from "rpc/contracts/models"
 
-import { check, effectTest, responseJson, step } from "./effect"
+import {
+  check,
+  effectTest,
+  navigateWithSession,
+  responseJson,
+  step,
+} from "./effect"
 
 for (const fault of ["upstream", "storage"] as const) {
   for (const cached of [false, true]) {
@@ -22,10 +28,11 @@ for (const fault of ["upstream", "storage"] as const) {
           const before = yield* step(() => request.storageState())
 
           if (cached) {
-            yield* step(() => page.goto("/"))
+            yield* step(() => page.clock.install())
+            yield* navigateWithSession(page, () => page.goto("/"))
             yield* step(() =>
               expect(
-                page.getByRole("button", { name: "Sign out", exact: true }),
+                page.getByRole("button", { name: "User menu", exact: true }),
               ).toBeVisible(),
             )
           }
@@ -53,7 +60,7 @@ for (const fault of ["upstream", "storage"] as const) {
             [
               failedRead,
               cached
-                ? Effect.sleep("16 seconds").pipe(
+                ? step(() => page.clock.fastForward(16_000)).pipe(
                     Effect.flatMap(() =>
                       step(() =>
                         page.evaluate(() =>
@@ -83,18 +90,15 @@ for (const fault of ["upstream", "storage"] as const) {
           )
           yield* step(() =>
             expect(
-              page.getByRole("button", { name: "Sign out", exact: true }),
+              page.getByRole("button", { name: "User menu", exact: true }),
             ).toHaveCount(cached ? 1 : 0),
           )
 
           if (cached)
             yield* step(() =>
               expect(
-                page
-                  .getByRole("complementary")
-                  .getByRole("paragraph")
-                  .filter({ hasText: session.user.name }),
-              ).toBeVisible(),
+                page.getByRole("button", { name: "User menu", exact: true }),
+              ).toContainText(session.user.name),
             )
 
           const afterFailure = yield* step(() => request.storageState())
@@ -109,7 +113,7 @@ for (const fault of ["upstream", "storage"] as const) {
           yield* step(() => expect(page.getByRole("alert")).toHaveCount(0))
           yield* step(() =>
             expect(
-              page.getByRole("button", { name: "Sign out", exact: true }),
+              page.getByRole("button", { name: "User menu", exact: true }),
             ).toBeVisible(),
           )
           yield* step(() =>
@@ -119,11 +123,8 @@ for (const fault of ["upstream", "storage"] as const) {
           )
           yield* step(() =>
             expect(
-              page
-                .getByRole("complementary")
-                .getByRole("paragraph")
-                .filter({ hasText: session.user.name }),
-            ).toBeVisible(),
+              page.getByRole("button", { name: "User menu", exact: true }),
+            ).toContainText(session.user.name),
           )
           const afterRecovery = yield* step(() => request.storageState())
           yield* check(() =>
@@ -136,7 +137,7 @@ for (const fault of ["upstream", "storage"] as const) {
 
 effectTest("successful anonymous session read shows sign-in", ({ page }) =>
   Effect.gen(function* () {
-    yield* step(() => page.goto("/"))
+    yield* navigateWithSession(page, () => page.goto("/"))
     yield* step(() =>
       expect(
         page.getByRole("link", { name: "Sign in with Google" }),

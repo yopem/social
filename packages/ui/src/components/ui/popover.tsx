@@ -18,7 +18,7 @@ const styles = stylex.create({
   },
   popup: {
     borderRadius: {
-      default: tokens["--radius-lg"],
+      default: tokens["--radius-md"],
       ':has([data-slot="calendar"])': "0.875rem",
     },
     backgroundClip: "padding-box",
@@ -48,8 +48,8 @@ const styles = stylex.create({
     },
     "::before": {
       borderRadius: {
-        default: "calc(var(--radius-lg, 0.625rem) - 1px)",
-        ':has([data-slot="calendar"])': "calc(0.875rem - 1px)",
+        default: "calc(var(--radius-md, 0.75rem) - 1px)",
+        ':has([data-slot="calendar"])': "calc(var(--radius-md) - 1px)",
       },
       boxShadow: {
         default: "0 1px rgb(0 0 0 / 0.04)",
@@ -73,8 +73,8 @@ const styles = stylex.create({
     textWrap: "balance",
     "::before": {
       borderRadius: {
-        default: "calc(var(--radius-md, 0.5rem) - 1px)",
-        ':has([data-slot="calendar"])': "calc(0.875rem - 1px)",
+        default: "calc(var(--radius-md, 0.75rem) - 1px)",
+        ':has([data-slot="calendar"])': "calc(var(--radius-md) - 1px)",
       },
     },
   },

@@ -152,6 +152,72 @@ const paginationChecks = Effect.fn("paginationChecks")(function* (
 
   const foreignPost = yield* core.savePost(foreign.id, content, null)
   yield* core.setPostState(foreign.id, foreignPost.id, "cancelled")
+  const foreignDraft = yield* core.savePost(foreign.id, content, null)
+
+  const draft: typeof PostListPageInput.Type = {
+    ...base,
+    filter: "draft",
+    limit: 50,
+  }
+
+  const first = yield* posts.listPage(userId, draft)
+
+  const second = yield* posts.listPage(userId, {
+    ...draft,
+    cursor: first.nextCursor ?? undefined,
+  })
+
+  const third = yield* posts.listPage(userId, {
+    ...draft,
+    cursor: second.nextCursor ?? undefined,
+  })
+
+  const hundred = yield* posts.listPage(userId, { ...draft, limit: 100 })
+
+  const tail = yield* posts.listPage(userId, {
+    ...draft,
+    limit: 100,
+    cursor: hundred.nextCursor ?? undefined,
+  })
+
+  const drafts = [...first.items, ...second.items, ...third.items]
+  const targets = first.items.slice(0, 2)
+  const deliveryIds = new Map<string, string[]>()
+  const observedAt = DateTime.formatIso(yield* DateTime.now)
+
+  for (let index = 41; index >= 0; index--) {
+    const channelId = crypto.randomUUID()
+    yield* core.upsertChannel({
+      id: channelId,
+      workspaceId,
+      platform: "x",
+      backend: "fixture:pagination-deliveries",
+      accountId: channelId,
+      displayName: `Pagination delivery ${index}`,
+      status: "connected",
+    })
+
+    for (const post of targets) {
+      const id = `${post.id}:delivery:${String(index).padStart(2, "0")}`
+      yield* core.saveDelivery({
+        id,
+        postId: post.id,
+        channelId,
+        platform: "x",
+        state: "scheduled",
+        message: null,
+        url: null,
+        providerPostId: null,
+        observedAt,
+        retryDisposition: null,
+      })
+      const ids = deliveryIds.get(post.id) ?? []
+      ids.push(id)
+      deliveryIds.set(post.id, ids)
+    }
+  }
+
+  const withDeliveries = yield* posts.listPage(userId, draft)
   const calendar = { ...base, filter: "calendar" as const, limit: 1 }
 
   const calendarFiltered = yield* posts.listPage(userId, {
@@ -204,6 +270,49 @@ const paginationChecks = Effect.fn("paginationChecks")(function* (
       new Set(calendarIds).size === 2 &&
       calendarIds.includes(seed.scheduledId) &&
       calendarIds.includes(seed.boundaryId),
+    draftPageSizes:
+      first.items.length === 50 &&
+      second.items.length === 50 &&
+      third.items.length === 5 &&
+      first.nextCursor !== null &&
+      second.nextCursor !== null &&
+      third.nextCursor === null &&
+      hundred.items.length === 100 &&
+      hundred.nextCursor !== null &&
+      tail.items.length === 5 &&
+      tail.nextCursor === null,
+    draftCursorOrder:
+      new Set(drafts.map((post) => post.id)).size === 105 &&
+      drafts.every(
+        (post, index) =>
+          post.id === [...hundred.items, ...tail.items][index]?.id &&
+          post.id === allIds[index] &&
+          (index === 0 || (drafts[index - 1]?.id ?? "") > post.id),
+      ),
+    draftWorkspaceScoped:
+      drafts.every((post) => post.workspaceId === workspaceId) &&
+      !drafts.some((post) => post.id === foreignDraft.id),
+    deliveryCapAndOrder:
+      targets.length === 2 &&
+      targets.every((target) => {
+        const actual = withDeliveries.items.find(
+          (post) => post.id === target.id,
+        )?.deliveries
+
+        const ids = [...(deliveryIds.get(target.id) ?? [])].sort().slice(0, 40)
+
+        return (
+          actual?.length === 40 &&
+          actual.every((delivery, index) => delivery.id === ids[index])
+        )
+      }),
+    deliveryIsolation:
+      withDeliveries.items.length === 50 &&
+      withDeliveries.items.every((post) =>
+        targets.some((target) => target.id === post.id)
+          ? post.deliveries.every((delivery) => delivery.postId === post.id)
+          : post.deliveries.length === 0,
+      ),
     olderScheduledVisible: filtered.items.some(
       (post) => post.id === seed.scheduledId,
     ),

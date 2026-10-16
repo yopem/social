@@ -43,7 +43,7 @@ const styles = stylex.create({
   },
   listDefault: {
     backgroundColor: tokens["--muted"],
-    borderRadius: tokens["--radius-lg"],
+    borderRadius: tokens["--radius-md"],
     columnGap: "0.125rem",
     color: tokens["--muted-foreground"],
     padding: "0.125rem",
