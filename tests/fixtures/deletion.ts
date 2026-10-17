@@ -5,13 +5,13 @@ import { JobService } from "server/features/publishing/jobs"
 import { CredentialCrypto } from "auth/services/crypto"
 import { AuthSession } from "auth/services/session"
 import { DeletionDb } from "db/services/accounts/deletion"
-import { SocialDb } from "db/services/channels/social"
-import { CoreDb } from "db/services/client"
 import {
   seedLegacyOtherClaim,
   readLegacyOtherClaim,
   readRemotePostRow,
-} from "db/services/deletion/fixture"
+} from "db/services/accounts/deletion-fixture"
+import { SocialDb } from "db/services/channels/social"
+import { CoreDb } from "db/services/client"
 import type { AppConfig } from "env/server"
 import { WorkerResources } from "env/server"
 import type { User } from "rpc/contracts/accounts"
