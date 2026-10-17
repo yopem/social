@@ -13,18 +13,14 @@ import {
   socialCallback,
   socialClientMetadata,
 } from "server/features/channels/callback"
-import {
-  drainSocialInbox,
-  socialWebhook,
-} from "server/features/channels/webhooks"
+import { socialWebhook } from "server/features/channels/webhooks"
 import { mediaRequest } from "server/features/media/http"
-import { PostService } from "server/features/posts/service"
 import { JobService, processQueue } from "server/features/publishing/jobs"
+import { reconcileInbox } from "server/features/publishing/reconcile-inbox"
 import { authRequest } from "server/platform/auth"
 import { errorResponse, failure } from "server/platform/http"
 import { rpcRequest } from "server/rpc"
 
-import { CoreDb } from "db/services/client"
 import { RetentionDb } from "db/services/retention"
 import type { AppConfig, WorkerBindings } from "env/server"
 import { loadConfig } from "env/server"
@@ -68,42 +64,6 @@ export function apiRequest(request: Request, config: AppConfig) {
 
     return null
   })
-}
-
-function drainInbox() {
-  return drainSocialInbox((event, workspaceId) =>
-    Effect.gen(function* () {
-      const db = yield* CoreDb
-      const posts = yield* PostService
-      const pending = yield* db.listPosts(workspaceId, "queue")
-      const channels = yield* db.listChannels(workspaceId)
-
-      const affected = new Set(
-        channels
-          .filter(
-            (channel) =>
-              channel.platform === event.provider &&
-              event.accountIds.includes(channel.accountId),
-          )
-          .map((channel) => channel.id),
-      )
-
-      yield* Effect.forEach(
-        pending.filter(
-          (post) =>
-            post.state === "pending" &&
-            post.deliveries.some(
-              (delivery) =>
-                affected.has(delivery.channelId) &&
-                (!event.backendRecordId ||
-                  delivery.providerPostId === event.backendRecordId),
-            ),
-        ),
-        (post) => posts.reconcile(workspaceId, post.id),
-        { concurrency: 2, discard: true },
-      )
-    }),
-  )
 }
 
 // Cloudflare and DOM types use different Response declarations.
@@ -231,7 +191,7 @@ export function createApplicationWorker(
         run(bindings, () =>
           Effect.gen(function* () {
             yield* processQueue(batch.messages)
-            yield* drainInbox()
+            yield* reconcileInbox()
           }),
         ),
       )
@@ -244,7 +204,7 @@ export function createApplicationWorker(
             yield* retention.cleanup()
             const jobs = yield* JobService
             yield* jobs.enqueueDue()
-            yield* drainInbox()
+            yield* reconcileInbox()
           }),
         ),
       )

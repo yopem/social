@@ -1,8 +1,6 @@
 import { Effect, Match, Schema } from "effect"
-import {
-  drainSocialInbox,
-  socialWebhook,
-} from "server/features/channels/webhooks"
+import { drainSocialInbox } from "server/features/channels/inbox"
+import { socialWebhook } from "server/features/channels/webhooks"
 import { JobService } from "server/features/publishing/jobs"
 
 import { AuthSession } from "auth/services/session"
