@@ -1,8 +1,8 @@
 import { Effect, Schema } from "effect"
 
 import { CredentialCrypto } from "auth/services/crypto"
-import { DeletionDb } from "db/services/deletion"
-import { recoverAccountOperations } from "db/services/operation-recovery"
+import { DeletionDb } from "db/services/accounts/deletion"
+import { recoverAccountOperations } from "db/services/deletion/operation-recovery"
 import { WorkerResources } from "env/server"
 
 import { fixtureCookie, fixtureError, fixtureJson } from "./auth"

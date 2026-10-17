@@ -9,8 +9,9 @@ import {
 } from "effect/http"
 import { RpcClient, RpcSerialization } from "effect/rpc"
 
-import { AppRpc } from "rpc/contracts/app"
-import { ApiError, Media } from "rpc/contracts/models"
+import { AppRpc } from "rpc/app"
+import { Media } from "rpc/contracts/media"
+import { ApiError } from "rpc/lib/errors"
 
 export type AppClient = RpcClient.FromGroup<
   typeof AppRpc,

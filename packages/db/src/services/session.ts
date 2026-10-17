@@ -10,7 +10,7 @@ import {
   SessionHashes,
   SessionLookup,
 } from "db/schema/session"
-import { ApiError } from "rpc/contracts/models"
+import { ApiError } from "rpc/lib/errors"
 
 function failure() {
   return new ApiError({

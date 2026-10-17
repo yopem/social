@@ -1,7 +1,7 @@
 import { Context, Effect, Layer } from "effect"
 
 import type { AppConfig } from "env/server"
-import { ApiError } from "rpc/contracts/models"
+import { ApiError } from "rpc/lib/errors"
 
 function cryptoError() {
   return new ApiError({

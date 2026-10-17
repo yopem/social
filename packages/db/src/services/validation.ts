@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect"
 
-import { ApiError } from "rpc/contracts/models"
+import { ApiError } from "rpc/lib/errors"
 
 export const DatabaseRunResult = Schema.Struct({
   meta: Schema.Struct({

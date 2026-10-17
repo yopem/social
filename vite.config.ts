@@ -1,9 +1,39 @@
+import type { OxlintOverride } from "vite-plus/lint"
+
 import { recommendedRules } from "@yopem-ui/oxlint-plugin"
 import base from "@yopem/oxlint-config"
 import effect from "@yopem/oxlint-config/effect"
 import react from "@yopem/oxlint-config/react"
 import start from "@yopem/oxlint-config/tanstack-start"
 import { defineConfig } from "vite-plus"
+
+const databaseImportRestriction = {
+  group: [
+    "@effect/sql",
+    "@effect/sql/*",
+    "@effect/sql-*",
+    "@effect/sql-*/*",
+    "drizzle-orm",
+    "drizzle-orm/*",
+    "drizzle-kit",
+    "@handfish/drizzle-effect",
+    "effect/sql",
+    "effect/sql/*",
+  ],
+  message: "Keep database imports in packages/db.",
+}
+
+const serverDomains = [
+  "accounts",
+  "analytics",
+  "channels",
+  "feeds",
+  "media",
+  "posts",
+  "publishing",
+  "session",
+  "workspaces",
+]
 
 const componentSources = ["ui/components/ui/", "@/components/ui/"]
 
@@ -80,31 +110,66 @@ export default defineConfig({
           "no-restricted-imports": [
             "error",
             {
+              patterns: [databaseImportRestriction],
+            },
+          ],
+        },
+      },
+      {
+        files: ["apps/server/src/platform/**/*.ts"],
+        rules: {
+          "no-restricted-imports": [
+            "error",
+            {
               patterns: [
+                databaseImportRestriction,
                 {
-                  group: [
-                    "@effect/sql",
-                    "@effect/sql/*",
-                    "@effect/sql-*",
-                    "@effect/sql-*/*",
-                    "drizzle-orm",
-                    "drizzle-orm/*",
-                    "drizzle-kit",
-                    "@handfish/drizzle-effect",
-                    "effect/sql",
-                    "effect/sql/*",
-                  ],
-                  message: "Keep database imports in packages/db.",
+                  group: ["server/features/**", "**/features/**"],
+                  message: "Platform adapters must not import domain features.",
                 },
               ],
             },
           ],
         },
       },
+      ...serverDomains.map((domain): OxlintOverride => ({
+        files: [`apps/server/src/features/${domain}/**/*.ts`],
+        rules: {
+          "no-restricted-imports": [
+            "error",
+            {
+              patterns: [
+                databaseImportRestriction,
+                {
+                  group: serverDomains
+                    .filter((other) => other !== domain)
+                    .flatMap((other) =>
+                      ["rpc", "http", "jobs", "callback", "webhooks"].flatMap(
+                        (handler) => [
+                          `server/features/${other}/${handler}`,
+                          `server/features/${other}/${handler}.*`,
+                          `server/features/${other}/${handler}/**`,
+                          `**/features/${other}/${handler}`,
+                          `**/features/${other}/${handler}.*`,
+                          `**/features/${other}/${handler}/**`,
+                          `../${other}/${handler}`,
+                          `../${other}/${handler}.*`,
+                          `../${other}/${handler}/**`,
+                        ],
+                      ),
+                    ),
+                  message: "Call another domain's service, not its handlers.",
+                },
+              ],
+            },
+          ],
+        },
+      })),
       {
         files: [
           "apps/web/src/{components,features,lib,routes}/**/*.{ts,tsx}",
           "apps/web/src/router.tsx",
+          "packages/rpc/src/**/*.ts",
         ],
         rules: {
           "no-restricted-imports": [
@@ -124,14 +189,20 @@ export default defineConfig({
                     "effect/sql",
                     "effect/sql/*",
                     "server",
-                    "server/*",
+                    "server/**",
                     "db",
-                    "db/*",
+                    "db/**",
                     "auth",
-                    "auth/*",
+                    "auth/**",
                     "env/server",
                     "env/deployment",
                     "env/database",
+                    "**/apps/server/**",
+                    "**/packages/{db,auth}/**",
+                    "**/packages/env/src/{server,deployment,database}",
+                    "@server/**",
+                    "@db/**",
+                    "@auth/**",
                   ],
                   message:
                     "Keep backend services and resource bindings out of browser code.",

@@ -1,13 +1,13 @@
 import { Effect, Schema } from "effect"
 
 import { CredentialCrypto } from "auth/services/crypto"
-import { CoreDb } from "db/services/core"
+import { CoreDb } from "db/services/client"
 import { RetentionDb } from "db/services/retention"
 import {
   releaseRetentionFixture,
   retentionFixtureCounts,
   seedRetentionFixture,
-} from "db/services/retention-fixture"
+} from "db/services/retention/fixture"
 import { WorkerResources } from "env/server"
 
 import { fixtureError, fixtureJson } from "./auth"

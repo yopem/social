@@ -7,10 +7,12 @@ import {
   checkAuthentication,
   readAuthTokens,
 } from "auth/services/session"
-import { CoreDb } from "db/services/core"
+import { CoreDb } from "db/services/client"
 import { SessionDb } from "db/services/session"
 import type { AppConfig } from "env/server"
-import { ApiError, Name, Session } from "rpc/contracts/models"
+import { Session } from "rpc/contracts/session"
+import { ApiError } from "rpc/lib/errors"
+import { Name } from "rpc/lib/schema"
 
 const Identity = Schema.Literals(["owner", "editor", "outsider"])
 

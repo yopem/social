@@ -1,7 +1,7 @@
 import { expect } from "@playwright/test"
 import { Effect } from "effect"
 
-import { Session } from "rpc/contracts/models"
+import { Session } from "rpc/contracts/session"
 
 import {
   check,

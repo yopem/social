@@ -1,13 +1,12 @@
 import { Context, DateTime, Effect, Result, Layer, Schema } from "effect"
 
 import { authClient } from "auth/client"
+import { CredentialCrypto } from "auth/services/crypto"
 import { subjects } from "auth/subjects"
-import { CoreDb } from "db/services/core"
+import { CoreDb } from "db/services/client"
 import { SessionDb } from "db/services/session"
 import type { AppConfig } from "env/server"
-import { ApiError } from "rpc/contracts/models"
-
-import { CredentialCrypto } from "./crypto"
+import { ApiError } from "rpc/lib/errors"
 
 function upstreamError() {
   return new ApiError({

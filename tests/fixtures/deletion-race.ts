@@ -1,9 +1,9 @@
 import { Effect, Result } from "effect"
 
-import { CoreDb } from "db/services/core"
-import { DeletionDb } from "db/services/deletion"
+import { DeletionDb } from "db/services/accounts/deletion"
+import { CoreDb } from "db/services/client"
 import type { AppConfig } from "env/server"
-import type { User } from "rpc/contracts/models"
+import type { User } from "rpc/contracts/accounts"
 
 import { fixtureError } from "./auth"
 

@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test"
 import { Effect, Schema } from "effect"
 import { createHmac } from "node:crypto"
 
-import { Channel } from "rpc/contracts/models"
+import { Channel } from "rpc/contracts/channels"
 
 import { check, effectTest, responseJson, step } from "./effect"
 

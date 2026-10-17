@@ -2,44 +2,51 @@ import type {
   MessageBatch,
   ScheduledController,
 } from "@cloudflare/workers-types"
-import type { Egress } from "server/lib/egress"
-import type { AccountDeletion } from "server/services/deletion"
-import type { FeedService } from "server/services/feeds"
-import type { OperationGate } from "server/services/operation-gate"
-import type { SocialService } from "server/services/social"
+import type { AccountDeletion } from "server/features/accounts/deletion"
+import type { OperationGate } from "server/features/accounts/operation-gate"
+import type { SocialService } from "server/features/channels/service"
+import type { FeedService } from "server/features/feeds/service"
+import type { Egress } from "server/platform/egress"
 
 import { Effect, Layer, Schema, Scope, Stream } from "effect"
 import { HttpEffect, HttpServer } from "effect/http"
 import { RpcSerialization, RpcServer } from "effect/rpc"
+import { accountDeletionLayer } from "server/features/accounts/deletion"
+import { operationGateLayer } from "server/features/accounts/operation-gate"
 import {
   socialCallback,
   socialClientMetadata,
-} from "server/handlers/social-callback"
-import { drainSocialInbox, socialWebhook } from "server/handlers/webhooks"
-import { JobService, jobLayer, processQueue } from "server/jobs/handler"
-import { egressLayer, readStream, requestBytes } from "server/lib/egress"
-import { rpcHandlers } from "server/rpc/app"
-import { accountDeletionLayer } from "server/services/deletion"
-import { feedLayer } from "server/services/feeds"
-import { operationGateLayer } from "server/services/operation-gate"
-import { PostService, postLayer } from "server/services/posts"
-import { socialLayer } from "server/services/social"
-import { MediaService, mediaLayer } from "server/storage/media"
+} from "server/features/channels/callback"
+import { socialLayer } from "server/features/channels/service"
+import {
+  drainSocialInbox,
+  socialWebhook,
+} from "server/features/channels/webhooks"
+import { feedLayer } from "server/features/feeds/service"
+import { MediaService, mediaLayer } from "server/features/media/service"
+import { PostService, postLayer } from "server/features/posts/service"
+import {
+  JobService,
+  jobLayer,
+  processQueue,
+} from "server/features/publishing/jobs"
+import { egressLayer, readStream, requestBytes } from "server/platform/egress"
+import { rpcHandlers } from "server/rpc"
 
 import type { CredentialCrypto } from "auth/services/crypto"
 import { credentialCryptoLayer } from "auth/services/crypto"
 import { AuthSession, authSessionLayer } from "auth/services/session"
-import { CoreDb, coreDbLayer } from "db/services/core"
-import { DeletionDb, deletionDbLayer } from "db/services/deletion"
+import { DeletionDb, deletionDbLayer } from "db/services/accounts/deletion"
+import type { SocialDb } from "db/services/channels/social"
+import { socialDbLayer } from "db/services/channels/social"
+import { CoreDb, coreDbLayer } from "db/services/client"
 import { RetentionDb, retentionDbLayer } from "db/services/retention"
 import type { SessionDb } from "db/services/session"
 import { sessionDbLayer } from "db/services/session"
-import type { SocialDb } from "db/services/social"
-import { socialDbLayer } from "db/services/social"
 import type { AppConfig, WorkerBindings, WorkerResources } from "env/server"
 import { ConfigService, loadConfig, resourceLayer } from "env/server"
-import { AppRpc } from "rpc/contracts/app"
-import { ApiError } from "rpc/contracts/models"
+import { AppRpc } from "rpc/app"
+import { ApiError } from "rpc/lib/errors"
 import { Authentication, CurrentUser, RequestIdentity } from "rpc/middleware"
 
 export type ApplicationDependencies =

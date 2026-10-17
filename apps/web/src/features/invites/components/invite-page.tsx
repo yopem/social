@@ -14,7 +14,8 @@ import { Text } from "ui/components/ui/text"
 
 import { deskStyles } from "@/components/desk-styles"
 import { Failure } from "@/components/desk-ui"
-import { errorMessage, execute, sessionQuery } from "@/features/desk/queries"
+import { sessionQuery } from "@/features/session/queries"
+import { errorMessage, execute } from "@/lib/queries"
 
 const styles = stylex.create({
   page: { marginBlock: "max(2rem, 10vh)" },

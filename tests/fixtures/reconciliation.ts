@@ -1,11 +1,11 @@
 import { connectedAccountRef, platformPostRef } from "@opencoredev/social-sdk"
 import { DateTime, Effect, Schema } from "effect"
-import { processQueue, JobService } from "server/jobs/handler"
-import { OutcomeSchema } from "server/lib/sdk-stores"
+import { OutcomeSchema } from "server/features/channels/sdk-stores"
+import { processQueue, JobService } from "server/features/publishing/jobs"
 
-import { CoreDb } from "db/services/core"
+import { SocialDb } from "db/services/channels/social"
+import { CoreDb } from "db/services/client"
 import { fixtureDatabaseStats } from "db/services/migrations"
-import { SocialDb } from "db/services/social"
 import { WorkerResources } from "env/server"
 
 import { fixtureError, fixtureJson } from "./auth"

@@ -4,17 +4,17 @@ import { and, eq, inArray, lte, notExists, or, sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/d1"
 import { Context, DateTime, Effect, Layer, Schema } from "effect"
 
-import { authAttempts } from "db/schema/core"
-import { accountOperations } from "db/schema/deletion"
-import { appSessions } from "db/schema/session"
+import { authAttempts } from "db/schema/accounts"
+import { accountOperations } from "db/schema/accounts/deletion"
 import {
   socialAttempts,
   socialCredentials,
   socialInbox,
   socialRefreshLocks,
-} from "db/schema/social"
+} from "db/schema/channels/social"
+import { appSessions } from "db/schema/session"
 import { DatabaseRunResult } from "db/services/validation"
-import { ApiError } from "rpc/contracts/models"
+import { ApiError } from "rpc/lib/errors"
 
 const CleanupInput = Schema.Struct({})
 

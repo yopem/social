@@ -1,15 +1,18 @@
 import { Effect, Match, Schema } from "effect"
-import { drainSocialInbox, socialWebhook } from "server/handlers/webhooks"
-import { JobService } from "server/jobs/handler"
+import {
+  drainSocialInbox,
+  socialWebhook,
+} from "server/features/channels/webhooks"
+import { JobService } from "server/features/publishing/jobs"
 
 import { AuthSession } from "auth/services/session"
-import { CoreDb } from "db/services/core"
-import { DeletionDb } from "db/services/deletion"
+import { DeletionDb } from "db/services/accounts/deletion"
+import { SocialDb } from "db/services/channels/social"
+import { CoreDb } from "db/services/client"
 import {
   fixtureDatabaseStats,
   verifyLocalFixtureDatabase,
 } from "db/services/migrations"
-import { SocialDb } from "db/services/social"
 import type { AppConfig } from "env/server"
 import { WorkerResources } from "env/server"
 

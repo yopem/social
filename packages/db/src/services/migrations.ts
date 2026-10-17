@@ -5,11 +5,17 @@ import { drizzle } from "drizzle-orm/d1"
 import { SQLiteTable } from "drizzle-orm/sqlite-core"
 import { Effect, Schema } from "effect"
 
-import * as core from "db/schema/core"
-import * as deletion from "db/schema/deletion"
+import * as identity from "db/schema/accounts"
+import * as deletion from "db/schema/accounts/deletion"
+import * as channels from "db/schema/channels"
+import * as social from "db/schema/channels/social"
+import * as feeds from "db/schema/feeds"
+import * as media from "db/schema/media"
+import * as posts from "db/schema/posts"
 import * as session from "db/schema/session"
-import * as social from "db/schema/social"
-import { ApiError, Id } from "rpc/contracts/models"
+import * as workspaces from "db/schema/workspaces"
+import { ApiError } from "rpc/lib/errors"
+import { Id } from "rpc/lib/schema"
 
 function storageError() {
   return new ApiError({
@@ -31,7 +37,12 @@ export function verifyLocalFixtureDatabase(db: D1Database, origin: string) {
     const client = drizzle(db)
 
     const tables = Object.values({
-      ...core,
+      ...identity,
+      ...workspaces,
+      ...channels,
+      ...media,
+      ...posts,
+      ...feeds,
       ...social,
       ...deletion,
       ...session,

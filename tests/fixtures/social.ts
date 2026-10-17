@@ -12,18 +12,25 @@ import {
   credentialKey,
   OutcomeSchema,
   makeSdkStores,
-} from "server/lib/sdk-stores"
-import { SocialService, reconcileOutcomes } from "server/services/social"
+} from "server/features/channels/sdk-stores"
+import {
+  SocialService,
+  reconcileOutcomes,
+} from "server/features/channels/service"
 
 import { CredentialCrypto } from "auth/services/crypto"
-import { CredentialSchema } from "db/schema/social"
-import { CoreDb } from "db/services/core"
-import { SocialDb } from "db/services/social"
+import { CredentialSchema } from "db/schema/channels/social"
+import { SocialDb } from "db/services/channels/social"
+import { CoreDb } from "db/services/client"
 import type { AppConfig } from "env/server"
-import { JsonObject } from "rpc/contracts/json"
-import type { Channel, Delivery, Media, Post } from "rpc/contracts/models"
-import { ApiError, Analytics, Platform } from "rpc/contracts/models"
-import { DiscoveredAccount } from "rpc/contracts/models"
+import { Analytics } from "rpc/contracts/analytics"
+import type { Channel } from "rpc/contracts/channels"
+import { Platform } from "rpc/contracts/channels"
+import { DiscoveredAccount } from "rpc/contracts/channels"
+import type { Media } from "rpc/contracts/media"
+import type { Delivery, Post } from "rpc/contracts/posts"
+import { ApiError } from "rpc/lib/errors"
+import { JsonObject } from "rpc/lib/json"
 
 import { fixtureError } from "./auth"
 import { fixtureConnections, fixtureRedirect, fixtureSdk } from "./connections"

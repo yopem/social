@@ -1,7 +1,7 @@
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { Schema } from "effect"
 
-import { users } from "./core"
+import { users } from "db/schema/accounts"
 
 export const appSessions = sqliteTable(
   "app_sessions",

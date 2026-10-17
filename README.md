@@ -63,11 +63,38 @@ pnpm exec vp run check
 The project also provides `format`, `lint`, `typecheck`, and `e2e` scripts.
 Run project scripts through `pnpm exec vp run <script>`.
 
+## Code layout
+
+Use a feature-first modular monolith with one application Worker:
+
+- `apps/web/src/features/<domain>/`: domain UI, forms, and query options.
+- `apps/web/src/components/`: shared application UI and the desk shell.
+- `apps/server/src/features/<domain>/`: domain services, RPC handlers,
+  callbacks, webhooks, and jobs.
+- `apps/server/src/platform/`: shared runtime adapters.
+- `packages/db/src/schema/`: Drizzle tables and Effect persistence schemas.
+- `packages/db/src/services/`: database queries, writes, batches, and fixtures.
+- `packages/rpc/src/contracts/`: browser-safe domain schemas and RPC contracts.
+- `packages/auth/src/services/`: sign-in, session, and credential services.
+
+For a post change, start in `apps/web/src/features/posts/`,
+`apps/server/src/features/posts/`, `packages/db/src/schema/posts.ts`,
+`packages/db/src/services/posts.ts`, and `packages/rpc/src/contracts/posts.ts`.
+Root modules combine services and contracts. Database migrations stay in
+`packages/db/src/migrations/`.
+
+Account deletion starts in `apps/server/src/features/accounts/` and
+`packages/db/src/services/accounts/deletion.ts`. User records use the
+`accounts` database modules. Provider connection state uses the
+`channels/social` database modules. Channel services live in
+`apps/server/src/features/channels/`.
+
 ## Database
 
 Drizzle tables and Effect row schemas live together in
-`packages/db/src/schema/`. Database services own queries and mutations.
-Effect Schema validates input and returned data at that boundary.
+`packages/db/src/schema/<domain>.ts`. The matching database service owns
+queries and mutations. Effect Schema validates input and returned data at
+that boundary.
 
 After a table change, generate and review a migration:
 

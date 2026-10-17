@@ -17,7 +17,7 @@ import { Text } from "ui/components/ui/text"
 import { Wrap } from "ui/components/ui/wrap"
 
 import { deskStyles } from "@/components/desk-styles"
-import { errorMessage } from "@/features/desk/queries"
+import { errorMessage } from "@/lib/queries"
 
 export function Choice({
   label,

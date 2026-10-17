@@ -15,7 +15,7 @@ import {
   Schema,
 } from "effect"
 
-import { ApiError } from "rpc/contracts/models"
+import { ApiError } from "rpc/lib/errors"
 
 export const JobMessage = Schema.Union([
   Schema.Struct({

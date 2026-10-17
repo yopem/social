@@ -5,8 +5,9 @@ import { expect } from "@playwright/test"
 import { Data, Effect, Schema } from "effect"
 import { RpcSerialization } from "effect/rpc"
 
-import type { AppRpc } from "rpc/contracts/app"
-import { Session, Workspace } from "rpc/contracts/models"
+import type { AppRpc } from "rpc/app"
+import { Session } from "rpc/contracts/session"
+import { Workspace } from "rpc/contracts/workspaces"
 
 import {
   check,

@@ -1,8 +1,8 @@
 import { Context } from "effect"
 import { RpcMiddleware } from "effect/rpc"
 
-import type { User } from "rpc/contracts/models"
-import { ApiError } from "rpc/contracts/models"
+import type { User } from "rpc/contracts/accounts"
+import { ApiError } from "rpc/lib/errors"
 
 export class CurrentUser extends Context.Service<CurrentUser, User>()(
   "social/CurrentUser",

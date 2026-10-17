@@ -1,26 +1,30 @@
 import { DateTime, Effect, Layer, Option, Result, Schema } from "effect"
-import { Egress } from "server/lib/egress"
-import { AccountDeletion } from "server/services/deletion"
-import { feedLayer, FeedService } from "server/services/feeds"
-import { postLayer, PostService } from "server/services/posts"
-import { SocialService } from "server/services/social"
-import { mediaLayer, MediaService } from "server/storage/media"
+import { AccountDeletion } from "server/features/accounts/deletion"
+import { SocialService } from "server/features/channels/service"
+import { feedLayer, FeedService } from "server/features/feeds/service"
+import { mediaLayer, MediaService } from "server/features/media/service"
+import { postLayer, PostService } from "server/features/posts/service"
+import { Egress } from "server/platform/egress"
 
 import { CredentialCrypto } from "auth/services/crypto"
+import { CoreDb } from "db/services/client"
 import {
-  inspectBackendRetention,
   seedBackendPosts,
   seedBackendRecovery,
-  seedBackendRetention,
-} from "db/services/backend-fixture"
-import { CoreDb } from "db/services/core"
+} from "db/services/posts/backend-fixture"
 import { RetentionDb } from "db/services/retention"
+import {
+  inspectBackendRetention,
+  seedBackendRetention,
+} from "db/services/retention/backend-fixture"
 import type { AppConfig } from "env/server"
 import { WorkerResources } from "env/server"
-import { PostCursor } from "rpc/contracts/app"
-import type { PostListPageInput, PostListPageResult } from "rpc/contracts/app"
-import { ApiError } from "rpc/contracts/models"
-import type { Media, Post, PostContent, User } from "rpc/contracts/models"
+import type { User } from "rpc/contracts/accounts"
+import type { Media } from "rpc/contracts/media"
+import { PostCursor } from "rpc/contracts/posts"
+import type { PostListPageInput, PostListPageResult } from "rpc/contracts/posts"
+import type { Post, PostContent } from "rpc/contracts/posts"
+import { ApiError } from "rpc/lib/errors"
 
 import { fixtureError } from "./auth"
 import { fixtureConnections } from "./connections"

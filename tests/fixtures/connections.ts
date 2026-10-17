@@ -3,12 +3,15 @@ import type { ConnectionProvider } from "@opencoredev/social-sdk/server"
 import { connectedAccountRef } from "@opencoredev/social-sdk"
 import { ConnectionManager } from "@opencoredev/social-sdk/server"
 import { Effect } from "effect"
-import { makeSdkStores, pendingCredentialKey } from "server/lib/sdk-stores"
+import {
+  makeSdkStores,
+  pendingCredentialKey,
+} from "server/features/channels/sdk-stores"
 
 import { CredentialCrypto } from "auth/services/crypto"
-import { CoreDb } from "db/services/core"
-import { SocialDb } from "db/services/social"
-import type { Platform } from "rpc/contracts/models"
+import { SocialDb } from "db/services/channels/social"
+import { CoreDb } from "db/services/client"
+import type { Platform } from "rpc/contracts/channels"
 
 import { fixtureError } from "./auth"
 

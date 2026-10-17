@@ -1,20 +1,20 @@
 import { DateTime, Effect, Schema } from "effect"
-import { JobService } from "server/jobs/handler"
-import { credentialKey } from "server/lib/sdk-stores"
+import { credentialKey } from "server/features/channels/sdk-stores"
+import { JobService } from "server/features/publishing/jobs"
 
 import { CredentialCrypto } from "auth/services/crypto"
 import { AuthSession } from "auth/services/session"
-import { CoreDb } from "db/services/core"
-import { DeletionDb } from "db/services/deletion"
+import { DeletionDb } from "db/services/accounts/deletion"
+import { SocialDb } from "db/services/channels/social"
+import { CoreDb } from "db/services/client"
 import {
   seedLegacyOtherClaim,
   readLegacyOtherClaim,
   readRemotePostRow,
-} from "db/services/deletion-fixture"
-import { SocialDb } from "db/services/social"
+} from "db/services/deletion/fixture"
 import type { AppConfig } from "env/server"
 import { WorkerResources } from "env/server"
-import type { User } from "rpc/contracts/models"
+import type { User } from "rpc/contracts/accounts"
 
 import { fixtureCookie, fixtureError, fixtureJson } from "./auth"
 import { fixtureConnections } from "./connections"

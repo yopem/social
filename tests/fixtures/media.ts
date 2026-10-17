@@ -1,8 +1,8 @@
 import { Effect, Exit, Fiber, Schema } from "effect"
-import { OperationGate } from "server/services/operation-gate"
-import { MediaService, mediaLayer } from "server/storage/media"
+import { OperationGate } from "server/features/accounts/operation-gate"
+import { MediaService, mediaLayer } from "server/features/media/service"
 
-import { CoreDb } from "db/services/core"
+import { CoreDb } from "db/services/client"
 import type { AppConfig } from "env/server"
 import { WorkerResources } from "env/server"
 

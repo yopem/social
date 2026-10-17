@@ -3,7 +3,8 @@ import { Effect, Match, Schema } from "effect"
 import { Buffer } from "node:buffer"
 import { request as httpRequest, type OutgoingHttpHeaders } from "node:http"
 
-import { Media, Session } from "rpc/contracts/models"
+import { Media } from "rpc/contracts/media"
+import { Session } from "rpc/contracts/session"
 
 import { check, effectTest, responseJson, step, E2EFailure } from "./effect"
 
