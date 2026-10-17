@@ -10,7 +10,7 @@ import { DateTime, Match } from "effect"
 import { FileTextIcon } from "lucide-react"
 import { useState } from "react"
 
-import { withRpc } from "rpc/client"
+import { callRpc } from "rpc/client"
 import type { Channel } from "rpc/contracts/channels"
 import type { PostCursor } from "rpc/contracts/posts"
 import type { Post } from "rpc/contracts/posts"
@@ -113,7 +113,7 @@ export function Posts({
       pageParam: typeof PostCursor.Type | null
     }) =>
       execute(
-        withRpc((rpc) =>
+        callRpc((rpc) =>
           rpc.PostListPage({
             workspaceId,
             filter,

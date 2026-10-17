@@ -4,7 +4,7 @@ import {
   type QueryClient,
 } from "@tanstack/react-query"
 
-import { logout, withRpc } from "rpc/client"
+import { logout, callRpc } from "rpc/client"
 
 import { execute } from "@/lib/queries"
 
@@ -13,7 +13,7 @@ export function sessionQuery() {
     queryKey: ["session"],
     queryFn: ({ signal }) =>
       execute(
-        withRpc((client) => client.SessionRead(undefined)),
+        callRpc((client) => client.SessionRead(undefined)),
         signal,
       ),
     enabled: typeof window !== "undefined",

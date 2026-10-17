@@ -18,7 +18,7 @@ export type AppClient = RpcClient.FromGroup<
   RpcClientError.RpcClientError
 >
 
-export function withRpc<A, E>(
+export function callRpc<A, E>(
   call: (client: AppClient) => Effect.Effect<A, E>,
   url = "/rpc",
 ) {

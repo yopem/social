@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { DateTime, Effect, Option, Schema } from "effect"
 import { useRef, useState } from "react"
 
-import { withRpc } from "rpc/client"
+import { callRpc } from "rpc/client"
 import { type Media } from "rpc/contracts/media"
 import {
   type Post,
@@ -150,7 +150,7 @@ export function Composer({
           const saved =
             current.publishStarted && current.postId
               ? null
-              : yield* withRpc((rpc) =>
+              : yield* callRpc((rpc) =>
                   rpc.PostSave({
                     workspaceId,
                     postId: current.postId,
@@ -184,7 +184,7 @@ export function Composer({
           current.publishStarted = true
           setPublishStarted(true)
 
-          return yield* withRpc((rpc) =>
+          return yield* callRpc((rpc) =>
             rpc.PostPublish({
               workspaceId,
               postId,

@@ -5,7 +5,7 @@ import {
 } from "@tanstack/react-query"
 import { Cause, Effect, Exit } from "effect"
 
-import { withRpc, type AppClient } from "rpc/client"
+import { callRpc, type AppClient } from "rpc/client"
 
 export async function execute<A, E>(
   effect: Effect.Effect<A, E>,
@@ -32,7 +32,7 @@ export function workspaceQuery<A, E>(
 ) {
   return queryOptions({
     queryKey: ["workspace", workspaceId, name, suffix],
-    queryFn: ({ signal }) => execute(withRpc(call), signal),
+    queryFn: ({ signal }) => execute(callRpc(call), signal),
     enabled: typeof window !== "undefined" && workspaceId.length > 0,
     retry: false,
   })
@@ -45,7 +45,7 @@ export function rpcMutation<Input, A, E>(
 ) {
   return mutationOptions({
     mutationFn: (input: Input) =>
-      execute(withRpc((client) => call(client, input))),
+      execute(callRpc((client) => call(client, input))),
     retry: false,
     onSuccess: () =>
       queryClient.invalidateQueries({

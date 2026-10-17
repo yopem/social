@@ -2,7 +2,7 @@ import * as stylex from "@stylexjs/stylex"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate } from "@tanstack/react-router"
 
-import { withRpc } from "rpc/client"
+import { callRpc } from "rpc/client"
 import { Box } from "ui/components/ui/box"
 import { Button } from "ui/components/ui/button"
 import { Card, CardHeader, CardPanel, CardFooter } from "ui/components/ui/card"
@@ -69,7 +69,7 @@ export function InviteSession({ token }: { token: string }) {
 
   const accept = useMutation({
     mutationFn: () =>
-      execute(withRpc((rpc) => rpc.WorkspaceAcceptInvite({ token }))),
+      execute(callRpc((rpc) => rpc.WorkspaceAcceptInvite({ token }))),
     retry: false,
     onSuccess: async (workspace) => {
       await client.invalidateQueries({ queryKey: ["session"] })
