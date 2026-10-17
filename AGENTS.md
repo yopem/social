@@ -154,11 +154,11 @@ required empty files. Do not create unused packages or optional folders:
 │   │       │   ├── __root.tsx     document shell and shared providers
 │   │       │   └── index.tsx      application's main route
 │   │       ├── features/
-│   │       │   └── <domain>/      one folder per application domain
-│   │       │       ├── components/ feature UI and forms
-│   │       │       ├── hooks/     feature behavior and form hooks
+│   │       │   └── <domain>/      one folder per business domain
+│   │       │       ├── components/ domain UI and forms
+│   │       │       ├── hooks/     domain behavior and form hooks
 │   │       │       ├── queries.ts RPC-backed query and mutation options
-│   │       │       └── schema.ts  feature-only Effect schemas when needed
+│   │       │       └── schema.ts  UI-only Effect schemas when needed
 │   │       ├── components/       shared application components
 │   │       ├── lib/              query client and browser RPC setup
 │   │       └── styles/           application styles and root CSS
@@ -167,14 +167,17 @@ required empty files. Do not create unused packages or optional folders:
 │       ├── tsconfig.json          shared base preset and runtime types
 │       └── src/
 │           ├── index.ts           handler and service Layer assembly
-│           ├── middleware/        auth, permissions, and request controls
-│           ├── rpc/               domain RPC handler implementations
-│           ├── services/          reusable Effect domain services
-│           ├── handlers/          non-RPC HTTP and optional auth handlers
-│           ├── lib/               errors, context, crypto, and helpers
-│           ├── storage/           optional R2 and media services
-│           ├── jobs/              optional queue and scheduled handlers
-│           ├── ai/                optional Effect AI providers and tools
+│           ├── features/
+│           │   └── <domain>/      one folder per business domain
+│           │       ├── rpc.ts     domain RPC handler implementations
+│           │       ├── service.ts business operations when needed
+│           │       ├── errors.ts  server-only domain errors when needed
+│           │       ├── http.ts    domain HTTP handlers when needed
+│           │       └── jobs.ts    domain queue and scheduled work if needed
+│           ├── platform/          shared server infrastructure
+│           │   ├── auth.ts        request identity and auth HTTP handlers
+│           │   ├── storage.ts     optional shared R2 and media adapter
+│           │   └── ai.ts          optional Effect AI provider adapter
 │           └── scripts/           optional local maintenance scripts
 ├── packages/
 │   ├── db/
@@ -234,12 +237,39 @@ required empty files. Do not create unused packages or optional folders:
 └── docs/                          local plans and working notes; ignored
 ```
 
-Web code uses feature-first organization:
+Use a feature-first modular monolith. Keep one application with clear domain
+boundaries. Do not create separate deployments or workspace packages per feature.
+The table below defines ownership; the tree shows starting paths.
 
-- Domain code belongs in `src/features/<domain>/`.
-- Shared application code belongs in `src/components/`.
-- Keep feature components, hooks, and queries together. Shared domain schemas
-  belong with their owning package; do not copy RPC schemas into features.
+| Location                               | Responsibility                                     |
+| -------------------------------------- | -------------------------------------------------- |
+| `apps/web/src/routes/`                 | URL handling and page composition                  |
+| `apps/web/src/features/<domain>/`      | Domain UI, hooks, and query options                |
+| `apps/web/src/components/`             | Shared application UI                              |
+| `apps/server/src/features/<domain>/`   | Domain handlers and business rules                 |
+| `apps/server/src/platform/`            | Shared request and runtime adapters                |
+| `packages/db/src/schema/<domain>.ts`   | Related tables and persistence validation          |
+| `packages/db/src/services/<domain>.ts` | Queries, writes, and atomic batches                |
+| `packages/rpc/`                        | Browser-safe RPC contracts and client              |
+| `packages/auth/`                       | OpenAuth client and session operations when needed |
+| `packages/ui/`                         | Shared UI primitives and theme                     |
+| `packages/env/`                        | Typed server and public configuration              |
+
+- Put domain code in `apps/web/src/features/<domain>/` and
+  `apps/server/src/features/<domain>/`.
+- Name folders after business domains. Use database names when they match the
+  domain. Group related tables under one domain; do not create a module for
+  each table. For example, documents, versions, and shares belong to `documents`.
+- Use the same domain name across web, server, RPC contracts, and database
+  modules when they have the same owner. Do not require each domain to have
+  code in every package.
+- Keep domain UI, hooks, and queries together. Keep routes thin. Put shared
+  application UI in `apps/web/src/components/` and UI primitives in `packages/ui`.
+- Keep schemas in their owning package. Public RPC schemas belong in
+  `packages/rpc/src/contracts/<domain>.ts`; persistence schemas belong in
+  `packages/db/src/schema/<domain>.ts`. Do not copy them into web modules.
+- Start with flat domain files. Create only files needed by the task. Do not
+  add empty layers or forwarding-only services. Use the growth rules below.
 - Configure the framework and Alchemy to use the custom Worker entrypoint.
   Preserve existing entrypoint names when they differ from `worker.ts`.
 - Keep CLI-generated UI paths consistent with `ui.json` and the build aliases.
@@ -249,24 +279,74 @@ Web code uses feature-first organization:
 - `apps/server` is a source package. It has no separate deployed server,
   Worker, public port, or service binding to the frontend.
 
-## Architecture boundaries
+## Growth rules
 
-Use this request flow. Shared contracts never import server handlers:
+Start with files. Split a domain into focused modules when separate
+responsibilities become hard to follow. Do not use a fixed line-count limit.
+Keep domain ownership and import boundaries unchanged.
 
 ```text
-apps/web → packages/rpc contracts/client → apps/server handlers
-                                         → packages/db services → D1
+Small:
+apps/server/src/features/documents/service.ts
+packages/db/src/schema/documents.ts
+packages/db/src/services/documents.ts
+
+Larger, only when needed:
+apps/server/src/features/documents/services/create-document.ts
+apps/server/src/features/documents/services/share-document.ts
+packages/db/src/schema/documents/documents.ts
+packages/db/src/schema/documents/versions.ts
+packages/db/src/schema/documents/shares.ts
+packages/db/src/services/documents/reads.ts
+packages/db/src/services/documents/writes.ts
 ```
+
+- Split frontend components, hooks, and query modules by responsibility in the
+  same way. Do not create a folder for each operation in advance.
+- When splitting a file, update callers, tests, package exports, and schema
+  discovery in Drizzle configuration. Use concrete module paths. Do not keep
+  a re-export-only barrel at the old path.
+- Extract a shared package only for clear ownership, runtime isolation, or
+  actual reuse. Do not create packages to match every domain folder.
+- Add auth, cache, storage, AI, and job modules only when required. Existing
+  packages stay in place; do not remove them as part of an unrelated task.
+
+## Architecture boundaries
+
+Request flow; the Worker routes RPC requests before frontend rendering:
+
+```text
+Simple CRUD:       browser → RPC handler → database service → D1
+Business workflow: browser → RPC handler → feature service → database/adapters
+```
+
+Import direction is separate from request flow:
+
+```text
+Browser          → browser-safe RPC contracts/client
+Worker assembly  → backend handlers and Layers
+Server feature   → database services and infrastructure adapters
+Database service → schema modules and database client
+```
+
+Shared contracts never import server implementations.
 
 - Browser code calls the typed Effect RPC client. Browser code never imports
   SQL clients, D1 bindings, database services, or server implementation modules.
 - The web Worker's server-only entrypoint imports the backend handlers to build
   one application. Keep this import out of client bundles.
 - All database access lives in `packages/db/src/services/`.
-- Keep Drizzle table definitions and their Effect input, row, and output
-  schemas together in `packages/db/src/schema/<domain>.ts`. Do not create
-  separate table and validation folders. Keep data access in `src/services/`
-  and Drizzle-generated SQL migrations and metadata in `src/migrations/`.
+- Group related Drizzle tables, including join tables, in
+  `packages/db/src/schema/<domain>.ts`. Keep their indexes, constraints, and
+  Effect input, row, and output schemas in the same module. For example,
+  `documents.ts` owns documents, document versions, and document shares.
+  Start with one file per domain, not per table. Split within the domain as
+  described in Growth rules. Do not separate tables from their validation.
+- Keep data access domain-based in `packages/db/src/services/<domain>.ts`.
+  Services may use several domain schema modules for joins and atomic batches.
+  Keep operation-specific input and result schemas with the owning service
+  when they span domains. Keep generated SQL migrations and metadata in
+  `src/migrations/`.
 - Define domain schemas with Effect Schema and infer domain types from them.
   Use Drizzle's inferred types for database operations. Validate operation
   inputs before execution and decode selected or returned rows with Effect
@@ -275,32 +355,54 @@ apps/web → packages/rpc contracts/client → apps/server handlers
   Effect errors. Do not use `drizzle-zod` or a second validation library.
 - Reuse the project's ID helper when present. Otherwise, use a platform API
   that meets the required ID format; do not add a helper package in advance.
-- Keep handlers thin: authentication, validation, authorization, and service
-  calls only. Keep reusable domain logic in Effect services.
+- Keep handlers thin. A handler may call a database service directly only
+  when it needs request validation, identity and permission checks, and one
+  persistence operation. Enforce permissions before protected operations.
+  One persistence operation means one database service call; that call may
+  use an atomic database batch, not just one SQL statement.
+- If an operation adds business decisions, multiple steps, or logic shared
+  by another entrypoint, move that logic into a feature service. Do not add
+  a service that only forwards arguments. Use Effect for business logic.
+- Keep reusable domain permissions in the owning feature. Call the same checks
+  from RPC, HTTP, jobs, and scripts when they perform protected operations.
+- Keep SQL and atomic database batches in database services. Keep business
+  workflows in feature services, not database services.
+- Cross-domain calls use the owning domain's service module, not its RPC,
+  HTTP, or job handlers. Keep domain dependencies directional and acyclic.
+- Put multi-domain workflows in the domain that owns the operation. If none
+  does, use a named workflow module that calls owning feature services. Keep
+  it separate from entrypoint assembly and do not create a catch-all layer.
+- Packages own reusable integrations. App platform modules adapt those
+  integrations to requests and runtime bindings; do not implement them twice.
+  For example, `packages/auth` owns verification and session operations;
+  `platform/auth.ts` owns request identity and auth HTTP handlers.
+- Features may import platform adapters; adapters must not import feature
+  implementations. Keep domain-specific storage, AI, and job logic in its
+  owning feature. Entry points register handlers and bind resources only.
+- Keep code local until another domain needs it. Do not add root-level
+  `helpers/`, `utils/`, `common/`, or root `services/` catch-all folders.
+  Reuse an existing owning package before adding a shared package.
 - Define services with Effect's context APIs and provide implementations with
   Layers. Bind Cloudflare resources at the Worker boundary.
 - Put shared RPC contracts in `packages/rpc`. Contracts must not import server
   handlers, secret configuration, or Cloudflare resource instances.
-- Store project-specific import restrictions and package overrides in the
-  Vite+ `lint` block. Limit Drizzle ORM and D1 data-access imports to the database
-  module. Keep Drizzle Kit and Studio in local tooling, not Worker or browser
-  bundles. Shared lint rules come from `@yopem/oxlint-config`.
+- Configure project-specific import restrictions and package overrides in
+  the Vite+ `lint` block. Reject browser imports of server or database runtime
+  modules, Drizzle runtime imports outside `packages/db`, platform adapter
+  imports of features, and cross-feature imports of RPC, HTTP, or job handlers.
+  Cover package subpaths, aliases, and relative imports. Keep Worker assembly
+  imports allowed only in server-only entrypoints. Shared lint rules come
+  from `@yopem/oxlint-config`.
+- Keep D1 data-access imports in the database package. Keep Drizzle Kit and
+  Studio in local tooling, not Worker or browser bundles.
+- Verify import restrictions when adding or changing boundaries. Check both
+  allowed and rejected imports through the configured linter. If a boundary
+  cannot be enforced by existing tooling, report that gap; do not claim it
+  is enforced.
 - Do not create barrel files that only re-export modules. Import concrete
   modules through package subpaths.
 - An `index.ts` is allowed when it contains real assembly or initialization
   logic, such as handler composition, service Layers, or environment parsing.
-
-## Learning more about Effect
-
-This repository uses the Effect TypeScript library.
-
-- Before you write Effect code, read `node_modules/effect/AGENTS.md` in full.
-  Follow its links when needed.
-- If that guide does not cover an API or concept, inspect the pinned source in
-  `node_modules/effect/src`.
-- Use Effect for domain logic and service boundaries. Keep React and TanStack
-  responsible for UI, routing, forms, and query state.
-- Keep Drizzle as the database access path. Do not add Effect SQL.
 
 ## Effect application patterns
 
@@ -354,18 +456,14 @@ This repository uses the Effect TypeScript library.
 - Effect RPC is not an OpenAPI REST contract. Add an Effect HTTP API contract
   and REST documentation only when an external REST/OpenAPI requirement exists.
 
-For a backend organized under `apps/server/src`, use:
+Use the ownership table and growth rules above for file placement.
 
-- `index.ts` for backend handler and Layer assembly, not a listener.
-- `middleware/` for RPC auth, authorization, and request controls.
-- `lib/` for shared server errors, context, crypto, and helpers.
-- `rpc/` for domain RPC handler implementations.
-- `services/` for reusable Effect domain services; use `packages/db` for SQL.
-- `handlers/` for OAuth callbacks and other non-RPC HTTP handlers.
-- `storage/` for R2 services, image operations, and magic-byte checks.
-- `jobs/` for queue consumers and scheduled work when needed.
-- `ai/` for Effect AI services, tools, and model calls when needed.
-- `scripts/` for seed and maintenance scripts outside runtime code.
+- Keep server-only errors in the owning feature. Put errors exposed by RPC
+  in its browser-safe contract module instead.
+- The Worker entrypoint dispatches queue and scheduled events to domain jobs.
+  Backend `index.ts` assembles handlers and Layers; it does not start a listener.
+- Keep seed and maintenance entrypoints in `scripts/`. Call owning services
+  instead of copying business logic or SQL.
 
 ## Environment and validation
 
@@ -435,6 +533,10 @@ For a backend organized under `apps/server/src`, use:
 - **TanStack Query:** call the typed Effect RPC client from `packages/rpc` inside
   query and mutation hooks. Execute client Effects at this boundary and pass
   cancellation signals where supported. Do not use raw `fetch` in components.
+- Never spread TanStack Query query or mutation result objects. This includes
+  `...query`, `{ ...query }`, `...mutation`, and `{ ...mutation }`. Read or return
+  only the required properties explicitly. This rule does not apply to query
+  or mutation option objects.
 - **TanStack React Form:** use `useForm` with Effect Schema through its Standard
   Schema adapter. Validate required fields on blur and submit, not on change or
   mount, so untouched fields show no error. Repeat validation on the server.
@@ -642,6 +744,17 @@ For a backend organized under `apps/server/src`, use:
 
 - Prefer E2E tests that exercise real user workflows in the Cloudflare runtime.
 - Define expected behavior and tests before changing non-trivial behavior.
+- Test observable behavior and public contracts, not documentation wording.
+  Do not assert full sentences, descriptions, warnings, or lists of prose fragments.
+  Wording changes must not require test changes unless wording is the requested contract.
+- Assert exact text only for stable identifiers, commands, URLs, required legal text,
+  or accessible names used to operate the interface.
+  For documentation, check response status, content type, valid links, and usable examples.
+- Use public inventories to check published resources. Check structured fields,
+  dependencies, and consumer imports instead of full generated-file equality.
+- Do not test implementation source with string searches when rendered output or
+  user interaction can verify the same contract. Test copy controls through clipboard output.
+  Keep security and accessibility checks.
 - Cover the changed behavior, including authorization, Effect RPC success and
   errors, D1 persistence, and authorized R2 access when those features exist.
 - Verify the single deployment serves frontend HTML, assets, `/rpc`, and any
@@ -678,4 +791,11 @@ For a backend organized under `apps/server/src`, use:
 - Keep one commit per feature, fix, or context switch.
 - Check `git status` before and after work.
 - Do not include unrelated files in a commit.
+- Before completion, check that each new file belongs to its owning domain
+  or shared module. Check that cross-feature dependencies remain acyclic,
+  business logic is not copied across entrypoints, and direct database calls
+  meet the simple-operation rule in Architecture boundaries.
+- Run the relevant checks and inspect their results. Report unresolved
+  boundary violations and tooling gaps; do not treat written rules as proof
+  that the code follows them.
 - Final response must state changed files, checks run, and any skipped check.
