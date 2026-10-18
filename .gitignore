@@ -20,3 +20,4 @@ docs/
 /tests/e2e/post-save-navigation.spec.ts
 /tests/fixtures/draft-save.ts
 /tests/fixtures/preview.ts
+/tests/fixtures/channel-refactor.ts
