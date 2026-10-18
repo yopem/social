@@ -1,7 +1,6 @@
 import * as stylex from "@stylexjs/stylex"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createLazyFileRoute, useSearch } from "@tanstack/react-router"
-import { Match } from "effect"
 import { useState } from "react"
 
 import { Platform } from "rpc/contracts/channels"
@@ -49,10 +48,7 @@ export function ChannelsPage() {
   const client = useQueryClient()
   const [loginHint, setLoginHint] = useState("")
 
-  const canManageAccounts = Match.value(workspace.role).pipe(
-    Match.when("editor", () => false),
-    Match.orElse(() => true),
-  )
+  const canManageAccounts = workspace.role !== "editor"
 
   const connection = useMutation(
     connectionBeginMutation({ client, workspaceId: workspace.id, loginHint }),

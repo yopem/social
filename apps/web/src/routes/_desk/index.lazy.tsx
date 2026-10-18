@@ -1,5 +1,4 @@
 import { createLazyFileRoute } from "@tanstack/react-router"
-import { Match } from "effect"
 import { useState } from "react"
 
 import { Button } from "ui/components/button"
@@ -65,10 +64,7 @@ export function QueuePage() {
             onClose={(result) => {
               if (
                 result &&
-                Match.value(result.state).pipe(
-                  Match.whenOr("published", "partial", "failed", () => true),
-                  Match.orElse(() => false),
-                )
+                ["published", "partial", "failed"].includes(result.state)
               )
                 setHistory(true)
               editor.closeEditor(result)

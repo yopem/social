@@ -5,7 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { Array, HashMap, Match, Option, String } from "effect"
+import { Array, HashMap, Option, String } from "effect"
 import { FileTextIcon } from "lucide-react"
 
 import type { Channel } from "rpc/contracts/channels"
@@ -193,10 +193,9 @@ export function PostCard({
             {post.content.text || "Media post"}
           </Text>
           <Text>
-            {Match.value(post.state).pipe(
-              Match.when("needs-review", () => "Needs review"),
-              Match.orElse(String.capitalize),
-            )}
+            {post.state === "needs-review"
+              ? "Needs review"
+              : String.capitalize(post.state)}
           </Text>
           {post.scheduledAt && (
             <Text>
@@ -255,15 +254,8 @@ export function PostCard({
               deskStyles.alignCenter,
             ]}
           >
-            {Match.value(post.state).pipe(
-              Match.whenOr(
-                "draft",
-                "scheduled",
-                "needs-review",
-                "cancelled",
-                () => true,
-              ),
-              Match.orElse(() => false),
+            {["draft", "scheduled", "needs-review", "cancelled"].includes(
+              post.state,
             ) && (
               <HStack>
                 <Button variant="outline" onClick={() => onEdit(post)}>

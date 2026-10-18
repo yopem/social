@@ -1,7 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query"
 
-import { Match } from "effect"
-
 import type { Platform } from "rpc/contracts/channels"
 
 import { rpcMutation, workspaceQuery } from "@/lib/queries"
@@ -25,10 +23,7 @@ export function connectionBeginMutation({
     rpc.ConnectionBegin({
       workspaceId,
       platform,
-      loginHint: Match.value(platform).pipe(
-        Match.when("bluesky", () => loginHint || undefined),
-        Match.orElse(() => undefined),
-      ),
+      loginHint: platform === "bluesky" ? loginHint || undefined : undefined,
     }),
   )
 }

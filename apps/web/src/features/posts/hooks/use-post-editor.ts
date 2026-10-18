@@ -1,4 +1,3 @@
-import { Match } from "effect"
 import { useState } from "react"
 
 import type { Post } from "rpc/contracts/posts"
@@ -19,12 +18,7 @@ export function usePostEditor() {
 
   function closeEditor(result?: Post | null) {
     if (result)
-      setReviewOutcome(
-        Match.value(result.state).pipe(
-          Match.when("needs-review", () => result),
-          Match.orElse(() => null),
-        ),
-      )
+      setReviewOutcome(result.state === "needs-review" ? result : null)
 
     setOpen(false)
     setPost(undefined)

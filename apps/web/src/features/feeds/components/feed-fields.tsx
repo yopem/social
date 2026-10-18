@@ -157,7 +157,8 @@ export function FeedFields({
               label={Match.value(name).pipe(
                 Match.when("includeImages", () => "Include images"),
                 Match.when("includeVideos", () => "Include videos"),
-                Match.orElse(() => "Enable feed"),
+                Match.when("enabled", () => "Enable feed"),
+                Match.exhaustive,
               )}
               checked={field.state.value}
               onChange={field.handleChange}
