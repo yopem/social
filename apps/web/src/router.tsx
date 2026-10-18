@@ -3,6 +3,12 @@ import { createRouter } from "@tanstack/react-router"
 
 import type { DeskView } from "@/components/desk"
 
+import {
+  RouteFailure,
+  RouteNotFound,
+  RoutePending,
+} from "@/components/route-feedback"
+
 import { routeTree } from "./routeTree.gen"
 
 export function getRouter() {
@@ -16,6 +22,9 @@ export function getRouter() {
   return createRouter({
     routeTree,
     context: { queryClient },
+    defaultPendingComponent: RoutePending,
+    defaultErrorComponent: RouteFailure,
+    defaultNotFoundComponent: RouteNotFound,
     scrollRestoration: true,
     Wrap: function QueryProvider({ children }) {
       return (

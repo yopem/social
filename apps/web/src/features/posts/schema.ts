@@ -2,6 +2,35 @@ import { DateTime, Effect, Option, Schema } from "effect"
 
 import { PostContent } from "rpc/contracts/posts"
 import { ApiError } from "rpc/lib/errors"
+import { Id } from "rpc/lib/schema"
+
+import { dateBounds } from "@/features/posts/calendar"
+
+export const PostFilterSearch = Schema.Struct({
+  date: Schema.optional(
+    Schema.String.check(
+      Schema.makeFilter(
+        (date) => date === "" || dateBounds({ date, timezone: "UTC" }) !== null,
+        { message: "Enter a valid calendar date." },
+      ),
+    ),
+  ),
+  month: Schema.optional(
+    Schema.String.check(
+      Schema.makeFilter(
+        (month) =>
+          dateBounds({ date: `${month}-01`, timezone: "UTC" }) !== null,
+        { message: "Enter a valid calendar month." },
+      ),
+    ),
+  ),
+  channelId: Schema.optional(Id),
+})
+
+export const PublishingSearch = Schema.Struct({
+  ...PostFilterSearch.fields,
+  view: Schema.optional(Schema.Literals(["queue", "history"])),
+})
 
 export const ComposerForm = PostContent.check(
   Schema.makeFilter(

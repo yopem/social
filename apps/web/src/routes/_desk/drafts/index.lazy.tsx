@@ -17,12 +17,18 @@ export const Route = createLazyFileRoute("/_desk/drafts/")({
 })
 
 export function DraftsPage() {
+  const navigate = Route.useNavigate()
+  const search = Route.useSearch()
   const workspace = useDeskWorkspace()
   const editor = usePostEditor()
 
   const filters = usePostFilters({
     timezone: workspace.timezone,
     view: "drafts",
+    search,
+    onChange: (change) => {
+      void navigate({ search: (previous) => ({ ...previous, ...change }) })
+    },
   })
 
   return (

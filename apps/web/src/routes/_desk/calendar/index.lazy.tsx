@@ -18,12 +18,18 @@ export const Route = createLazyFileRoute("/_desk/calendar/")({
 })
 
 export function CalendarPage() {
+  const navigate = Route.useNavigate()
+  const search = Route.useSearch()
   const workspace = useDeskWorkspace()
   const editor = usePostEditor()
 
   const filters = usePostFilters({
     timezone: workspace.timezone,
     view: "calendar",
+    search,
+    onChange: (change) => {
+      void navigate({ search: (previous) => ({ ...previous, ...change }) })
+    },
   })
 
   return (
@@ -37,10 +43,7 @@ export function CalendarPage() {
         month={filters.criteria.month}
         date={filters.criteria.date}
         timezone={workspace.timezone}
-        onMonthChange={(month) => {
-          filters.setMonth(month)
-          filters.setDate(`${month}-01`)
-        }}
+        onMonthChange={filters.setMonth}
         onSelect={filters.setDate}
       />
       <PostFilters workspaceId={workspace.id} filters={filters} />

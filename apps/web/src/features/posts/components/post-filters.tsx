@@ -48,12 +48,7 @@ export function PostFilters({
             nativeInput
             type="date"
             value={criteria.date}
-            onChange={(event) => {
-              filters.setDate(event.target.value)
-
-              if (event.target.value)
-                filters.setMonth(event.target.value.slice(0, 7))
-            }}
+            onChange={(event) => filters.setDate(event.target.value)}
           />
         </label>
         <Button variant="ghost" onClick={() => filters.setDate("")}>

@@ -1,5 +1,4 @@
 import { createLazyFileRoute } from "@tanstack/react-router"
-import { useState } from "react"
 
 import { Button } from "ui/components/button"
 import { HStack } from "ui/components/hstack"
@@ -19,22 +18,31 @@ export const Route = createLazyFileRoute("/_desk/")({
 })
 
 export function QueuePage() {
+  const navigate = Route.useNavigate()
+  const search = Route.useSearch()
   const workspace = useDeskWorkspace()
   const editor = usePostEditor()
 
   const filters = usePostFilters({
     timezone: workspace.timezone,
     view: "queue",
+    search,
+    onChange: (change) => {
+      void navigate({ search: (previous) => ({ ...previous, ...change }) })
+    },
   })
 
-  const [history, setHistory] = useState(false)
+  const history = search.view === "history"
+
+  function selectView(view: "queue" | "history") {
+    void navigate({ search: (previous) => ({ ...previous, view }) })
+  }
 
   return (
     <Tabs
       value={history ? "history" : "queue"}
       onValueChange={(value) => {
-        if (value === "queue" || value === "history")
-          setHistory(value === "history")
+        if (value === "queue" || value === "history") selectView(value)
       }}
     >
       <Stack>
@@ -66,7 +74,7 @@ export function QueuePage() {
                 result &&
                 ["published", "partial", "failed"].includes(result.state)
               )
-                setHistory(true)
+                selectView("history")
               editor.closeEditor(result)
             }}
           />

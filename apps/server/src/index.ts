@@ -86,7 +86,7 @@ function frontendRequest(
 
     if (
       frontend &&
-      [
+      ([
         "/",
         "/drafts",
         "/calendar",
@@ -97,7 +97,8 @@ function frontendRequest(
         "/invite",
         "/tos",
         "/privacy-policy",
-      ].includes(path)
+      ].includes(path) ||
+        request.headers.get("accept")?.includes("text/html"))
     )
       return yield* Effect.tryPromise({
         try: () => frontend(request, bindings),
