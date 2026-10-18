@@ -32,7 +32,7 @@ import { threads } from "@opencoredev/social-sdk/threads"
 import { tiktok } from "@opencoredev/social-sdk/tiktok"
 import { x } from "@opencoredev/social-sdk/x"
 import { youtube } from "@opencoredev/social-sdk/youtube"
-import { DateTime, Effect, Schema } from "effect"
+import { DateTime, Duration, Effect, Option, Schema } from "effect"
 import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/http"
 import { platformAvailability } from "server/features/channels/configuration"
 import {
@@ -56,6 +56,24 @@ import type { AppConfig } from "env/server"
 import type { Channel, Platform } from "rpc/contracts/channels"
 import { ApiError } from "rpc/lib/errors"
 import { JsonValueSchema } from "rpc/lib/json"
+
+export function credentialIsFresh({
+  expiresAt,
+  now,
+}: {
+  expiresAt: string
+  now: DateTime.Utc
+}) {
+  const expires = DateTime.make(expiresAt)
+  // Refresh early so the token stays valid during a provider request.
+  return (
+    Option.isSome(expires) &&
+    DateTime.isGreaterThan(
+      expires.value,
+      DateTime.addDuration(now, Duration.minutes(1)),
+    )
+  )
+}
 
 function dnsTxt(hostname: string) {
   return Effect.gen(function* () {
@@ -287,8 +305,10 @@ export function makeSocialClient(config: AppConfig) {
 
         if (
           !value.expiresAt ||
-          Date.parse(value.expiresAt) >
-            DateTime.toEpochMillis(yield* DateTime.now) + 60000
+          credentialIsFresh({
+            expiresAt: value.expiresAt,
+            now: yield* DateTime.now,
+          })
         )
           return value
 
@@ -303,7 +323,7 @@ export function makeSocialClient(config: AppConfig) {
         const manager = new CredentialManager(
           stores.credentials,
           stores.lock,
-          120000,
+          Duration.toMillis(Duration.minutes(2)),
         )
 
         let refreshStarted = false
@@ -321,8 +341,10 @@ export function makeSocialClient(config: AppConfig) {
               Effect.gen(function* () {
                 if (
                   current.expiresAt &&
-                  Date.parse(current.expiresAt) >
-                    DateTime.toEpochMillis(yield* DateTime.now) + 60000
+                  credentialIsFresh({
+                    expiresAt: current.expiresAt,
+                    now: yield* DateTime.now,
+                  })
                 )
                   return current
                 yield* Effect.sync(() => {
