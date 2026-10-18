@@ -23,6 +23,7 @@ import type { User } from "rpc/contracts/accounts"
 
 import { fixtureCookie, fixtureError, fixtureJson } from "./auth"
 import { fixtureConnections } from "./connections"
+import { fixtureInboxData } from "./social"
 
 const Scenario = Schema.Literals(["sole", "shared-owner", "shared-member"])
 
@@ -237,7 +238,10 @@ export function deletionFixtureSetup(
     yield* social.acceptInbox(
       `deletion:${user.id}`,
       "x",
-      JSON.stringify({ accountIds: ["fixture-x"] }),
+      yield* fixtureInboxData({
+        id: `deletion:${user.id}`,
+        accountIds: ["fixture-x"],
+      }),
       [workspaceId],
     )
     const channels = yield* channelsDb.listChannels(workspaceId)

@@ -11,6 +11,7 @@ import { WorkspacesDb } from "db/services/workspaces"
 import { WorkerResources } from "env/server"
 
 import { fixtureError, fixtureJson } from "./auth"
+import { fixtureInboxData } from "./social"
 
 export function retentionFixtureSetup(
   request: Request,
@@ -29,9 +30,7 @@ export function retentionFixtureSetup(
     const cipher = yield* CredentialCrypto
     const fixtureId = crypto.randomUUID()
 
-    const ciphertext = yield* cipher.encrypt(
-      JSON.stringify({ fixtureId, technical: "retention" }),
-    )
+    const ciphertext = yield* fixtureInboxData({ id: fixtureId })
 
     const accessHash = yield* cipher.hash(`${fixtureId}:expired-access`)
     const refreshHash = yield* cipher.hash(`${fixtureId}:expired-refresh`)

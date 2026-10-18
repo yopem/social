@@ -7,7 +7,11 @@ import type {
 import { connectedAccountRef, createSocial } from "@opencoredev/social-sdk"
 import { mockBackend } from "@opencoredev/social-sdk/testing"
 import { tiktok } from "@opencoredev/social-sdk/tiktok"
-import { Effect, Layer, Schema } from "effect"
+import { DateTime, Effect, Layer, Schema } from "effect"
+import {
+  EventSchema,
+  type SocialWebhookEvent,
+} from "server/features/channels/inbox"
 import {
   credentialKey,
   OutcomeSchema,
@@ -36,6 +40,34 @@ import { JsonObject } from "rpc/lib/json"
 
 import { fixtureError } from "./auth"
 import { fixtureConnections, fixtureRedirect, fixtureSdk } from "./connections"
+
+export function fixtureInboxData({
+  id,
+  accountIds = [],
+}: {
+  id: SocialWebhookEvent["id"]
+  accountIds?: SocialWebhookEvent["accountIds"]
+}) {
+  return Effect.gen(function* () {
+    const cipher = yield* CredentialCrypto
+    const now = yield* DateTime.now
+
+    const event = yield* Schema.decodeUnknownEffect(EventSchema)({
+      version: 1,
+      id,
+      backend: "fixture",
+      provider: "x",
+      type: "unknown",
+      identity: "provider-event-id",
+      originalType: "fixture",
+      receivedAt: DateTime.formatIso(now),
+      accountIds,
+      data: {},
+    }).pipe(Effect.mapError(() => fixtureError("Invalid fixture inbox event")))
+
+    return yield* cipher.encrypt(JSON.stringify(event))
+  })
+}
 
 const Scenario = Schema.Literals([
   "mixed",

@@ -1,8 +1,8 @@
 import type { D1Database } from "@cloudflare/workers-types"
 
-import { and, count, eq, inArray, like, lte, sql } from "drizzle-orm"
+import { and, count, eq, inArray, lte, sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/d1"
-import { DateTime, Effect, Schema } from "effect"
+import { Array, DateTime, Effect, Schema, SchemaIssue, Struct } from "effect"
 
 import { AuthAttemptsInsert, authAttempts } from "db/schema/accounts"
 import {
@@ -44,6 +44,17 @@ function failure() {
     code: "storage-failure",
     message: "Retention fixture failed.",
   })
+}
+
+function validationFailure(error: Schema.SchemaError) {
+  // Log paths only. Fixture rows contain encrypted credentials.
+  const paths = SchemaIssue.makeFormatterStandardSchemaV1()(
+    error.issue,
+  ).issues.map((issue) => issue.path)
+
+  return Effect.logError("Retention fixture validation failed.", {
+    paths,
+  }).pipe(Effect.andThen(Effect.fail(failure())))
 }
 
 function activeSessionId(fixtureId: string) {
@@ -231,28 +242,34 @@ export const seedRetentionFixture = Effect.fn("seedRetentionFixture")(
 
     const amount = value.mode === "bounded" ? 501 : 1
 
-    for (let offset = 0; offset < amount; offset += 100) {
-      const rows = yield* Schema.decodeUnknownEffect(Schema.Array(inboxSchema))(
-        Array.from({ length: Math.min(100, amount - offset) }, (_, index) => ({
-          key: `${prefix}old:${offset + index}`,
-          platform: "x",
-          data: value.ciphertext,
-          tenants: JSON.stringify([value.workspaceId]),
-          state: "complete",
-          received_at: old,
-          completed_at: offset + index === 0 ? null : old,
-        })),
-      ).pipe(Effect.mapError(failure))
+    const rows = yield* Schema.decodeUnknownEffect(Schema.Array(inboxSchema))(
+      Array.makeBy(amount, (index) => ({
+        key: `${prefix}old:${index}`,
+        platform: "x",
+        data: value.ciphertext,
+        tenants: JSON.stringify([value.workspaceId]),
+        state: "complete",
+        received_at: old,
+        completed_at: index === 0 ? null : old,
+      })),
+    ).pipe(Effect.catchTag("SchemaError", validationFailure))
 
-      yield* execute(() =>
-        db.insert(socialInbox).values(
-          rows.map((row) => ({
-            ...row,
-            tenants: JSON.stringify(row.tenants),
-          })),
+    // Keep each insert below D1's 100-value limit.
+    const batchSize = Math.floor(100 / Struct.keys(inboxSchema.fields).length)
+
+    yield* Effect.forEach(
+      Array.chunksOf(rows, batchSize),
+      (batch) =>
+        execute(() =>
+          db.insert(socialInbox).values(
+            batch.map((row) => ({
+              ...row,
+              tenants: JSON.stringify(row.tenants),
+            })),
+          ),
         ),
-      )
-    }
+      { concurrency: 1, discard: true },
+    )
 
     const latest = yield* Schema.decodeUnknownEffect(Schema.Array(inboxSchema))(
       [
@@ -298,6 +315,7 @@ export const retentionFixtureCounts = Effect.fn("retentionFixtureCounts")(
 
     const db = drizzle(binding)
     const prefix = `retention:${value.fixtureId}:`
+    const completedPrefix = `${prefix}old:`
 
     const queries = {
       expiredSignIns: db
@@ -350,10 +368,16 @@ export const retentionFixtureCounts = Effect.fn("retentionFixtureCounts")(
         .select({ value: count() })
         .from(socialRefreshLocks)
         .where(eq(socialRefreshLocks.key, `${prefix}lock`)),
+      // Use substr because a LIKE pattern exceeds the D1 limit.
       staleCompleted: db
         .select({ value: count() })
         .from(socialInbox)
-        .where(like(socialInbox.key, `${prefix}old:%`)),
+        .where(
+          eq(
+            sql<string>`substr(${socialInbox.key}, 1, length(${completedPrefix}))`,
+            completedPrefix,
+          ),
+        ),
       recentCompleted: db
         .select({ value: count() })
         .from(socialInbox)
@@ -370,7 +394,7 @@ export const retentionFixtureCounts = Effect.fn("retentionFixtureCounts")(
         execute(() => query).pipe(
           Effect.flatMap((rows) =>
             Schema.decodeUnknownEffect(CountRow)(rows).pipe(
-              Effect.mapError(failure),
+              Effect.catchTag("SchemaError", validationFailure),
             ),
           ),
           Effect.flatMap((rows) =>
@@ -394,7 +418,9 @@ export const retentionFixtureCounts = Effect.fn("retentionFixtureCounts")(
         recentCompleted: Schema.Int,
         pendingInbox: Schema.Int,
       }),
-    )(Object.fromEntries(result)).pipe(Effect.mapError(failure))
+    )(Object.fromEntries(result)).pipe(
+      Effect.catchTag("SchemaError", validationFailure),
+    )
   },
 )
 
