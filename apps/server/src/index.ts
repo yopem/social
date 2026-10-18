@@ -83,10 +83,16 @@ function frontendRequest(
         headers: { Allow: "GET, HEAD" },
       })
     const path = new URL(request.url).pathname
+    const renderFrontend = frontend
+      ? Effect.tryPromise({
+          try: () => frontend(request, bindings),
+          catch: () => failure("upstream-failure", "Frontend request failed"),
+        })
+      : null
 
     if (
-      frontend &&
-      ([
+      renderFrontend &&
+      [
         "/",
         "/drafts",
         "/calendar",
@@ -97,30 +103,46 @@ function frontendRequest(
         "/invite",
         "/tos",
         "/privacy-policy",
-      ].includes(path) ||
-        request.headers.get("accept")?.includes("text/html"))
+      ].includes(path)
     )
-      return yield* Effect.tryPromise({
-        try: () => frontend(request, bindings),
-        catch: () => failure("upstream-failure", "Frontend request failed"),
-      })
+      return yield* renderFrontend
 
     const assets = bindings.ASSETS
+    const assetResponse = assets
+      ? yield* Effect.tryPromise({
+          try: () =>
+            assets.fetch(request.url, {
+              method: request.method,
+              headers: Object.fromEntries(request.headers.entries()),
+            }),
+          catch: () => failure("upstream-failure", "Asset request failed"),
+        }).pipe(
+          Effect.flatMap(Schema.decodeUnknownEffect(AssetResponse)),
+          Effect.mapError(() =>
+            failure("upstream-failure", "Asset request failed"),
+          ),
+        )
+      : null
 
-    if (!assets) return errorResponse(failure("not-found", "Route not found"))
+    if (assetResponse && assetResponse.status !== 404) return assetResponse
 
-    return yield* Effect.tryPromise({
-      try: () =>
-        assets.fetch(request.url, {
-          method: request.method,
-          headers: Object.fromEntries(request.headers.entries()),
-        }),
-      catch: () => failure("upstream-failure", "Asset request failed"),
-    }).pipe(
-      Effect.flatMap(Schema.decodeUnknownEffect(AssetResponse)),
-      Effect.mapError(() =>
-        failure("upstream-failure", "Asset request failed"),
-      ),
+    if (
+      renderFrontend &&
+      request.headers.get("accept")?.includes("text/html")
+    ) {
+      const body = assetResponse?.body
+
+      if (body)
+        yield* Effect.tryPromise({
+          try: () => body.cancel(),
+          catch: () => failure("upstream-failure", "Asset request failed"),
+        })
+
+      return yield* renderFrontend
+    }
+
+    return (
+      assetResponse ?? errorResponse(failure("not-found", "Route not found"))
     )
   })
 }
