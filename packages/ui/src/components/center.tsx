@@ -4,37 +4,35 @@ import type { ComponentPropsWithoutRef, RefAttributes } from "react"
 
 import * as stylex from "@stylexjs/stylex"
 
-import { Box } from "ui/components/ui/box"
+import { Box } from "ui/components/box"
 import type { StyleXComponentProps } from "ui/lib/stylex"
 import { mergeStylexProps, stylexProps } from "ui/lib/stylex"
-import { tokens } from "ui/styles/tokens.stylex"
 
 const styles = stylex.create({
   root: {
     alignItems: "center",
     display: "flex",
-    flexDirection: "row",
-    gap: `calc(${tokens["--spacing"]} * 4)`,
+    justifyContent: "center",
   },
 })
 
-type HStackElementProps = ComponentPropsWithoutRef<"div"> &
+type CenterElementProps = ComponentPropsWithoutRef<"div"> &
   RefAttributes<HTMLDivElement>
 
-export type HStackProps = StyleXComponentProps<HStackElementProps>
+export type CenterProps = StyleXComponentProps<CenterElementProps>
 
-export function HStack({
+export function Center({
   xstyle: consumerXstyle,
   className,
   ref,
   ...restProps
-}: HStackProps) {
+}: CenterProps) {
   const props = restProps
   const xstyle = consumerXstyle
 
   return (
     <Box
-      data-slot="hstack"
+      data-slot="center"
       {...mergeStylexProps(stylexProps(className, styles.root, xstyle), props)}
       ref={ref}
     />

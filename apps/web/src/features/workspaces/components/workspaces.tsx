@@ -5,7 +5,7 @@ import { Schema } from "effect"
 import { useState } from "react"
 
 import type { Workspace } from "rpc/contracts/workspaces"
-import { Button } from "ui/components/ui/button"
+import { Button } from "ui/components/button"
 import {
   Dialog,
   DialogHeader,
@@ -13,18 +13,18 @@ import {
   DialogPopup,
   DialogTitle,
   DialogTrigger,
-} from "ui/components/ui/dialog"
-import { Field, FieldError } from "ui/components/ui/field"
-import { HStack } from "ui/components/ui/hstack"
-import { Input } from "ui/components/ui/input"
+} from "ui/components/dialog"
+import { Field, FieldError } from "ui/components/field"
+import { HStack } from "ui/components/hstack"
+import { Input } from "ui/components/input"
 import {
   Select,
   SelectItem,
   SelectPopup,
   SelectTrigger,
   SelectValue,
-} from "ui/components/ui/select"
-import { Stack } from "ui/components/ui/stack"
+} from "ui/components/select"
+import { Stack } from "ui/components/stack"
 
 import { deskStyles } from "@/components/desk-styles"
 import { Choice, Failure, FormErrors } from "@/components/desk-ui"

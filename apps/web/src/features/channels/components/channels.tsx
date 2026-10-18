@@ -6,23 +6,23 @@ import { useState } from "react"
 
 import { Platform } from "rpc/contracts/channels"
 import { type Workspace } from "rpc/contracts/workspaces"
-import { Badge } from "ui/components/ui/badge"
-import { Box } from "ui/components/ui/box"
-import { Button } from "ui/components/ui/button"
-import { Card, CardHeader, CardTitle, CardPanel } from "ui/components/ui/card"
+import { Badge } from "ui/components/badge"
+import { Box } from "ui/components/box"
+import { Button } from "ui/components/button"
+import { Card, CardHeader, CardTitle, CardPanel } from "ui/components/card"
 import {
   Empty,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
   EmptyDescription,
-} from "ui/components/ui/empty"
-import { HStack } from "ui/components/ui/hstack"
-import { Input } from "ui/components/ui/input"
-import { Skeleton } from "ui/components/ui/skeleton"
-import { Stack } from "ui/components/ui/stack"
-import { Text } from "ui/components/ui/text"
-import { Wrap } from "ui/components/ui/wrap"
+} from "ui/components/empty"
+import { HStack } from "ui/components/hstack"
+import { Input } from "ui/components/input"
+import { Skeleton } from "ui/components/skeleton"
+import { Stack } from "ui/components/stack"
+import { Text } from "ui/components/text"
+import { Wrap } from "ui/components/wrap"
 import { tokens } from "ui/styles/tokens.stylex"
 
 import { deskStyles } from "@/components/desk-styles"

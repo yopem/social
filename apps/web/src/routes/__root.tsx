@@ -9,7 +9,7 @@ import {
 } from "@tanstack/react-router"
 import { Schema } from "effect"
 
-import { Box } from "ui/components/ui/box"
+import { Box } from "ui/components/box"
 import { themeMarker, lightTheme, rootStyles } from "ui/styles/tokens.stylex"
 import "@fontsource-variable/inter"
 import "@fontsource/ibm-plex-mono/latin-400.css"

@@ -7,9 +7,9 @@ import { useRef, useState } from "react"
 
 import type { Feed } from "rpc/contracts/feeds"
 import type { Workspace } from "rpc/contracts/workspaces"
-import { Box } from "ui/components/ui/box"
-import { Button } from "ui/components/ui/button"
-import { Card, CardHeader, CardTitle, CardPanel } from "ui/components/ui/card"
+import { Box } from "ui/components/box"
+import { Button } from "ui/components/button"
+import { Card, CardHeader, CardTitle, CardPanel } from "ui/components/card"
 import {
   Dialog,
   DialogHeader,
@@ -17,21 +17,21 @@ import {
   DialogPopup,
   DialogTitle,
   DialogTrigger,
-} from "ui/components/ui/dialog"
+} from "ui/components/dialog"
 import {
   Empty,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
   EmptyDescription,
-} from "ui/components/ui/empty"
-import { Field, FieldError } from "ui/components/ui/field"
-import { Heading } from "ui/components/ui/heading"
-import { HStack } from "ui/components/ui/hstack"
-import { Input } from "ui/components/ui/input"
-import { Skeleton } from "ui/components/ui/skeleton"
-import { Stack } from "ui/components/ui/stack"
-import { Text } from "ui/components/ui/text"
+} from "ui/components/empty"
+import { Field, FieldError } from "ui/components/field"
+import { Heading } from "ui/components/heading"
+import { HStack } from "ui/components/hstack"
+import { Input } from "ui/components/input"
+import { Skeleton } from "ui/components/skeleton"
+import { Stack } from "ui/components/stack"
+import { Text } from "ui/components/text"
 
 import { deskStyles } from "@/components/desk-styles"
 import {

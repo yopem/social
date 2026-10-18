@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { ChevronsUpDownIcon, LogOutIcon, UserRoundIcon } from "lucide-react"
 
 import type { User } from "rpc/contracts/accounts"
-import { HStack } from "ui/components/ui/hstack"
+import { HStack } from "ui/components/hstack"
 import {
   Menu,
   MenuGroup,
@@ -13,14 +13,14 @@ import {
   MenuSeparator,
   MenuTrigger,
   menuSlotStyles,
-} from "ui/components/ui/menu"
+} from "ui/components/menu"
 import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuText,
   sidebarSlotStyles,
-} from "ui/components/ui/sidebar"
+} from "ui/components/sidebar"
 
 import { Failure } from "@/components/desk-ui"
 import { logoutMutation } from "@/features/session/queries"

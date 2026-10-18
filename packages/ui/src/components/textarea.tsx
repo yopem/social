@@ -6,7 +6,7 @@ import { Field as FieldPrimitive } from "@base-ui/react/field"
 import { mergeProps } from "@base-ui/react/merge-props"
 import * as stylex from "@stylexjs/stylex"
 
-import { Box } from "ui/components/ui/box"
+import { Box } from "ui/components/box"
 import type { StyleXComponentProps } from "ui/lib/stylex"
 import type { StyleXProps } from "ui/lib/stylex"
 import { isString, stylexProps } from "ui/lib/stylex"

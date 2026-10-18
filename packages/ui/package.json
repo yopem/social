@@ -4,7 +4,7 @@
   "type": "module",
   "exports": {
     "./*": "./src/*",
-    "./components/ui/*": "./src/components/ui/*.tsx",
+    "./components/*": "./src/components/*.tsx",
     "./hooks/*": "./src/hooks/*.ts",
     "./lib/*": "./src/lib/*.ts",
     "./styles/tokens.stylex": "./src/styles/tokens.stylex.ts",

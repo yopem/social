@@ -15,23 +15,23 @@ import type { Channel } from "rpc/contracts/channels"
 import type { PostCursor } from "rpc/contracts/posts"
 import type { Post } from "rpc/contracts/posts"
 import type { Workspace } from "rpc/contracts/workspaces"
-import { Box } from "ui/components/ui/box"
-import { Button } from "ui/components/ui/button"
-import { Card, CardPanel } from "ui/components/ui/card"
+import { Box } from "ui/components/box"
+import { Button } from "ui/components/button"
+import { Card, CardPanel } from "ui/components/card"
 import {
   Empty,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
   EmptyDescription,
-} from "ui/components/ui/empty"
-import { Heading } from "ui/components/ui/heading"
-import { HStack } from "ui/components/ui/hstack"
-import { Input } from "ui/components/ui/input"
-import { Skeleton } from "ui/components/ui/skeleton"
-import { Stack } from "ui/components/ui/stack"
-import { Tabs, TabsList, TabsTab, TabsPanel } from "ui/components/ui/tabs"
-import { Text } from "ui/components/ui/text"
+} from "ui/components/empty"
+import { Heading } from "ui/components/heading"
+import { HStack } from "ui/components/hstack"
+import { Input } from "ui/components/input"
+import { Skeleton } from "ui/components/skeleton"
+import { Stack } from "ui/components/stack"
+import { Tabs, TabsList, TabsTab, TabsPanel } from "ui/components/tabs"
+import { Text } from "ui/components/text"
 
 import { deskStyles } from "@/components/desk-styles"
 import { Choice, Failure, PageHeading } from "@/components/desk-ui"

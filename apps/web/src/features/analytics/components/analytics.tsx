@@ -1,21 +1,21 @@
 import { useQuery } from "@tanstack/react-query"
 import { ChartNoAxesCombinedIcon } from "lucide-react"
 
-import { Box } from "ui/components/ui/box"
-import { Button } from "ui/components/ui/button"
-import { Card, CardHeader, CardTitle, CardPanel } from "ui/components/ui/card"
+import { Box } from "ui/components/box"
+import { Button } from "ui/components/button"
+import { Card, CardHeader, CardTitle, CardPanel } from "ui/components/card"
 import {
   Empty,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
   EmptyDescription,
-} from "ui/components/ui/empty"
-import { Heading } from "ui/components/ui/heading"
-import { HStack } from "ui/components/ui/hstack"
-import { Skeleton } from "ui/components/ui/skeleton"
-import { Stack } from "ui/components/ui/stack"
-import { Text } from "ui/components/ui/text"
+} from "ui/components/empty"
+import { Heading } from "ui/components/heading"
+import { HStack } from "ui/components/hstack"
+import { Skeleton } from "ui/components/skeleton"
+import { Stack } from "ui/components/stack"
+import { Text } from "ui/components/text"
 
 import { Failure } from "@/components/desk-ui"
 import { workspaceQuery } from "@/lib/queries"

@@ -7,7 +7,7 @@ import { useRender } from "@base-ui/react/use-render"
 import * as stylex from "@stylexjs/stylex"
 import { clsx } from "clsx"
 
-import { Spinner } from "ui/components/ui/spinner"
+import { Spinner } from "ui/components/spinner"
 import type { StyleXComponentProps } from "ui/lib/stylex"
 import type { StyleXProps } from "ui/lib/stylex"
 import { stylexProps } from "ui/lib/stylex"

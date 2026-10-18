@@ -35,7 +35,7 @@ const serverDomains = [
   "workspaces",
 ]
 
-const componentSources = ["ui/components/ui/", "@/components/ui/"]
+const componentSources = ["ui/components/"]
 
 const uiRules = Object.fromEntries(
   Object.entries({
@@ -91,7 +91,7 @@ export default defineConfig({
         rules: effect.rules,
       },
       {
-        files: ["packages/ui/src/components/ui/**/*.{tsx,jsx}"],
+        files: ["packages/ui/src/components/**/*.{tsx,jsx}"],
         rules: {
           "yopem-ui/no-restyle": "off",
           "yopem-ui/enforce-styling-methods": "off",

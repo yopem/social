@@ -4,35 +4,36 @@ import type { ComponentPropsWithoutRef, RefAttributes } from "react"
 
 import * as stylex from "@stylexjs/stylex"
 
-import { Box } from "ui/components/ui/box"
+import { Box } from "ui/components/box"
 import type { StyleXComponentProps } from "ui/lib/stylex"
 import { mergeStylexProps, stylexProps } from "ui/lib/stylex"
+import { tokens } from "ui/styles/tokens.stylex"
 
 const styles = stylex.create({
   root: {
-    alignItems: "center",
     display: "flex",
-    justifyContent: "center",
+    flexDirection: "column",
+    gap: `calc(${tokens["--spacing"]} * 4)`,
   },
 })
 
-type CenterElementProps = ComponentPropsWithoutRef<"div"> &
+type StackElementProps = ComponentPropsWithoutRef<"div"> &
   RefAttributes<HTMLDivElement>
 
-export type CenterProps = StyleXComponentProps<CenterElementProps>
+export type StackProps = StyleXComponentProps<StackElementProps>
 
-export function Center({
+export function Stack({
   xstyle: consumerXstyle,
   className,
   ref,
   ...restProps
-}: CenterProps) {
+}: StackProps) {
   const props = restProps
   const xstyle = consumerXstyle
 
   return (
     <Box
-      data-slot="center"
+      data-slot="stack"
       {...mergeStylexProps(stylexProps(className, styles.root, xstyle), props)}
       ref={ref}
     />

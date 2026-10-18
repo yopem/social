@@ -1,16 +1,20 @@
 "use client"
 
-import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
+import { Dialog as SheetPrimitive } from "@base-ui/react/dialog"
 import { mergeProps } from "@base-ui/react/merge-props"
 import { useRender } from "@base-ui/react/use-render"
 import * as stylex from "@stylexjs/stylex"
 import { XIcon } from "lucide-react"
 
-import { Button } from "ui/components/ui/button"
-import { ScrollArea } from "ui/components/ui/scroll-area"
+import { Button } from "ui/components/button"
+import { ScrollArea } from "ui/components/scroll-area"
 import type { StyleXComponentProps } from "ui/lib/stylex"
 import { mergeStylexProps, stylexProps } from "ui/lib/stylex"
 import { themeMarker, tokens } from "ui/styles/tokens.stylex"
+
+type SheetSide = "right" | "left" | "top" | "bottom"
+
+type SheetVariant = "default" | "inset"
 
 const styles = stylex.create({
   closeIcon: {
@@ -31,49 +35,29 @@ const styles = stylex.create({
     "[data-ending-style]": { opacity: 0 },
     "[data-starting-style]": { opacity: 0 },
   },
-  viewport: {
-    display: "grid",
-    gridTemplateRows: "1fr auto 3fr",
-    inset: 0,
-    justifyItems: "center",
-    padding: "1rem",
-    position: "fixed",
-    zIndex: 50,
-  },
-  viewportBottomMobile: {
-    "@media (max-width: 639px)": {
-      gridTemplateRows: "1fr auto",
-      padding: 0,
-      paddingBlockStart: "3rem",
-    },
-  },
+  viewport: { display: "grid", inset: 0, position: "fixed", zIndex: 50 },
+  viewportBottom: { gridTemplateRows: "1fr auto", paddingBlockStart: "3rem" },
+  viewportTop: { gridTemplateRows: "auto 1fr", paddingBlockEnd: "3rem" },
+  viewportLeft: { display: "flex", justifyContent: "flex-start" },
+  viewportRight: { display: "flex", justifyContent: "flex-end" },
+  viewportInset: { "@media (min-width: 640px)": { padding: "1rem" } },
   popup: {
     backgroundClip: "padding-box",
     backgroundColor: tokens["--popover"],
-    borderColor: tokens["--border"],
-    borderRadius: "var(--radius-md)",
-    borderStyle: "solid",
-    borderWidth: 1,
-    boxShadow: "0 10px 15px -3px color-mix(in oklab, #000 5%, transparent)",
     color: tokens["--popover-foreground"],
     display: "flex",
     flexDirection: "column",
-    gridRowStart: 2,
     inlineSize: "100%",
     maxBlockSize: "100%",
-    maxInlineSize: "32rem",
     minBlockSize: 0,
 
-    opacity: "calc(1 - var(--nested-dialogs))",
-    outline: "none",
     position: "relative",
-    transformOrigin: "center",
     transitionDuration: "200ms",
-    transitionProperty: "scale, opacity, translate",
+    transitionProperty: "opacity, translate",
     transitionTimingFunction: "ease-in-out",
     willChange: "transform",
+    boxShadow: "0 10px 15px -3px color-mix(in oklab, #000 5%, transparent)",
     "::before": {
-      borderRadius: "calc(var(--radius-md) - 1px)",
       boxShadow: {
         default: "0 1px rgb(0 0 0 / 0.04)",
         [stylex.when.ancestor('[data-theme="dark"]', themeMarker)]:
@@ -83,25 +67,52 @@ const styles = stylex.create({
       inset: 0,
       pointerEvents: "none",
       position: "absolute",
+      "@media (max-width: 639px)": { display: "none" },
     },
     "[data-ending-style]": { opacity: 0 },
     "[data-starting-style]": { opacity: 0 },
-    "@media (min-width: 640px)": {
-      scale: "calc(1 - 0.1 * var(--nested-dialogs))",
-      "[data-ending-style]": { scale: 0.98 },
-      "[data-starting-style]": { scale: 0.98 },
-    },
   },
-  popupBottomMobile: {
-    "@media (max-width: 639px)": {
-      borderBlockEndWidth: 0,
-      borderInlineWidth: 0,
-      borderRadius: 0,
-      maxInlineSize: "none",
-      transformOrigin: "bottom",
-      "::before": { display: "none" },
-      "[data-ending-style]": { translate: "0 1rem" },
-      "[data-starting-style]": { translate: "0 1rem" },
+  popupBottom: {
+    borderBlockStartColor: tokens["--border"],
+    borderBlockStartStyle: "solid",
+    borderBlockStartWidth: 1,
+    gridRowStart: 2,
+    "[data-ending-style]": { translate: "0 2rem" },
+    "[data-starting-style]": { translate: "0 2rem" },
+  },
+  popupTop: {
+    borderBlockEndColor: tokens["--border"],
+    borderBlockEndStyle: "solid",
+    borderBlockEndWidth: 1,
+    "[data-ending-style]": { translate: "0 -2rem" },
+    "[data-starting-style]": { translate: "0 -2rem" },
+  },
+  popupLeft: {
+    borderInlineEndColor: tokens["--border"],
+    borderInlineEndStyle: "solid",
+    borderInlineEndWidth: 1,
+    inlineSize: "calc(100% - 3rem)",
+    maxInlineSize: "28rem",
+    "[data-ending-style]": { translate: "-2rem 0" },
+    "[data-starting-style]": { translate: "-2rem 0" },
+  },
+  popupRight: {
+    borderInlineStartColor: tokens["--border"],
+    borderInlineStartStyle: "solid",
+    borderInlineStartWidth: 1,
+    gridColumnStart: 2,
+    inlineSize: "calc(100% - 3rem)",
+    maxInlineSize: "28rem",
+    "[data-ending-style]": { translate: "2rem 0" },
+    "[data-starting-style]": { translate: "2rem 0" },
+  },
+  popupInset: {
+    "::before": { display: "none" },
+    "@media (min-width: 640px)": {
+      borderColor: tokens["--border"],
+      borderRadius: "var(--radius-md)",
+      borderStyle: "solid",
+      borderWidth: 1,
     },
   },
   close: {
@@ -112,7 +123,7 @@ const styles = stylex.create({
   header: {
     paddingBlockEnd: {
       default: null,
-      ':is(:is([data-slot="dialog-popup"], [data-slot="sheet-popup"], [data-slot="drawer-popup"]):has([data-slot$="panel"]) > [data-slot="dialog-header"])':
+      ':is(:is([data-slot="dialog-popup"], [data-slot="sheet-popup"], [data-slot="drawer-popup"]):has([data-slot$="panel"]) > [data-slot="sheet-header"])':
         "0.75rem",
       "@media (max-width: 639px)": "1rem",
     },
@@ -123,14 +134,31 @@ const styles = stylex.create({
   },
   footer: {
     display: "flex",
-    flexDirection: "column-reverse",
+    flexDirection: {
+      default: "column-reverse",
+      "@media (min-width: 640px)": "row",
+    },
     gap: "0.5rem",
     paddingInline: "1.5rem",
-    "@media (min-width: 640px)": {
-      borderEndEndRadius: "calc(var(--radius-md) - 1px)",
-      borderEndStartRadius: "calc(var(--radius-md) - 1px)",
-      flexDirection: "row",
-      justifyContent: "flex-end",
+    borderEndEndRadius: {
+      default: null,
+      "@media (min-width: 640px)": {
+        default: null,
+        ':is([data-slot="sheet-popup"][data-variant="inset"] [data-slot="sheet-footer"])':
+          "calc(var(--radius-md) - 1px)",
+      },
+    },
+    borderEndStartRadius: {
+      default: null,
+      "@media (min-width: 640px)": {
+        default: null,
+        ':is([data-slot="sheet-popup"][data-variant="inset"] [data-slot="sheet-footer"])':
+          "calc(var(--radius-md) - 1px)",
+      },
+    },
+    justifyContent: {
+      default: null,
+      "@media (min-width: 640px)": "flex-end",
     },
   },
   footerDefault: {
@@ -144,7 +172,7 @@ const styles = stylex.create({
   footerBare: {
     paddingBlockStart: {
       default: "1rem",
-      ':is(:is([data-slot="dialog-popup"], [data-slot="sheet-popup"], [data-slot="drawer-popup"]):has([data-slot$="panel"]) > [data-slot="dialog-footer"])':
+      ':is(:is([data-slot="dialog-popup"], [data-slot="sheet-popup"], [data-slot="drawer-popup"]):has([data-slot$="panel"]) > [data-slot="sheet-footer"])':
         "0.75rem",
     },
     paddingBlockEnd: "1.5rem",
@@ -159,69 +187,79 @@ const styles = stylex.create({
   panel: {
     paddingBlockStart: {
       default: null,
-      ':is(:is([data-slot="dialog-popup"], [data-slot="sheet-popup"], [data-slot="drawer-popup"]):has([data-slot$="header"]) [data-slot="dialog-panel"])':
+      ':is(:is([data-slot="dialog-popup"], [data-slot="sheet-popup"], [data-slot="drawer-popup"]):has([data-slot$="header"]) [data-slot="sheet-panel"])':
         "0.25rem",
     },
     paddingBlockEnd: {
       default: null,
-      ':is(:is([data-slot="dialog-popup"], [data-slot="sheet-popup"], [data-slot="drawer-popup"]):has([data-slot$="footer"][data-variant="bare"]) [data-slot="dialog-panel"])':
+      ':is(:is([data-slot="dialog-popup"], [data-slot="sheet-popup"], [data-slot="drawer-popup"]):has([data-slot$="footer"][data-variant="bare"]) [data-slot="sheet-panel"])':
         "0.25rem",
     },
     padding: "1.5rem",
   },
 })
 
-export const DialogCreateHandle: typeof DialogPrimitive.createHandle =
-  DialogPrimitive.createHandle
+const viewportSideStyles = {
+  bottom: styles.viewportBottom,
+  left: styles.viewportLeft,
+  right: styles.viewportRight,
+  top: styles.viewportTop,
+} as const
 
-export const Dialog: typeof DialogPrimitive.Root = DialogPrimitive.Root
+const popupSideStyles = {
+  bottom: styles.popupBottom,
+  left: styles.popupLeft,
+  right: styles.popupRight,
+  top: styles.popupTop,
+} as const
 
-export const DialogPortal: typeof DialogPrimitive.Portal =
-  DialogPrimitive.Portal
+export const Sheet: typeof SheetPrimitive.Root = SheetPrimitive.Root
 
-export function DialogTrigger({
+export const SheetPortal: typeof SheetPrimitive.Portal = SheetPrimitive.Portal
+
+export function SheetTrigger({
   xstyle: consumerXstyle,
   className,
   ...restProps
-}: StyleXComponentProps<DialogPrimitive.Trigger.Props>) {
+}: StyleXComponentProps<SheetPrimitive.Trigger.Props>) {
   const props = restProps
   const xstyle = consumerXstyle
 
   return (
-    <DialogPrimitive.Trigger
-      data-slot="dialog-trigger"
+    <SheetPrimitive.Trigger
+      data-slot="sheet-trigger"
       {...mergeStylexProps(stylexProps(className, xstyle), props)}
     />
   )
 }
 
-export function DialogClose({
+export function SheetClose({
   xstyle: consumerXstyle,
   className,
   ...restProps
-}: StyleXComponentProps<DialogPrimitive.Close.Props>) {
+}: StyleXComponentProps<SheetPrimitive.Close.Props>) {
   const props = restProps
   const xstyle = consumerXstyle
 
   return (
-    <DialogPrimitive.Close
-      data-slot="dialog-close"
+    <SheetPrimitive.Close
+      data-slot="sheet-close"
       {...mergeStylexProps(stylexProps(className, xstyle), props)}
     />
   )
 }
 
-export function DialogBackdrop({
+export function SheetBackdrop({
   xstyle: consumerXstyle,
   className,
   ...restProps
-}: StyleXComponentProps<DialogPrimitive.Backdrop.Props>) {
+}: StyleXComponentProps<SheetPrimitive.Backdrop.Props>) {
   const props = restProps
   const xstyle = consumerXstyle
 
   return (
-    <DialogPrimitive.Backdrop
-      data-slot="dialog-backdrop"
+    <SheetPrimitive.Backdrop
+      data-slot="sheet-backdrop"
       {...mergeStylexProps(
         stylexProps(className, styles.backdrop, xstyle),
         props,
@@ -230,62 +268,76 @@ export function DialogBackdrop({
   )
 }
 
-export function DialogViewport({
+export function SheetViewport({
   xstyle: consumerXstyle,
   className,
-  ...restProps
-}: StyleXComponentProps<DialogPrimitive.Viewport.Props>) {
-  const props = restProps
-  const xstyle = consumerXstyle
-
-  return (
-    <DialogPrimitive.Viewport
-      data-slot="dialog-viewport"
-      {...mergeStylexProps(
-        stylexProps(className, styles.viewport, xstyle),
-        props,
-      )}
-    />
-  )
-}
-
-export function DialogPopup({
-  xstyle: consumerXstyle,
-  className,
-  children,
-  showCloseButton = true,
-  bottomStickOnMobile = true,
-  closeProps,
-  portalProps,
+  side = "right",
+  variant = "default",
   ...restProps
 }: StyleXComponentProps<
-  DialogPrimitive.Popup.Props,
+  SheetPrimitive.Viewport.Props,
   {
-    showCloseButton?: boolean
-    bottomStickOnMobile?: boolean
-    closeProps?: DialogPrimitive.Close.Props
-    portalProps?: DialogPrimitive.Portal.Props
+    side?: SheetSide
+    variant?: SheetVariant
   }
 >) {
   const props = restProps
   const xstyle = consumerXstyle
 
   return (
-    <DialogPortal {...portalProps}>
-      <DialogBackdrop />
-      <DialogViewport
-        className={
-          stylex.props(bottomStickOnMobile && styles.viewportBottomMobile)
-            .className
-        }
-      >
-        <DialogPrimitive.Popup
-          data-slot="dialog-popup"
+    <SheetPrimitive.Viewport
+      data-slot="sheet-viewport"
+      {...mergeStylexProps(
+        stylexProps(
+          className,
+          styles.viewport,
+          viewportSideStyles[side],
+          variant === "inset" && styles.viewportInset,
+          xstyle,
+        ),
+        props,
+      )}
+    />
+  )
+}
+
+export function SheetPopup({
+  xstyle: consumerXstyle,
+  className,
+  children,
+  showCloseButton = true,
+  side = "right",
+  variant = "default",
+  closeProps,
+  portalProps,
+  ...restProps
+}: StyleXComponentProps<
+  SheetPrimitive.Popup.Props,
+  {
+    showCloseButton?: boolean
+    side?: SheetSide
+    variant?: SheetVariant
+    closeProps?: SheetPrimitive.Close.Props
+    portalProps?: SheetPrimitive.Portal.Props
+  }
+>) {
+  const props = restProps
+  const xstyle = consumerXstyle
+
+  return (
+    <SheetPortal {...portalProps}>
+      <SheetBackdrop />
+      <SheetViewport side={side} variant={variant}>
+        <SheetPrimitive.Popup
+          data-side={side}
+          data-slot="sheet-popup"
+          data-variant={variant}
           {...mergeStylexProps(
             stylexProps(
               className,
               styles.popup,
-              bottomStickOnMobile && styles.popupBottomMobile,
+              popupSideStyles[side],
+              variant === "inset" && styles.popupInset,
               xstyle,
             ),
             props,
@@ -293,7 +345,7 @@ export function DialogPopup({
         >
           {children}
           {showCloseButton ? (
-            <DialogPrimitive.Close
+            <SheetPrimitive.Close
               aria-label="Close"
               render={
                 <Button size="icon" variant="ghost" xstyle={styles.close} />
@@ -301,15 +353,15 @@ export function DialogPopup({
               {...closeProps}
             >
               <XIcon {...stylex.props(styles.closeIcon)} />
-            </DialogPrimitive.Close>
+            </SheetPrimitive.Close>
           ) : null}
-        </DialogPrimitive.Popup>
-      </DialogViewport>
-    </DialogPortal>
+        </SheetPrimitive.Popup>
+      </SheetViewport>
+    </SheetPortal>
   )
 }
 
-export function DialogHeader({
+export function SheetHeader({
   xstyle: consumerXstyle,
   className,
   render,
@@ -320,7 +372,7 @@ export function DialogHeader({
 
   const defaultProps = {
     ...stylexProps(className, styles.header, xstyle),
-    "data-slot": "dialog-header",
+    "data-slot": "sheet-header",
   }
 
   return useRender({
@@ -330,7 +382,7 @@ export function DialogHeader({
   })
 }
 
-export function DialogFooter({
+export function SheetFooter({
   xstyle: consumerXstyle,
   className,
   variant = "default",
@@ -352,7 +404,7 @@ export function DialogFooter({
       variant === "default" ? styles.footerDefault : styles.footerBare,
       xstyle,
     ),
-    "data-slot": "dialog-footer",
+    "data-slot": "sheet-footer",
     "data-variant": variant,
   }
 
@@ -363,33 +415,33 @@ export function DialogFooter({
   })
 }
 
-export function DialogTitle({
+export function SheetTitle({
   xstyle: consumerXstyle,
   className,
   ...restProps
-}: StyleXComponentProps<DialogPrimitive.Title.Props>) {
+}: StyleXComponentProps<SheetPrimitive.Title.Props>) {
   const props = restProps
   const xstyle = consumerXstyle
 
   return (
-    <DialogPrimitive.Title
-      data-slot="dialog-title"
+    <SheetPrimitive.Title
+      data-slot="sheet-title"
       {...mergeStylexProps(stylexProps(className, styles.title, xstyle), props)}
     />
   )
 }
 
-export function DialogDescription({
+export function SheetDescription({
   xstyle: consumerXstyle,
   className,
   ...restProps
-}: StyleXComponentProps<DialogPrimitive.Description.Props>) {
+}: StyleXComponentProps<SheetPrimitive.Description.Props>) {
   const props = restProps
   const xstyle = consumerXstyle
 
   return (
-    <DialogPrimitive.Description
-      data-slot="dialog-description"
+    <SheetPrimitive.Description
+      data-slot="sheet-description"
       {...mergeStylexProps(
         stylexProps(className, styles.description, xstyle),
         props,
@@ -398,7 +450,7 @@ export function DialogDescription({
   )
 }
 
-export function DialogPanel({
+export function SheetPanel({
   xstyle: consumerXstyle,
   className,
   scrollFade = true,
@@ -413,7 +465,7 @@ export function DialogPanel({
 
   const defaultProps = {
     ...stylexProps(className, styles.panel, xstyle),
-    "data-slot": "dialog-panel",
+    "data-slot": "sheet-panel",
   }
 
   const content = useRender({
@@ -430,7 +482,7 @@ export function DialogPanel({
 }
 
 export {
-  DialogPrimitive,
-  DialogBackdrop as DialogOverlay,
-  DialogPopup as DialogContent,
+  SheetPrimitive,
+  SheetBackdrop as SheetOverlay,
+  SheetPopup as SheetContent,
 }

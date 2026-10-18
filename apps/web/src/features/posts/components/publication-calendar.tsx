@@ -1,12 +1,12 @@
 import * as stylex from "@stylexjs/stylex"
 import { DateTime, Option, Schema } from "effect"
 
-import { Button } from "ui/components/ui/button"
-import { Card, CardPanel } from "ui/components/ui/card"
-import { Heading } from "ui/components/ui/heading"
-import { HStack } from "ui/components/ui/hstack"
-import { Stack } from "ui/components/ui/stack"
-import { Text } from "ui/components/ui/text"
+import { Button } from "ui/components/button"
+import { Card, CardPanel } from "ui/components/card"
+import { Heading } from "ui/components/heading"
+import { HStack } from "ui/components/hstack"
+import { Stack } from "ui/components/stack"
+import { Text } from "ui/components/text"
 
 import { deskStyles } from "@/components/desk-styles"
 

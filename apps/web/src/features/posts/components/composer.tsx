@@ -14,25 +14,25 @@ import {
 import { type Workspace } from "rpc/contracts/workspaces"
 import { ApiError } from "rpc/lib/errors"
 import type { JsonObject } from "rpc/lib/json"
-import { Box } from "ui/components/ui/box"
-import { Button } from "ui/components/ui/button"
-import { Card, CardPanel } from "ui/components/ui/card"
+import { Box } from "ui/components/box"
+import { Button } from "ui/components/button"
+import { Card, CardPanel } from "ui/components/card"
 import {
   Dialog,
   DialogHeader,
   DialogPanel,
   DialogPopup,
   DialogTitle,
-} from "ui/components/ui/dialog"
-import { Field, FieldError, FieldLabel } from "ui/components/ui/field"
-import { Heading } from "ui/components/ui/heading"
-import { HStack } from "ui/components/ui/hstack"
-import { Input } from "ui/components/ui/input"
-import { ScrollArea } from "ui/components/ui/scroll-area"
-import { Separator } from "ui/components/ui/separator"
-import { Stack } from "ui/components/ui/stack"
-import { Text } from "ui/components/ui/text"
-import { Textarea } from "ui/components/ui/textarea"
+} from "ui/components/dialog"
+import { Field, FieldError, FieldLabel } from "ui/components/field"
+import { Heading } from "ui/components/heading"
+import { HStack } from "ui/components/hstack"
+import { Input } from "ui/components/input"
+import { ScrollArea } from "ui/components/scroll-area"
+import { Separator } from "ui/components/separator"
+import { Stack } from "ui/components/stack"
+import { Text } from "ui/components/text"
+import { Textarea } from "ui/components/textarea"
 
 import { deskStyles } from "@/components/desk-styles"
 import { Check, Failure, FormErrors } from "@/components/desk-ui"

@@ -2,19 +2,19 @@ import * as stylex from "@stylexjs/stylex"
 import { Schema } from "effect"
 import { useId, type ReactNode } from "react"
 
-import { Box } from "ui/components/ui/box"
-import { Checkbox } from "ui/components/ui/checkbox"
-import { Heading } from "ui/components/ui/heading"
+import { Box } from "ui/components/box"
+import { Checkbox } from "ui/components/checkbox"
+import { Heading } from "ui/components/heading"
 import {
   Select,
   SelectItem,
   SelectPopup,
   SelectTrigger,
   SelectValue,
-} from "ui/components/ui/select"
-import { Stack } from "ui/components/ui/stack"
-import { Text } from "ui/components/ui/text"
-import { Wrap } from "ui/components/ui/wrap"
+} from "ui/components/select"
+import { Stack } from "ui/components/stack"
+import { Text } from "ui/components/text"
+import { Wrap } from "ui/components/wrap"
 
 import { deskStyles } from "@/components/desk-styles"
 import { errorMessage } from "@/lib/queries"

@@ -13,20 +13,20 @@ import {
   useState,
 } from "react"
 
-import { Box } from "ui/components/ui/box"
-import { Button } from "ui/components/ui/button"
-import { Input } from "ui/components/ui/input"
-import { ScrollArea } from "ui/components/ui/scroll-area"
-import { Separator } from "ui/components/ui/separator"
+import { Box } from "ui/components/box"
+import { Button } from "ui/components/button"
+import { Input } from "ui/components/input"
+import { ScrollArea } from "ui/components/scroll-area"
+import { Separator } from "ui/components/separator"
 import {
   Sheet,
   SheetDescription,
   SheetHeader,
   SheetPopup,
   SheetTitle,
-} from "ui/components/ui/sheet"
-import { Skeleton } from "ui/components/ui/skeleton"
-import { Tooltip, TooltipPopup, TooltipTrigger } from "ui/components/ui/tooltip"
+} from "ui/components/sheet"
+import { Skeleton } from "ui/components/skeleton"
+import { Tooltip, TooltipPopup, TooltipTrigger } from "ui/components/tooltip"
 import { useEventCallback } from "ui/hooks/use-event-callback"
 import type { StyleXComponentProps } from "ui/lib/stylex"
 import {

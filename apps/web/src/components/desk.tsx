@@ -16,20 +16,20 @@ import {
 
 import type { PublicSession } from "rpc/contracts/session"
 import type { Workspace } from "rpc/contracts/workspaces"
-import { Box } from "ui/components/ui/box"
-import { Button } from "ui/components/ui/button"
-import { Card, CardHeader, CardPanel, CardTitle } from "ui/components/ui/card"
-import { Center } from "ui/components/ui/center"
-import { Container } from "ui/components/ui/container"
+import { Box } from "ui/components/box"
+import { Button } from "ui/components/button"
+import { Card, CardHeader, CardPanel, CardTitle } from "ui/components/card"
+import { Center } from "ui/components/center"
+import { Container } from "ui/components/container"
 import {
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "ui/components/ui/empty"
-import { HStack } from "ui/components/ui/hstack"
-import { Separator } from "ui/components/ui/separator"
+} from "ui/components/empty"
+import { HStack } from "ui/components/hstack"
+import { Separator } from "ui/components/separator"
 import {
   Sidebar,
   SidebarContent,
@@ -47,11 +47,11 @@ import {
   SidebarTrigger,
   sidebarSlotStyles,
   useSidebar,
-} from "ui/components/ui/sidebar"
-import { Skeleton } from "ui/components/ui/skeleton"
-import { Stack } from "ui/components/ui/stack"
-import { Text } from "ui/components/ui/text"
-import { Wrap } from "ui/components/ui/wrap"
+} from "ui/components/sidebar"
+import { Skeleton } from "ui/components/skeleton"
+import { Stack } from "ui/components/stack"
+import { Text } from "ui/components/text"
+import { Wrap } from "ui/components/wrap"
 import { tokens } from "ui/styles/tokens.stylex"
 
 import { deskStyles } from "@/components/desk-styles"

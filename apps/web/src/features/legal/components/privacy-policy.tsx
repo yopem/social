@@ -1,4 +1,4 @@
-import { Text } from "ui/components/ui/text"
+import { Text } from "ui/components/text"
 
 import { LegalPage, LegalSection } from "./legal-page"
 

@@ -5,7 +5,7 @@ import type { ComponentProps } from "react"
 import { Checkbox as CheckboxPrimitive } from "@base-ui/react/checkbox"
 import * as stylex from "@stylexjs/stylex"
 
-import { Box } from "ui/components/ui/box"
+import { Box } from "ui/components/box"
 import type { StyleXComponentProps } from "ui/lib/stylex"
 import { mergeStylexProps, stylexProps } from "ui/lib/stylex"
 import { themeMarker, tokens } from "ui/styles/tokens.stylex"

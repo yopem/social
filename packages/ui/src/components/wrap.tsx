@@ -4,7 +4,7 @@ import type { ComponentPropsWithRef } from "react"
 
 import * as stylex from "@stylexjs/stylex"
 
-import { Box } from "ui/components/ui/box"
+import { Box } from "ui/components/box"
 import type { StyleXComponentProps } from "ui/lib/stylex"
 import { mergeStylexProps, stylexProps } from "ui/lib/stylex"
 import { tokens } from "ui/styles/tokens.stylex"

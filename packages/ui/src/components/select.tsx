@@ -13,7 +13,7 @@ import {
   ChevronUpIcon,
 } from "lucide-react"
 
-import { Box } from "ui/components/ui/box"
+import { Box } from "ui/components/box"
 import type { StyleXComponentProps } from "ui/lib/stylex"
 import {
   isCallback,

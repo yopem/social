@@ -6,9 +6,9 @@ import { useState } from "react"
 
 import { type Workspace } from "rpc/contracts/workspaces"
 import { ApiError } from "rpc/lib/errors"
-import { Box } from "ui/components/ui/box"
-import { Button } from "ui/components/ui/button"
-import { Card, CardHeader, CardTitle, CardPanel } from "ui/components/ui/card"
+import { Box } from "ui/components/box"
+import { Button } from "ui/components/button"
+import { Card, CardHeader, CardTitle, CardPanel } from "ui/components/card"
 import {
   Dialog,
   DialogHeader,
@@ -16,13 +16,13 @@ import {
   DialogPopup,
   DialogTitle,
   DialogTrigger,
-} from "ui/components/ui/dialog"
-import { Field, FieldError } from "ui/components/ui/field"
-import { HStack } from "ui/components/ui/hstack"
-import { Input } from "ui/components/ui/input"
-import { Skeleton } from "ui/components/ui/skeleton"
-import { Stack } from "ui/components/ui/stack"
-import { Text } from "ui/components/ui/text"
+} from "ui/components/dialog"
+import { Field, FieldError } from "ui/components/field"
+import { HStack } from "ui/components/hstack"
+import { Input } from "ui/components/input"
+import { Skeleton } from "ui/components/skeleton"
+import { Stack } from "ui/components/stack"
+import { Text } from "ui/components/text"
 
 import { deskStyles } from "@/components/desk-styles"
 import { Choice, Failure, FormErrors, PageHeading } from "@/components/desk-ui"
