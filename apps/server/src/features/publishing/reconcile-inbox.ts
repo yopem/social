@@ -35,7 +35,7 @@ export function reconcileInbox() {
                   delivery.providerPostId === event.backendRecordId),
             ),
         ),
-        (post) => posts.reconcile(workspaceId, post.id),
+        (post) => posts.reconcile({ workspaceId, postId: post.id }),
         { concurrency: 2, discard: true },
       )
     }),

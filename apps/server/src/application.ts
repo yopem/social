@@ -96,5 +96,5 @@ export function applicationLayer(bindings: WorkerBindings, config: AppConfig) {
     accountDeletionLayer,
   ).pipe(Layer.provideMerge(services))
 
-  return jobLayer().pipe(Layer.provideMerge(domain))
+  return jobLayer.pipe(Layer.provideMerge(domain))
 }

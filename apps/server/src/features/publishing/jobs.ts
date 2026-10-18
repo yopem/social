@@ -8,11 +8,10 @@ import { PostService } from "server/features/posts/service"
 import { FeedsDb } from "db/services/feeds"
 import { PostsDb } from "db/services/posts"
 import { WorkspacesDb } from "db/services/workspaces"
-import type { ResourceBindings } from "env/server"
 import { JobMessage, WorkerResources } from "env/server"
 import { ApiError } from "rpc/lib/errors"
 
-function makeJobs(bindings?: Pick<ResourceBindings, "JOBS">) {
+function makeJobs() {
   return Effect.gen(function* () {
     const postsDb = yield* PostsDb
     const feedsDb = yield* FeedsDb
@@ -20,12 +19,11 @@ function makeJobs(bindings?: Pick<ResourceBindings, "JOBS">) {
     const gate = yield* OperationGate
     const feeds = yield* FeedService
     const posts = yield* PostService
-    const resources = yield* WorkerResources
-    const queue = bindings?.JOBS ?? resources.JOBS
+    const { JOBS: jobQueue } = yield* WorkerResources
 
     function send(message: JobMessage) {
       return Effect.tryPromise({
-        try: () => queue.send(message),
+        try: () => jobQueue.send(message),
         catch: () =>
           new ApiError({
             code: "upstream-failure",
@@ -81,45 +79,27 @@ function makeJobs(bindings?: Pick<ResourceBindings, "JOBS">) {
       })
     }
 
-    function handle(message: JobMessage) {
-      return Schema.decodeUnknownEffect(JobMessage)(message).pipe(
-        Effect.mapError(
-          () =>
-            new ApiError({
-              code: "invalid-input",
-              message: "Queue message is invalid.",
-            }),
-        ),
-        Effect.flatMap((job) =>
-          Effect.flatMap(
-            workspacesDb.automationPrincipal(job.workspaceId),
-            (owner) =>
-              gate.run(
-                owner.id,
-                job.workspaceId,
-                Effect.suspend(() => {
-                  switch (job.type) {
-                    case "publish":
-                      return posts
-                        .publishJob(
-                          job.workspaceId,
-                          job.postId,
-                          job.operationKey,
-                        )
-                        .pipe(Effect.asVoid)
-                    case "feed":
-                      return feeds
-                        .refreshJob(job.workspaceId, job.feedId, job.cursor)
-                        .pipe(Effect.asVoid)
-                    case "reconcile":
-                      return posts
-                        .reconcile(job.workspaceId, job.postId)
-                        .pipe(Effect.asVoid)
-                  }
-                }),
-              ),
-          ),
-        ),
+    function handle(job: JobMessage) {
+      return Effect.gen(function* () {
+        const owner = yield* workspacesDb.automationPrincipal(job.workspaceId)
+
+        yield* gate.run(
+          owner.id,
+          job.workspaceId,
+          Effect.suspend(() => {
+            switch (job.type) {
+              case "publish":
+                return posts.publishJob(job).pipe(Effect.asVoid)
+              case "feed":
+                return feeds
+                  .refreshJob(job.workspaceId, job.feedId, job.cursor)
+                  .pipe(Effect.asVoid)
+              case "reconcile":
+                return posts.reconcile(job).pipe(Effect.asVoid)
+            }
+          }),
+        )
+      }).pipe(
         Effect.catchIf(
           (error) => error.code === "not-found",
           () => Effect.void,
@@ -136,9 +116,7 @@ export class JobService extends Context.Service<
   Effect.Success<ReturnType<typeof makeJobs>>
 >()("social/JobService") {}
 
-export function jobLayer(bindings?: Pick<ResourceBindings, "JOBS">) {
-  return Layer.effect(JobService, makeJobs(bindings))
-}
+export const jobLayer = Layer.effect(JobService, makeJobs())
 
 export function processQueue(messages: readonly Message<unknown>[]) {
   return Effect.gen(function* () {

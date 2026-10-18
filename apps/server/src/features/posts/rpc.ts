@@ -22,12 +22,12 @@ export function postRpcHandlers() {
           ),
         PostPublish: (input) =>
           Effect.flatMap(CurrentUser, (user) =>
-            posts.publish(
-              user.id,
-              input.workspaceId,
-              input.postId,
-              input.idempotencyKey,
-            ),
+            posts.publish({
+              userId: user.id,
+              workspaceId: input.workspaceId,
+              postId: input.postId,
+              operationKey: input.idempotencyKey,
+            }),
           ),
         PostCancel: (input) =>
           Effect.flatMap(CurrentUser, (user) =>

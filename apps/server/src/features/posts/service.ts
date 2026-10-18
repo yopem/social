@@ -8,10 +8,16 @@ import { WorkspacesDb } from "db/services/workspaces"
 import type {
   Delivery,
   Post,
+  PostInput,
   PostListPageInput,
   PostSaveInput,
 } from "rpc/contracts/posts"
 import { ApiError } from "rpc/lib/errors"
+
+type PublishPostInput = typeof PostInput.Type & {
+  readonly userId: string
+  readonly operationKey: string
+}
 
 export function publicationState(
   deliveries: readonly Delivery[],
@@ -130,13 +136,13 @@ function makePosts() {
         .pipe(Effect.withSpan("PostService.save"))
     }
 
-    function persist(
-      workspaceId: string,
-      postId: string,
-      deliveries: readonly Delivery[],
-    ) {
+    function persistPublication({
+      workspaceId,
+      postId,
+      deliveries,
+    }: typeof PostInput.Type & { readonly deliveries: readonly Delivery[] }) {
       return Effect.gen(function* () {
-        const review = deliveries.some(
+        const reviewReason = deliveries.some(
           (delivery) => delivery.state === "unknown",
         )
           ? "Publication is uncertain. Check the platform before retrying."
@@ -146,19 +152,23 @@ function makePosts() {
           workspaceId,
           postId,
           state: publicationState(deliveries),
-          reviewReason: review,
+          reviewReason,
         })
 
         return yield* postsDb.getPost({ workspaceId, postId })
       })
     }
 
-    function publish(
-      userId: string,
-      workspaceId: string,
-      postId: string,
-      operationKey: string,
-    ) {
+    function publish(input: PublishPostInput) {
+      return gate.run(input.userId, input.workspaceId, publishUnderLease(input))
+    }
+
+    function publishUnderLease({
+      userId,
+      workspaceId,
+      postId,
+      operationKey,
+    }: PublishPostInput) {
       return Effect.gen(function* () {
         yield* workspacesDb.workspaceAccess({ userId, workspaceId })
 
@@ -197,13 +207,13 @@ function makePosts() {
           )
         }
 
-        const files = yield* media.publicMedia(
+        const attachments = yield* media.publicMedia(
           userId,
           workspaceId,
           post.content.mediaIds,
         )
 
-        yield* social.prepare(userId, workspaceId, post, files)
+        yield* social.prepare(userId, workspaceId, post, attachments)
 
         const claimed = yield* postsDb.claimPost({
           workspaceId,
@@ -215,10 +225,10 @@ function makePosts() {
         if (!claimed) return yield* postsDb.getPost({ workspaceId, postId })
 
         return yield* social
-          .publish(userId, workspaceId, post, files, operationKey)
+          .publish(userId, workspaceId, post, attachments, operationKey)
           .pipe(
             Effect.flatMap((deliveries) =>
-              persist(workspaceId, postId, deliveries),
+              persistPublication({ workspaceId, postId, deliveries }),
             ),
             Effect.catch((error) =>
               postsDb
@@ -242,15 +252,20 @@ function makePosts() {
       })
     }
 
-    function publishJob(
-      workspaceId: string,
-      postId: string,
-      operationKey: string,
-    ) {
+    function publishJob({
+      workspaceId,
+      postId,
+      operationKey,
+    }: Omit<PublishPostInput, "userId">) {
       return Effect.gen(function* () {
         const owner = yield* workspacesDb.automationPrincipal(workspaceId)
 
-        return yield* publish(owner.id, workspaceId, postId, operationKey).pipe(
+        return yield* publishUnderLease({
+          userId: owner.id,
+          workspaceId,
+          postId,
+          operationKey,
+        }).pipe(
           Effect.catch((error) => {
             if (
               ["invalid-input", "not-configured", "forbidden"].includes(
@@ -268,7 +283,7 @@ function makePosts() {
       })
     }
 
-    function reconcile(workspaceId: string, postId: string) {
+    function reconcile({ workspaceId, postId }: typeof PostInput.Type) {
       return Effect.gen(function* () {
         const owner = yield* workspacesDb.automationPrincipal(workspaceId)
         const post = yield* postsDb.getPost({ workspaceId, postId })
@@ -276,7 +291,7 @@ function makePosts() {
         if (post.state !== "pending") return post
         const deliveries = yield* social.reconcile(owner.id, workspaceId, post)
 
-        return yield* persist(workspaceId, postId, deliveries)
+        return yield* persistPublication({ workspaceId, postId, deliveries })
       })
     }
 
@@ -304,7 +319,7 @@ function makePosts() {
 
     return {
       save,
-      publish: gate.wrap(publish),
+      publish,
       publishJob,
       reconcile,
       cancel: gate.wrap(cancel),
