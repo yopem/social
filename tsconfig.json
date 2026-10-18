@@ -3,5 +3,5 @@
   "compilerOptions": {
     "types": ["node"]
   },
-  "include": ["vite.config.ts", "alchemy.run.ts", "tests/**/*.ts"]
+  "include": ["vite.config.ts", "alchemy.run.ts"]
 }

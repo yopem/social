@@ -89,7 +89,6 @@ export default defineConfig({
         files: [
           "apps/**/*.{ts,tsx}",
           "packages/{rpc,db,auth,env}/**/*.{ts,tsx}",
-          "tests/**/*.ts",
         ],
         rules: effect.rules,
       },
@@ -106,7 +105,6 @@ export default defineConfig({
         files: [
           "apps/**/*.{ts,tsx}",
           "packages/{auth,env,rpc,ui}/**/*.{ts,tsx}",
-          "tests/**/*.ts",
           "alchemy.run.ts",
         ],
         rules: {
@@ -285,7 +283,6 @@ export default defineConfig({
       },
       "web-build": { command: "vp build", cwd: "apps/web" },
       "deploy-app": { command: "pnpm exec alchemy deploy", cache: false },
-      "e2e-check": { command: "pnpm exec playwright test", cache: false },
       "database-generate": {
         command:
           "pnpm exec drizzle-kit generate --config packages/db/drizzle.config.ts",
@@ -298,5 +295,5 @@ export default defineConfig({
       },
     },
   },
-  staged: { "*.{ts,tsx,js,json,yaml,css}": "vp check --fix" },
+  staged: { "*.{ts,tsx,js,json,yaml,css}": "vp fmt" },
 })

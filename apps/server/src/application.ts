@@ -32,7 +32,6 @@ import { sessionDbLayer } from "db/services/session"
 import { WorkspacesDb } from "db/services/workspaces"
 import type { AppConfig, WorkerBindings, WorkerResources } from "env/server"
 import { ConfigService, resourceLayer } from "env/server"
-import type { ApiError } from "rpc/lib/errors"
 
 export type ApplicationDependencies =
   | AuthSession
@@ -59,30 +58,7 @@ export type ApplicationDependencies =
   | ConfigService
   | Egress
 
-export interface ApplicationOverrides {
-  readonly auth?: Layer.Layer<
-    AuthSession,
-    ApiError,
-    AccountsDb | SessionDb | CredentialCrypto
-  >
-  readonly social?: Layer.Layer<
-    SocialService,
-    ApiError,
-    | WorkspacesDb
-    | ChannelsDb
-    | PostsDb
-    | SocialDb
-    | CredentialCrypto
-    | OperationGate
-  >
-  readonly egress?: Layer.Layer<Egress, ApiError>
-}
-
-export function applicationLayer(
-  bindings: WorkerBindings,
-  config: AppConfig,
-  overrides: ApplicationOverrides = {},
-) {
+export function applicationLayer(bindings: WorkerBindings, config: AppConfig) {
   const database = databaseLayer(bindings)
   const channels = ChannelsDb.layer.pipe(Layer.provideMerge(database))
   const posts = PostsDb.layer.pipe(Layer.provideMerge(channels))
@@ -103,14 +79,14 @@ export function applicationLayer(
     retentionDbLayer(bindings.DB),
     socialDbLayer(bindings.DB),
     credentialCryptoLayer(config),
-    overrides.egress ?? egressLayer,
+    egressLayer,
   )
 
   const guarded = operationGateLayer.pipe(Layer.provideMerge(base))
 
   const services = Layer.mergeAll(
-    overrides.auth ?? authSessionLayer(config),
-    overrides.social ?? socialLayer(config),
+    authSessionLayer(config),
+    socialLayer(config),
     mediaLayer(bindings, config),
   ).pipe(Layer.provideMerge(guarded))
 

@@ -2,10 +2,7 @@ import type {
   MessageBatch,
   ScheduledController,
 } from "@cloudflare/workers-types"
-import type {
-  ApplicationDependencies,
-  ApplicationOverrides,
-} from "server/application"
+import type { ApplicationDependencies } from "server/application"
 
 import { Effect, Schema } from "effect"
 import { applicationLayer } from "server/application"
@@ -57,9 +54,7 @@ export function apiRequest(request: Request, config: AppConfig) {
 
     if (path.startsWith("/media/")) return yield* mediaRequest(request, config)
 
-    if (
-      /^\/(?:api|rpc|auth|social|media|webhooks|__fixtures)(?:\/|$)/.test(path)
-    )
+    if (/^\/(?:api|rpc|auth|social|media|webhooks)(?:\/|$)/.test(path))
       return errorResponse(failure("not-found", "API route not found"))
 
     return null
@@ -83,6 +78,7 @@ function frontendRequest(
         headers: { Allow: "GET, HEAD" },
       })
     const path = new URL(request.url).pathname
+
     const renderFrontend = frontend
       ? Effect.tryPromise({
           try: () => frontend(request, bindings),
@@ -108,6 +104,7 @@ function frontendRequest(
       return yield* renderFrontend
 
     const assets = bindings.ASSETS
+
     const assetResponse = assets
       ? yield* Effect.tryPromise({
           try: () =>
@@ -148,11 +145,6 @@ function frontendRequest(
 }
 
 export interface ApplicationWorkerOptions {
-  readonly overrides?: (config: AppConfig) => ApplicationOverrides
-  readonly fixtureRequest?: (
-    request: Request,
-    config: AppConfig,
-  ) => Effect.Effect<Response | null, ApiError, ApplicationDependencies>
   readonly frontend?: (
     request: Request,
     bindings: WorkerBindings,
@@ -169,11 +161,7 @@ export function createApplicationWorker(
     ) => Effect.Effect<A, E, ApplicationDependencies>,
   ) {
     return Effect.flatMap(loadConfig(bindings), (config) =>
-      execute(config).pipe(
-        Effect.provide(
-          applicationLayer(bindings, config, options.overrides?.(config)),
-        ),
-      ),
+      execute(config).pipe(Effect.provide(applicationLayer(bindings, config))),
     )
   }
 
@@ -182,11 +170,6 @@ export function createApplicationWorker(
       return Effect.runPromise(
         run(bindings, (config) =>
           Effect.gen(function* () {
-            const fixture = options.fixtureRequest
-              ? yield* options.fixtureRequest(request, config)
-              : null
-
-            if (fixture) return fixture
             const response = yield* apiRequest(request, config)
 
             if (response) return response

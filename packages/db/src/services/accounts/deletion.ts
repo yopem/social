@@ -1,16 +1,6 @@
 import type { D1Database } from "@cloudflare/workers-types"
 
-import {
-  and,
-  count,
-  eq,
-  exists,
-  inArray,
-  isNull,
-  ne,
-  or,
-  sql,
-} from "drizzle-orm"
+import { and, eq, exists, inArray, isNull, ne, or, sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/d1"
 import { alias } from "drizzle-orm/sqlite-core"
 import { Context, DateTime, Effect, Layer, Schema } from "effect"
@@ -34,7 +24,6 @@ import {
   socialWorkflows,
 } from "db/schema/channels/social"
 import { feedItems, feeds } from "db/schema/feeds"
-import { media } from "db/schema/media"
 import { deliveries, posts } from "db/schema/posts"
 import { invites, memberships, workspaces } from "db/schema/workspaces"
 import { validateOperation } from "db/services/validation"
@@ -219,172 +208,6 @@ function makeDeletion(binding: D1Database) {
         db.delete(accountOperations).where(eq(accountOperations.token, token)),
       ).pipe(Effect.asVoid)
     },
-    fixtureResolveLegacyClaim(this: void, userId: string, workspaceId: string) {
-      return execute(() =>
-        db
-          .update(socialIdempotency)
-          .set({ tenant_id: workspaceId, principal_id: userId })
-          .where(
-            and(
-              eq(
-                socialIdempotency.scope,
-                JSON.stringify(["credential-ready", "posts.publish"]),
-              ),
-              eq(socialIdempotency.key, `deletion-fixture:${userId}`),
-              isNull(socialIdempotency.tenant_id),
-            ),
-          ),
-      ).pipe(Effect.asVoid)
-    },
-    fixtureSnapshot: Effect.fn("deletion.fixtureSnapshot")(function* (
-      userId: string,
-      workspaceId: string,
-    ) {
-      const scopes = [
-        [
-          "fences",
-          db
-            .select({ value: count() })
-            .from(accountDeletions)
-            .where(eq(accountDeletions.user_id, userId)),
-        ],
-        [
-          "users",
-          db.select({ value: count() }).from(users).where(eq(users.id, userId)),
-        ],
-        [
-          "memberships",
-          db
-            .select({ value: count() })
-            .from(memberships)
-            .where(eq(memberships.user_id, userId)),
-        ],
-        [
-          "workspaces",
-          db
-            .select({ value: count() })
-            .from(workspaces)
-            .where(eq(workspaces.id, workspaceId)),
-        ],
-        [
-          "posts",
-          db
-            .select({ value: count() })
-            .from(posts)
-            .where(eq(posts.workspace_id, workspaceId)),
-        ],
-        [
-          "media",
-          db
-            .select({ value: count() })
-            .from(media)
-            .where(eq(media.workspace_id, workspaceId)),
-        ],
-        [
-          "feeds",
-          db
-            .select({ value: count() })
-            .from(feeds)
-            .where(eq(feeds.workspace_id, workspaceId)),
-        ],
-        [
-          "channels",
-          db
-            .select({ value: count() })
-            .from(channels)
-            .where(eq(channels.workspace_id, workspaceId)),
-        ],
-        [
-          "attempts",
-          db
-            .select({ value: count() })
-            .from(socialAttempts)
-            .where(
-              or(
-                eq(socialAttempts.principal_id, userId),
-                eq(socialAttempts.tenant_id, workspaceId),
-              ),
-            ),
-        ],
-        [
-          "grants",
-          db
-            .select({ value: count() })
-            .from(socialGrants)
-            .where(
-              or(
-                eq(socialGrants.principal_id, userId),
-                eq(socialGrants.tenant_id, workspaceId),
-              ),
-            ),
-        ],
-        [
-          "credentials",
-          db
-            .select({ value: count() })
-            .from(socialCredentials)
-            .where(
-              sql`json_extract(${socialCredentials.key}, '$[0]')=${workspaceId} OR json_extract(${socialCredentials.key}, '$[1]') IN (SELECT ${socialAttempts.id} FROM ${socialAttempts} WHERE ${socialAttempts.principal_id}=${userId})`,
-            ),
-        ],
-        [
-          "workflows",
-          db
-            .select({ value: count() })
-            .from(socialWorkflows)
-            .where(
-              or(
-                eq(socialWorkflows.principal_id, userId),
-                eq(socialWorkflows.tenant_id, workspaceId),
-              ),
-            ),
-        ],
-        [
-          "idempotency",
-          db
-            .select({ value: count() })
-            .from(socialIdempotency)
-            .where(
-              or(
-                eq(socialIdempotency.principal_id, userId),
-                eq(socialIdempotency.tenant_id, workspaceId),
-              ),
-            ),
-        ],
-        [
-          "uploads",
-          db
-            .select({ value: count() })
-            .from(socialUploadSessions)
-            .where(eq(socialUploadSessions.tenant_id, workspaceId)),
-        ],
-        [
-          "inbox",
-          db
-            .select({ value: count() })
-            .from(socialInbox)
-            .where(
-              sql`EXISTS(SELECT 1 FROM json_each(${socialInbox.tenants}) WHERE value=${workspaceId})`,
-            ),
-        ],
-      ] as const
-
-      const result: Record<string, number> = {}
-
-      for (const [key, operation] of scopes) {
-        const rows = yield* query(
-          Schema.Struct({ value: Schema.Number }),
-          () => operation,
-        )
-
-        const row = rows[0]
-
-        if (!row) return yield* Effect.fail(failure())
-        result[key] = row.value
-      }
-
-      return result
-    }),
     begin: Effect.fn("deletion.begin")(function* (userId: string) {
       const other = alias(memberships, "other")
 
@@ -716,14 +539,6 @@ function makeDeletion(binding: D1Database) {
     releaseOperation: validateOperation(
       operations.releaseOperation,
       Schema.Tuple([Schema.String]),
-    ),
-    fixtureResolveLegacyClaim: validateOperation(
-      operations.fixtureResolveLegacyClaim,
-      Schema.Tuple([Schema.String, Schema.String]),
-    ),
-    fixtureSnapshot: validateOperation(
-      operations.fixtureSnapshot,
-      Schema.Tuple([Schema.String, Schema.String]),
     ),
     begin: validateOperation(operations.begin, Schema.Tuple([Schema.String])),
     finish: validateOperation(operations.finish, Schema.Tuple([Schema.String])),

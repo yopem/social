@@ -12,12 +12,5 @@ node_modules/
 .cache/
 dist/
 build/
-coverage/
-playwright-report/
-test-results/
 apps/web/src/routeTree.gen.ts
 docs/
-/tests/e2e/post-save-navigation.spec.ts
-/tests/fixtures/draft-save.ts
-/tests/fixtures/preview.ts
-/tests/fixtures/channel-refactor.ts

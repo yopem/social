@@ -43,20 +43,6 @@ const ResourceName = Schema.String.check(
 
 export function deploymentConfig(local: boolean, stage: string) {
   return Effect.gen(function* () {
-    const testMode = yield* Config.String("SOCIAL_E2E").pipe(
-      Config.withDefault("0"),
-    )
-
-    if (testMode !== "0" && testMode !== "1")
-      return yield* Effect.fail(
-        new InfrastructureError({ operation: "Invalid SOCIAL_E2E flag" }),
-      )
-
-    if (testMode === "1" && !local)
-      return yield* Effect.fail(
-        new InfrastructureError({ operation: "E2E entry requires local mode" }),
-      )
-
     const applyFlag = yield* Config.String("SOCIAL_APPLY_MIGRATIONS").pipe(
       Config.withDefault("0"),
     )
@@ -124,7 +110,6 @@ export function deploymentConfig(local: boolean, stage: string) {
     return {
       scalars,
       physicalNames,
-      testMode: testMode === "1",
       applyMigrations: local || applyFlag === "1",
     }
   })

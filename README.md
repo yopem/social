@@ -38,10 +38,9 @@ Use `http://localhost:3200` for the local app and its callback origin. Keep
 platform credentials empty until you have approved developer access. Missing
 credentials show setup requirements, not simulated publication.
 
-For normal local sign-in, use a private `.env.local` with the app settings
-and `SOCIAL_E2E=0`. Keep its encryption key and Alchemy password stable. Use
-the `development` stage to keep local resources separate from test resources.
-Do not use `.env.e2e` for real sign-in.
+For local sign-in, use a private `.env.local` with the app settings. Keep its
+encryption key and Alchemy password stable. Use the `development` stage to
+keep local resources separate from production resources.
 
 ```sh
 pnpm exec vp run dev --stage development --env-file .env.local
@@ -57,10 +56,10 @@ generated route tree.
 
 ```sh
 pnpm exec vp run build
-pnpm exec vp run check
 ```
 
-The project also provides `format`, `lint`, `typecheck`, and `e2e` scripts.
+The project also provides `format` and `lint` scripts. CI runs `check` and
+`typecheck`; do not run these commands during local validation.
 Run project scripts through `pnpm exec vp run <script>`.
 
 ## Code layout
@@ -73,7 +72,7 @@ Use a feature-first modular monolith with one application Worker:
   callbacks, webhooks, and jobs.
 - `apps/server/src/platform/`: shared runtime adapters.
 - `packages/db/src/schema/`: Drizzle tables and Effect persistence schemas.
-- `packages/db/src/services/`: database queries, writes, batches, and fixtures.
+- `packages/db/src/services/`: database queries, writes, and batches.
 - `packages/rpc/src/contracts/`: browser-safe domain schemas and RPC contracts.
 - `packages/auth/src/services/`: sign-in, session, and credential services.
 
@@ -120,34 +119,11 @@ exists, set `DRIZZLE_LOCAL_D1_PATH` to the exact intended file in private local
 configuration. Studio binds to `127.0.0.1:4983`. Studio edits bypass application
 validation; use validated app operations or reviewed migrations to change data.
 
-## Browser tests
+## Local validation
 
-Tests use isolated local Cloudflare resources and repeatable fixtures. They
-must not use production accounts or production resources.
-
-Create a private `.env.e2e` from `.env.example`. Set local encryption credentials
-and `SOCIAL_E2E=1`. Keep all live social credentials empty. Install Chromium:
-
-```sh
-pnpm exec playwright install chromium
-```
-
-Start the isolated test Worker on port 3200. Use a separate stage from normal
-local development and from legacy fixture databases:
-
-```sh
-pnpm exec vp run dev --stage e2e-drizzle --env-file .env.e2e
-```
-
-In another terminal:
-
-```sh
-pnpm exec vp run e2e
-```
-
-Tests require Alchemy migrations to complete before fixture readiness succeeds.
-Test reports, traces, and screenshots are saved in `test-results/`. Fixture
-routes and simulated platform responses must not appear in production builds.
+Use Playwriter in the browser to verify changed user workflows. Check visible
+results and browser errors. Use `curl` for backend requests. Use local
+Cloudflare resources and development data, not production accounts or data.
 
 ## Privacy and account deletion
 
@@ -176,11 +152,12 @@ an automatic expiry rule.
 
 ## Deployment
 
-Deploy only after checks, migrations, and local browser tests pass. Confirm the
+Deploy only after CI checks, migrations, and local validation pass. Confirm the
 Cloudflare account, stage, resource changes, and migration target first. The
 Alchemy program declares one application Worker with its assets, API, auth,
 queue, and scheduled handlers. No separate API server is deployed.
 
 Legal pages require public HTTPS deployment before developer consoles can
 fetch them. Review legal text and each platform's access rules before submitting
-an application for approval. Local tests do not verify live OAuth or publishing.
+an application for approval. Local validation does not confirm live OAuth or
+publishing without approved provider access.

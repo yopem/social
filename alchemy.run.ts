@@ -115,9 +115,7 @@ export const web = await Effect.runPromise(
                     apiToken: app.local ? alchemy.secret("local") : undefined,
                     cwd: "apps/web",
                     wrangler: {
-                      main: config.testMode
-                        ? "../../tests/fixtures/worker.ts"
-                        : "./src/worker.ts",
+                      main: "./src/worker.ts",
                     },
                     bindings: { DB: db, MEDIA: media, JOBS: jobs, ...scalars },
                     crons: ["* * * * *"],

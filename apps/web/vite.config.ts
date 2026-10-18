@@ -14,13 +14,15 @@ const uiSource = fileURLToPath(
 
 const require = createRequire(import.meta.url)
 
-export default defineConfig(({ command, mode }) => {
+export default defineConfig(({ command }) => {
+  const entry = fileURLToPath(new URL("./src/worker.ts", import.meta.url))
+
   const stylexPlugins = [
     [
       "@stylexjs/babel-plugin",
       {
         aliases: { "@/*": [source + "/*"], "ui/*": [uiSource + "/*"] },
-        dev: mode !== "production",
+        dev: command !== "build",
         runtimeInjection: false,
         treeshakeCompensation: true,
         unstable_moduleResolution: { type: "commonJS" },
@@ -46,9 +48,7 @@ export default defineConfig(({ command, mode }) => {
         config:
           command === "build"
             ? {
-                main: fileURLToPath(
-                  new URL("./src/worker.ts", import.meta.url),
-                ),
+                main: entry,
               }
             : undefined,
       }),
