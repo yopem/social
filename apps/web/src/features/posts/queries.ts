@@ -203,7 +203,10 @@ export function savePostMutation({
 
           const scheduledAt =
             action === "schedule"
-              ? yield* scheduleTime(scheduled, workspace.timezone)
+              ? yield* scheduleTime({
+                  localDateTime: scheduled,
+                  timezone: workspace.timezone,
+                })
               : null
 
           const saved =

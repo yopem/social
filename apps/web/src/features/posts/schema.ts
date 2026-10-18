@@ -39,10 +39,13 @@ export const ComposerForm = PostContent.check(
   ),
 )
 
-export const scheduleTime = Effect.fn("scheduleTime")(function* (
-  input: string,
-  timezone: string,
-) {
+export const scheduleTime = Effect.fn("scheduleTime")(function* ({
+  localDateTime,
+  timezone,
+}: {
+  localDateTime: string
+  timezone: string
+}) {
   const invalid = new ApiError({
     code: "invalid-input",
     message:
@@ -51,9 +54,9 @@ export const scheduleTime = Effect.fn("scheduleTime")(function* (
 
   yield* Schema.decodeUnknownEffect(
     Schema.String.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)),
-  )(input).pipe(Effect.mapError(() => invalid))
+  )(localDateTime).pipe(Effect.mapError(() => invalid))
 
-  const date = DateTime.makeZoned(`${input}:00Z`, {
+  const date = DateTime.makeZoned(`${localDateTime}:00Z`, {
     timeZone: timezone,
     adjustForTimeZone: true,
     disambiguation: "reject",
