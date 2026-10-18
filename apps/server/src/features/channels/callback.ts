@@ -1,8 +1,6 @@
 import { Effect, Schema } from "effect"
-import {
-  blueskyMetadata,
-  SocialService,
-} from "server/features/channels/service"
+import { blueskyMetadata } from "server/features/channels/configuration"
+import { SocialService } from "server/features/channels/service"
 
 import { CredentialCrypto } from "auth/services/crypto"
 import { AuthSession } from "auth/services/session"
