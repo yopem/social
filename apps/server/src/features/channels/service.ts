@@ -79,6 +79,7 @@ function makeSocial(config: AppConfig) {
     const workspacesDb = yield* WorkspacesDb
     const postsDb = yield* PostsDb
     const gate = yield* OperationGate
+
     const { provider, requirePlatform, clientFor, tiktokCreatorInfo } =
       yield* makeSocialClient(config)
 

@@ -65,6 +65,7 @@ export function credentialIsFresh({
   now: DateTime.Utc
 }) {
   const expires = DateTime.make(expiresAt)
+
   // Refresh early so the token stays valid during a provider request.
   return (
     Option.isSome(expires) &&
@@ -117,6 +118,7 @@ export function makeSocialClient(config: AppConfig) {
     const workspacesDb = yield* WorkspacesDb
     const db = yield* SocialDb
     const encryption = yield* CredentialCrypto
+    const providerFetch = yield* FetchHttpClient.Fetch
 
     function decodeCredential(data: string) {
       return Schema.decodeUnknownEffect(
@@ -191,7 +193,7 @@ export function makeSocialClient(config: AppConfig) {
         return blueskyOAuth({
           clientId: config.BLUESKY_CLIENT_ID ?? "",
           redirectUri: `${config.APP_ORIGIN}/social/callback/bluesky`,
-          fetch,
+          fetch: providerFetch,
           resolveTxt: (hostname) => stores.bridge(dnsTxt(hostname)),
           sessionSink: {
             save(input) {
@@ -269,7 +271,7 @@ export function makeSocialClient(config: AppConfig) {
         clientId: clientId ?? "",
         clientSecret,
         redirectUri: `${config.APP_ORIGIN}/social/callback/${platform}`,
-        fetch,
+        fetch: providerFetch,
         credentialSink: sink,
         linkedinApiVersion: config.LINKEDIN_API_VERSION,
         instagramApiVersion: config.META_API_VERSION,
@@ -367,7 +369,7 @@ export function makeSocialClient(config: AppConfig) {
                     refreshBlueskyOAuthSession(session, {
                       clientId: config.BLUESKY_CLIENT_ID ?? "",
                       fetch(input, init) {
-                        return globalThis.fetch(input, {
+                        return providerFetch(input, {
                           ...init,
                           signal: AbortSignal.any([
                             signal,
@@ -401,7 +403,7 @@ export function makeSocialClient(config: AppConfig) {
                     {
                       ...oauthOptions(platform),
                       fetch(input, init) {
-                        return globalThis.fetch(input, {
+                        return providerFetch(input, {
                           ...init,
                           signal: AbortSignal.any([
                             signal,
@@ -459,25 +461,25 @@ export function makeSocialClient(config: AppConfig) {
           case "x":
             return x({
               auth: { userId: channel.accountId, accessToken },
-              fetch,
+              fetch: providerFetch,
             })
           case "threads":
             return threads({
               backend: channel.backend,
               auth: { userId: channel.accountId, accessToken },
-              fetch,
+              fetch: providerFetch,
               workflowStore: stores.threadWorkflows,
             })
           case "instagram":
             return instagram({
               auth: { accountId: channel.accountId, accessToken },
-              fetch,
+              fetch: providerFetch,
               workflowStore: stores.instagramWorkflows,
             })
           case "youtube":
             return youtube({
               auth: { channelId: channel.accountId, accessToken },
-              fetch,
+              fetch: providerFetch,
               saveUploadSession(session) {
                 return stores.saveUpload(workspaceId, channel.id, session)
               },
@@ -485,7 +487,7 @@ export function makeSocialClient(config: AppConfig) {
           case "tiktok":
             return tiktok({
               auth: { openId: channel.accountId, accessToken },
-              fetch,
+              fetch: providerFetch,
               verifiedMediaOrigins: config.TIKTOK_VERIFIED_MEDIA_ORIGINS,
             })
           case "linkedin": {
@@ -512,7 +514,7 @@ export function makeSocialClient(config: AppConfig) {
             return linkedin({
               auth: { author: validated, accessToken },
               apiVersion: config.LINKEDIN_API_VERSION ?? "",
-              fetch,
+              fetch: providerFetch,
             })
           }
 
@@ -533,13 +535,15 @@ export function makeSocialClient(config: AppConfig) {
               catch: sdkError,
             })
 
-            const transport = blueskyOAuthTransport(session, { fetch })
+            const transport = blueskyOAuthTransport(session, {
+              fetch: providerFetch,
+            })
 
             return bluesky({
               backend: channel.backend,
               auth: { service: transport.service, did: transport.did },
               session: transport,
-              fetch,
+              fetch: providerFetch,
               allowMediaHost: (host) =>
                 host === new URL(config.APP_ORIGIN).hostname,
             })
@@ -661,7 +665,7 @@ export function makeSocialClient(config: AppConfig) {
 
         const backend = tiktok({
           auth: { openId: channel.accountId, accessToken: value.accessToken },
-          fetch,
+          fetch: providerFetch,
           verifiedMediaOrigins: config.TIKTOK_VERIFIED_MEDIA_ORIGINS,
         })
 
