@@ -53,7 +53,7 @@ export default defineConfig(({ command, mode }) => {
             : undefined,
       }),
       tanstackStart({ server: { entry: "./src/worker.ts" } }),
-      react(),
+      react({ compiler: { reportDiagnostics: true } }),
     ],
     server: { port: 3200, strictPort: true },
     resolve: { alias: { "@": source } },

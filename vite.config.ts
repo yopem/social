@@ -57,6 +57,9 @@ export default defineConfig({
   lint: {
     ...base,
     options: { ...base.options, typeAware: true, typeCheck: true },
+    settings: {
+      "react-doctor": { capabilities: ["react-compiler"] },
+    },
     rules: { ...base.rules, "yopem-ui/prefer-layout-primitives": "error" },
     plugins: [...(base.plugins ?? []), ...(react.plugins ?? [])],
     jsPlugins: [

@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex"
-import { DateTime, Option, Schema } from "effect"
+import { DateTime, Option } from "effect"
 
 import { Button } from "ui/components/button"
 import { Card, CardPanel } from "ui/components/card"
@@ -9,6 +9,7 @@ import { Stack } from "ui/components/stack"
 import { Text } from "ui/components/text"
 
 import { deskStyles } from "@/components/desk-styles"
+import { workspaceDate } from "@/features/posts/calendar"
 
 const styles = stylex.create({
   table: {
@@ -17,49 +18,6 @@ const styles = stylex.create({
     borderCollapse: "collapse",
   },
 })
-
-export function workspaceDate(
-  instant: DateTime.DateTime | string | Date,
-  timezone: string,
-) {
-  const value = DateTime.makeZoned(instant, { timeZone: timezone })
-
-  return Option.isSome(value) ? DateTime.formatIsoDate(value.value) : ""
-}
-
-export function dateBounds(
-  date: string,
-  timezone: string,
-  period: "day" | "month" = "day",
-) {
-  if (
-    !Schema.is(Schema.String.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/)))(
-      date,
-    )
-  )
-    return null
-
-  const start = DateTime.makeZoned(`${date}T00:00:00Z`, {
-    timeZone: timezone,
-    adjustForTimeZone: true,
-  })
-
-  if (Option.isNone(start) || DateTime.formatIsoDate(start.value) !== date)
-    return null
-
-  return {
-    scheduledFrom: DateTime.formatIso(start.value),
-    scheduledBefore: DateTime.formatIso(
-      DateTime.startOf(
-        DateTime.add(
-          start.value,
-          period === "month" ? { months: 1 } : { days: 1 },
-        ),
-        period,
-      ),
-    ),
-  }
-}
 
 export function PublicationCalendar({
   month,
@@ -132,7 +90,11 @@ export function PublicationCalendar({
               variant="ghost"
               size="sm"
               onClick={() => {
-                const today = workspaceDate(DateTime.nowUnsafe(), timezone)
+                const today = workspaceDate({
+                  instant: DateTime.nowUnsafe(),
+                  timezone,
+                })
+
                 onMonthChange(today.slice(0, 7))
                 onSelect(today)
               }}

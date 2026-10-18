@@ -1,3 +1,5 @@
+import type { ReactNode } from "react"
+
 import * as stylex from "@stylexjs/stylex"
 import { useQuery, type UseQueryResult } from "@tanstack/react-query"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
@@ -15,7 +17,6 @@ import {
 } from "lucide-react"
 
 import type { PublicSession } from "rpc/contracts/session"
-import type { Workspace } from "rpc/contracts/workspaces"
 import { Box } from "ui/components/box"
 import { Button } from "ui/components/button"
 import { Card, CardHeader, CardPanel, CardTitle } from "ui/components/card"
@@ -56,15 +57,10 @@ import { tokens } from "ui/styles/tokens.stylex"
 
 import { deskStyles } from "@/components/desk-styles"
 import { Failure } from "@/components/desk-ui"
-import { AccountDeletionSettings } from "@/features/accounts/components/account-deletion-settings"
-import { Analytics } from "@/features/analytics/components/analytics"
-import { Channels } from "@/features/channels/components/channels"
-import { Feeds } from "@/features/feeds/components/feeds"
-import { LegalLinks } from "@/features/legal/components/legal-page"
-import { Posts } from "@/features/posts/components/posts"
+import { DeskWorkspaceContext } from "@/components/desk-workspace"
+import { LegalLinks } from "@/features/legal/components/legal-links"
 import { UserMenu } from "@/features/session/components/user-menu"
 import { sessionQuery } from "@/features/session/queries"
-import { Settings } from "@/features/workspaces/components/settings"
 import { Workspaces } from "@/features/workspaces/components/workspaces"
 
 const styles = stylex.create({
@@ -245,7 +241,15 @@ export function DeskAccess({
   )
 }
 
-export function Desk({ view }: { view: DeskView }) {
+export function Desk({
+  view,
+  children,
+  emptyWorkspace,
+}: {
+  view: DeskView
+  children: ReactNode
+  emptyWorkspace?: ReactNode
+}) {
   const session = useQuery(sessionQuery())
   const search = useSearch({ from: "__root__" })
   const navigate = useNavigate()
@@ -323,26 +327,23 @@ export function Desk({ view }: { view: DeskView }) {
                 </Button>
               )}
               {workspace ? (
-                <WorkspaceView
-                  key={workspace.id}
-                  workspace={workspace}
-                  view={view}
-                  attempt={search.attempt}
-                />
-              ) : view === "settings" ? (
-                <AccountDeletionSettings />
+                <DeskWorkspaceContext key={workspace.id} value={workspace}>
+                  {children}
+                </DeskWorkspaceContext>
               ) : (
-                <Empty>
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon">
-                      <LayersIcon aria-hidden="true" />
-                    </EmptyMedia>
-                    <EmptyTitle>Create a workspace</EmptyTitle>
-                    <EmptyDescription>
-                      Create a workspace to start publishing.
-                    </EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
+                (emptyWorkspace ?? (
+                  <Empty>
+                    <EmptyHeader>
+                      <EmptyMedia variant="icon">
+                        <LayersIcon aria-hidden="true" />
+                      </EmptyMedia>
+                      <EmptyTitle>Create a workspace</EmptyTitle>
+                      <EmptyDescription>
+                        Create a workspace to start publishing.
+                      </EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
+                ))
               )}
             </Container>
           </Box>
@@ -397,25 +398,4 @@ export function DeskNavigation({
       ))}
     </Box>
   )
-}
-
-export function WorkspaceView({
-  workspace,
-  view,
-  attempt,
-}: {
-  workspace: Workspace
-  view: DeskView
-  attempt?: string
-}) {
-  if (view === "channels")
-    return <Channels workspace={workspace} attempt={attempt} />
-
-  if (view === "analytics") return <Analytics workspaceId={workspace.id} />
-
-  if (view === "rss") return <Feeds workspace={workspace} />
-
-  if (view === "settings") return <Settings workspace={workspace} />
-
-  return <Posts workspace={workspace} view={view} />
 }

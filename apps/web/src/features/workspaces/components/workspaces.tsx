@@ -1,10 +1,11 @@
 import * as stylex from "@stylexjs/stylex"
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { Schema } from "effect"
+import { DateTime, Schema } from "effect"
 import { useState } from "react"
 
 import type { Workspace } from "rpc/contracts/workspaces"
+import { WorkspaceCreateInput as WorkspaceForm } from "rpc/contracts/workspaces"
 import { Button } from "ui/components/button"
 import {
   Dialog,
@@ -28,8 +29,7 @@ import { Stack } from "ui/components/stack"
 
 import { deskStyles } from "@/components/desk-styles"
 import { Choice, Failure, FormErrors } from "@/components/desk-ui"
-import { WorkspaceForm } from "@/features/workspaces/schema"
-import { rpcMutation } from "@/lib/queries"
+import { createWorkspaceMutation } from "@/features/workspaces/queries"
 
 export function Workspaces({
   workspaces,
@@ -114,16 +114,12 @@ export function WorkspaceFields({
 }) {
   const client = useQueryClient()
 
-  const mutation = useMutation(
-    rpcMutation(client, "", (rpc, input: typeof WorkspaceForm.Type) =>
-      rpc.WorkspaceCreate(input),
-    ),
-  )
+  const mutation = useMutation(createWorkspaceMutation(client))
 
   const initial: typeof WorkspaceForm.Type = {
     name: "",
     kind: "personal",
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    timezone: DateTime.zoneToString(DateTime.zoneMakeLocal()),
   }
 
   const form = useForm({

@@ -1,6 +1,5 @@
 import * as stylex from "@stylexjs/stylex"
 import { useQuery } from "@tanstack/react-query"
-import { Effect, Schema } from "effect"
 import { useId, useState } from "react"
 
 import type { Channel } from "rpc/contracts/channels"
@@ -18,7 +17,7 @@ import { Textarea } from "ui/components/textarea"
 
 import { deskStyles } from "@/components/desk-styles"
 import { Check, Choice, Failure } from "@/components/desk-ui"
-import { workspaceQuery } from "@/lib/queries"
+import { creatorQuery } from "@/features/posts/queries"
 
 const booleanChoices = [
   { value: "true", label: "Yes" },
@@ -170,37 +169,7 @@ export function TikTokOptions({
   media: readonly Media[]
   disabled?: boolean
 }) {
-  const query = useQuery(
-    workspaceQuery(
-      channel.workspaceId,
-      "creator",
-      (client) =>
-        Effect.gen(function* () {
-          const data = yield* client.TikTokCreatorInfo({
-            workspaceId: channel.workspaceId,
-            channelId: channel.id,
-          })
-
-          const creator = yield* Schema.decodeUnknownEffect(
-            Schema.Struct({
-              accountId: Schema.String,
-              backend: Schema.String,
-              fetchedAt: Schema.String,
-              username: Schema.String,
-              nickname: Schema.String,
-              privacyLevels: Schema.Array(Schema.String),
-              commentDisabled: Schema.Boolean,
-              duetDisabled: Schema.Boolean,
-              stitchDisabled: Schema.Boolean,
-              maxVideoDurationSeconds: Schema.Number,
-            }),
-          )(data)
-
-          return { creator, data }
-        }),
-      channel.id,
-    ),
-  )
+  const query = useQuery(creatorQuery(channel))
 
   const creator = query.data?.creator
 

@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect"
+import { Array, Effect, HashMap, Option, Schema } from "effect"
 
 import { type Channel } from "rpc/contracts/channels"
 import { type Media } from "rpc/contracts/media"
@@ -19,14 +19,24 @@ export const validatePublishing = Effect.fn("validatePublishing")(function* (
   if (!content.channelIds.length)
     return yield* invalid("Select at least one channel before publishing.")
 
+  const channelsById = HashMap.fromIterable(
+    Array.reverse(channels).map((channel) => [channel.id, channel] as const),
+  )
+
+  const overridesByChannelId = HashMap.fromIterable(
+    Array.reverse(content.overrides).map(
+      (override) => [override.channelId, override] as const,
+    ),
+  )
+
   for (const channelId of content.channelIds) {
-    const channel = channels.find((item) => item.id === channelId)
+    const channel = Option.getOrUndefined(HashMap.get(channelsById, channelId))
 
     if (channel?.status !== "connected")
       return yield* invalid("Select a connected channel.")
 
-    const override = content.overrides.find(
-      (item) => item.channelId === channelId,
+    const override = Option.getOrUndefined(
+      HashMap.get(overridesByChannelId, channelId),
     )
 
     if (

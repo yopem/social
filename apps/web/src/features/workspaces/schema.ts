@@ -1,23 +1,12 @@
-import { DateTime, Option, Schema } from "effect"
+import { Schema } from "effect"
 
-import { WorkspaceKind } from "rpc/contracts/workspaces"
-import { Name } from "rpc/lib/schema"
-
-export const WorkspaceForm = Schema.Struct({
-  name: Name,
-  kind: WorkspaceKind,
-  timezone: Schema.String.check(
-    Schema.makeFilter((value) => Option.isSome(DateTime.zoneMakeNamed(value)), {
-      message: "Enter a valid IANA timezone.",
-    }),
-  ),
-})
+import { WorkspaceInviteInput } from "rpc/contracts/workspaces"
 
 export const InviteForm = Schema.Struct({
-  email: Schema.String.check(
+  email: WorkspaceInviteInput.fields.email.check(
     Schema.isPattern(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, {
       message: "Enter a valid email address.",
     }),
   ),
-  role: Schema.Literals(["admin", "editor"]),
+  role: WorkspaceInviteInput.fields.role,
 })

@@ -34,6 +34,7 @@
     "@stylexjs/babel-plugin": "0.19.1",
     "@stylexjs/postcss-plugin": "0.19.1",
     "@vitejs/plugin-react": "6.1.2",
+    "oxc-transform-react": "0.152.0",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.1.0"
   }
 }

@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query"
 import type { ReactNode } from "react"
 
+import * as stylex from "@stylexjs/stylex"
 import {
   createRootRouteWithContext,
   HeadContent,
@@ -9,13 +10,14 @@ import {
 } from "@tanstack/react-router"
 import { Schema } from "effect"
 
-import { Box } from "ui/components/box"
 import { themeMarker, lightTheme, rootStyles } from "ui/styles/tokens.stylex"
 import "@fontsource-variable/inter"
 import "@fontsource/ibm-plex-mono/latin-400.css"
 import "@fontsource/ibm-plex-mono/latin-500.css"
 
 import "ui/styles/styles.css"
+
+const documentStyles = [themeMarker, lightTheme, rootStyles.html]
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   {
@@ -43,19 +45,14 @@ export function Root() {
 
 export function Document({ children }: { children: ReactNode }) {
   return (
-    <Box
-      render={<html lang="en" />}
-      lang="en"
-      data-theme="light"
-      xstyle={[themeMarker, lightTheme, rootStyles.html]}
-    >
-      <Box render={<head />}>
+    <html lang="en" data-theme="light" {...stylex.props(documentStyles)}>
+      <head>
         <HeadContent />
-      </Box>
-      <Box render={<body />} xstyle={rootStyles.body}>
+      </head>
+      <body {...stylex.props(rootStyles.body)}>
         {children}
         <Scripts />
-      </Box>
-    </Box>
+      </body>
+    </html>
   )
 }

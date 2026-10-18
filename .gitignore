@@ -17,3 +17,6 @@ playwright-report/
 test-results/
 apps/web/src/routeTree.gen.ts
 docs/
+/tests/e2e/post-save-navigation.spec.ts
+/tests/fixtures/draft-save.ts
+/tests/fixtures/preview.ts
