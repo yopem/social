@@ -17,20 +17,32 @@ import { egressLayer } from "server/platform/egress"
 import type { CredentialCrypto } from "auth/services/crypto"
 import { credentialCryptoLayer } from "auth/services/crypto"
 import { type AuthSession, authSessionLayer } from "auth/services/session"
+import { AccountsDb } from "db/services/accounts"
 import { type DeletionDb, deletionDbLayer } from "db/services/accounts/deletion"
+import { ChannelsDb } from "db/services/channels"
 import type { SocialDb } from "db/services/channels/social"
 import { socialDbLayer } from "db/services/channels/social"
-import { type CoreDb, coreDbLayer } from "db/services/client"
+import { type Database, databaseLayer } from "db/services/client"
+import { FeedsDb } from "db/services/feeds"
+import { MediaDb } from "db/services/media"
+import { PostsDb } from "db/services/posts"
 import { type RetentionDb, retentionDbLayer } from "db/services/retention"
 import type { SessionDb } from "db/services/session"
 import { sessionDbLayer } from "db/services/session"
+import { WorkspacesDb } from "db/services/workspaces"
 import type { AppConfig, WorkerBindings, WorkerResources } from "env/server"
 import { ConfigService, resourceLayer } from "env/server"
 import type { ApiError } from "rpc/lib/errors"
 
 export type ApplicationDependencies =
   | AuthSession
-  | CoreDb
+  | Database
+  | AccountsDb
+  | WorkspacesDb
+  | ChannelsDb
+  | PostsDb
+  | MediaDb
+  | FeedsDb
   | DeletionDb
   | SessionDb
   | RetentionDb
@@ -51,12 +63,17 @@ export interface ApplicationOverrides {
   readonly auth?: Layer.Layer<
     AuthSession,
     ApiError,
-    CoreDb | SessionDb | CredentialCrypto
+    AccountsDb | SessionDb | CredentialCrypto
   >
   readonly social?: Layer.Layer<
     SocialService,
     ApiError,
-    CoreDb | SocialDb | CredentialCrypto | OperationGate
+    | WorkspacesDb
+    | ChannelsDb
+    | PostsDb
+    | SocialDb
+    | CredentialCrypto
+    | OperationGate
   >
   readonly egress?: Layer.Layer<Egress, ApiError>
 }
@@ -66,10 +83,21 @@ export function applicationLayer(
   config: AppConfig,
   overrides: ApplicationOverrides = {},
 ) {
+  const database = databaseLayer(bindings)
+  const channels = ChannelsDb.layer.pipe(Layer.provideMerge(database))
+  const posts = PostsDb.layer.pipe(Layer.provideMerge(channels))
+
+  const repositories = Layer.mergeAll(
+    AccountsDb.layer,
+    WorkspacesDb.layer,
+    MediaDb.layer,
+    FeedsDb.layer,
+  ).pipe(Layer.provideMerge(posts))
+
   const base = Layer.mergeAll(
     resourceLayer(bindings),
     Layer.succeed(ConfigService, config),
-    coreDbLayer(bindings),
+    repositories,
     deletionDbLayer(bindings.DB),
     sessionDbLayer(bindings.DB),
     retentionDbLayer(bindings.DB),

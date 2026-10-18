@@ -1,19 +1,69 @@
 import { sql, eq, and, notExists } from "drizzle-orm"
-import { Effect, Schema, Struct } from "effect"
+import { Context, Effect, Layer, Schema, Struct } from "effect"
 
 import { feeds, feedItems, FeedRow } from "db/schema/feeds"
 import { media, MediaRow } from "db/schema/media"
 import { posts } from "db/schema/posts"
-import type { createChannelsRepository } from "db/services/channels"
-import type { CoreContext } from "db/services/core"
-import { failure, now } from "db/services/core"
-import type { createPostsRepository } from "db/services/posts"
+import { ChannelsDb, type createChannelsRepository } from "db/services/channels"
+import { Database } from "db/services/client"
+import type { DatabaseContext } from "db/services/context"
+import { failure, now } from "db/services/context"
+import { PostsDb, type createPostsRepository } from "db/services/posts"
 import { validateOperation } from "db/services/validation"
-import { Feed } from "rpc/contracts/feeds"
+import { Feed, FeedInput } from "rpc/contracts/feeds"
 import { PostContent } from "rpc/contracts/posts"
 
+const FeedSaveInput = Schema.Struct({
+  workspaceId: Schema.String,
+  config: Schema.Struct(
+    Struct.omit(Feed.fields, ["id", "workspaceId", "lastCheckedAt", "error"]),
+  ),
+  feedId: Schema.optional(Schema.String),
+})
+
+const FeedImportInput = Schema.Struct({
+  workspaceId: Schema.String,
+  feedId: Schema.String,
+  itemKey: Schema.String,
+  content: PostContent,
+  reviewReason: Schema.optional(Schema.String),
+})
+
+const FeedItemLookupInput = Schema.Struct({
+  workspaceId: Schema.String,
+  feedId: Schema.String,
+  itemKey: Schema.String,
+})
+
+const FeedItemClaimInput = Schema.Struct({
+  feedId: Schema.String,
+  itemKey: Schema.String,
+})
+
+const FeedCheckInput = Schema.Struct({
+  workspaceId: Schema.String,
+  feedId: Schema.String,
+  error: Schema.NullOr(Schema.String),
+})
+
+export class FeedsDb extends Context.Service<
+  FeedsDb,
+  ReturnType<typeof createFeedsRepository>
+>()("social/FeedsDb") {
+  static readonly layer = Layer.effect(
+    FeedsDb,
+    Effect.gen(function* () {
+      const context = yield* Database
+      const channelsRepository = yield* ChannelsDb
+      const postsRepository = yield* PostsDb
+
+      return createFeedsRepository(context, channelsRepository, postsRepository)
+    }),
+  )
+}
+
 export function createFeedsRepository(
-  context: CoreContext,
+  context: DatabaseContext,
   channelsRepository: ReturnType<typeof createChannelsRepository>,
   postsRepository: ReturnType<typeof createPostsRepository>,
 ) {
@@ -21,7 +71,7 @@ export function createFeedsRepository(
   const { channel } = channelsRepository
   const { getPost } = postsRepository
 
-  function getFeed(workspaceId: string, id: string) {
+  function getFeed({ workspaceId, feedId: id }: typeof FeedInput.Type) {
     return query(FeedRow, () =>
       client
         .select({ data: feeds.data })
@@ -33,7 +83,7 @@ export function createFeedsRepository(
     )
   }
 
-  const operations = {
+  const feedOperations = {
     getFeed,
     listFeeds(this: void, workspaceId: string) {
       return query(FeedRow, () =>
@@ -45,12 +95,12 @@ export function createFeedsRepository(
           .limit(100),
       ).pipe(Effect.map((rows) => rows.map((row) => row.data)))
     },
-    saveFeed: Effect.fn("core.saveFeed")(function* (
-      workspaceId: string,
-      config: Omit<Feed, "id" | "workspaceId" | "lastCheckedAt" | "error">,
-      feedId?: string,
-    ) {
-      const old = feedId ? yield* getFeed(workspaceId, feedId) : null
+    saveFeed: Effect.fn("feeds.saveFeed")(function* ({
+      workspaceId,
+      config,
+      feedId,
+    }: typeof FeedSaveInput.Type) {
+      const old = feedId ? yield* getFeed({ workspaceId, feedId }) : null
 
       const value = yield* Schema.decodeUnknownEffect(Feed)({
         ...config,
@@ -60,7 +110,8 @@ export function createFeedsRepository(
         error: old?.error ?? null,
       }).pipe(Effect.mapError(() => failure("invalid-input", "Invalid feed")))
 
-      for (const id of value.channelIds) yield* channel(workspaceId, id)
+      for (const id of value.channelIds)
+        yield* channel({ workspaceId, channelId: id })
       yield* write(() =>
         client
           .insert(feeds)
@@ -79,21 +130,21 @@ export function createFeedsRepository(
 
       return value
     }),
-    deleteFeed(this: void, workspaceId: string, id: string) {
+    deleteFeed(this: void, { workspaceId, feedId: id }: typeof FeedInput.Type) {
       return write(() =>
         client
           .delete(feeds)
           .where(and(eq(feeds.workspace_id, workspaceId), eq(feeds.id, id))),
       )
     },
-    importFeedPost: Effect.fn("core.importFeedPost")(function* (
-      workspaceId: string,
-      feedId: string,
-      itemKey: string,
-      content: PostContent,
-      reviewReason?: string,
-    ) {
-      yield* getFeed(workspaceId, feedId)
+    importFeedPost: Effect.fn("feeds.importFeedPost")(function* ({
+      workspaceId,
+      feedId,
+      itemKey,
+      content,
+      reviewReason,
+    }: typeof FeedImportInput.Type) {
+      yield* getFeed({ workspaceId, feedId })
 
       const valid = yield* Schema.decodeUnknownEffect(PostContent)(
         content,
@@ -103,7 +154,8 @@ export function createFeedsRepository(
         ),
       )
 
-      for (const id of valid.channelIds) yield* channel(workspaceId, id)
+      for (const id of valid.channelIds)
+        yield* channel({ workspaceId, channelId: id })
 
       for (const override of valid.overrides)
         if (!valid.channelIds.includes(override.channelId))
@@ -196,15 +248,13 @@ export function createFeedsRepository(
       if (!item.post_id) return { post: null, created: false }
 
       return {
-        post: yield* getPost(workspaceId, item.post_id),
+        post: yield* getPost({ workspaceId, postId: item.post_id }),
         created: item.post_id === postId,
       }
     }),
     findImportedPost(
       this: void,
-      workspaceId: string,
-      feedId: string,
-      itemKey: string,
+      { workspaceId, feedId, itemKey }: typeof FeedItemLookupInput.Type,
     ) {
       return query(
         Schema.Struct({ post_id: Schema.NullOr(Schema.String) }),
@@ -228,7 +278,7 @@ export function createFeedsRepository(
             if (!row) return null
 
             const post = row.post_id
-              ? yield* getPost(workspaceId, row.post_id)
+              ? yield* getPost({ workspaceId, postId: row.post_id })
               : null
 
             return { post }
@@ -236,10 +286,10 @@ export function createFeedsRepository(
         ),
       )
     },
-    claimFeedItem: Effect.fn("core.claimFeedItem")(function* (
-      feedId: string,
-      itemKey: string,
-    ) {
+    claimFeedItem: Effect.fn("feeds.claimFeedItem")(function* ({
+      feedId,
+      itemKey,
+    }: typeof FeedItemClaimInput.Type) {
       const stamp = yield* now()
 
       return yield* query(Schema.Struct({ item_key: Schema.String }), () =>
@@ -250,7 +300,7 @@ export function createFeedsRepository(
           .returning({ item_key: feedItems.item_key }),
       ).pipe(Effect.map((rows) => rows.length === 1))
     }),
-    listDueFeeds: Effect.fn("core.listDueFeeds")(function* (limit: number) {
+    listDueFeeds: Effect.fn("feeds.listDueFeeds")(function* (limit: number) {
       const cutoff = yield* now(-900000)
 
       return yield* query(FeedRow, () =>
@@ -264,11 +314,11 @@ export function createFeedsRepository(
           .limit(Math.max(1, Math.min(100, Math.floor(limit)))),
       ).pipe(Effect.map((rows) => rows.map((row) => row.data)))
     }),
-    recordFeedCheck: Effect.fn("core.recordFeedCheck")(function* (
-      workspaceId: string,
-      id: string,
-      error: string | null,
-    ) {
+    recordFeedCheck: Effect.fn("feeds.recordFeedCheck")(function* ({
+      workspaceId,
+      feedId: id,
+      error,
+    }: typeof FeedCheckInput.Type) {
       const stamp = yield* now()
 
       return yield* write(() =>
@@ -285,61 +335,40 @@ export function createFeedsRepository(
 
   return {
     getFeed: validateOperation(
-      operations.getFeed,
-      Schema.Tuple([Schema.String, Schema.String]),
+      feedOperations.getFeed,
+      Schema.Tuple([FeedInput]),
     ),
     listFeeds: validateOperation(
-      operations.listFeeds,
+      feedOperations.listFeeds,
       Schema.Tuple([Schema.String]),
     ),
     saveFeed: validateOperation(
-      operations.saveFeed,
-      Schema.Tuple([
-        Schema.String,
-        Schema.Struct(
-          Struct.omit(Feed.fields, [
-            "id",
-            "workspaceId",
-            "lastCheckedAt",
-            "error",
-          ]),
-        ),
-        Schema.optionalKey(Schema.UndefinedOr(Schema.String)),
-      ]),
+      feedOperations.saveFeed,
+      Schema.Tuple([FeedSaveInput]),
     ),
     deleteFeed: validateOperation(
-      operations.deleteFeed,
-      Schema.Tuple([Schema.String, Schema.String]),
+      feedOperations.deleteFeed,
+      Schema.Tuple([FeedInput]),
     ),
     importFeedPost: validateOperation(
-      operations.importFeedPost,
-      Schema.Tuple([
-        Schema.String,
-        Schema.String,
-        Schema.String,
-        PostContent,
-        Schema.optionalKey(Schema.UndefinedOr(Schema.String)),
-      ]),
+      feedOperations.importFeedPost,
+      Schema.Tuple([FeedImportInput]),
     ),
     findImportedPost: validateOperation(
-      operations.findImportedPost,
-      Schema.Tuple([Schema.String, Schema.String, Schema.String]),
+      feedOperations.findImportedPost,
+      Schema.Tuple([FeedItemLookupInput]),
     ),
     claimFeedItem: validateOperation(
-      operations.claimFeedItem,
-      Schema.Tuple([Schema.String, Schema.String]),
+      feedOperations.claimFeedItem,
+      Schema.Tuple([FeedItemClaimInput]),
     ),
     listDueFeeds: validateOperation(
-      operations.listDueFeeds,
+      feedOperations.listDueFeeds,
       Schema.Tuple([Schema.Number]),
     ),
     recordFeedCheck: validateOperation(
-      operations.recordFeedCheck,
-      Schema.Tuple([
-        Schema.String,
-        Schema.String,
-        Schema.NullOr(Schema.String),
-      ]),
+      feedOperations.recordFeedCheck,
+      Schema.Tuple([FeedCheckInput]),
     ),
   }
 }

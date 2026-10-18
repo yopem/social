@@ -7,7 +7,11 @@ import { postLayer, PostService } from "server/features/posts/service"
 import { Egress } from "server/platform/egress"
 
 import { CredentialCrypto } from "auth/services/crypto"
-import { CoreDb } from "db/services/client"
+import { AccountsDb } from "db/services/accounts"
+import { ChannelsDb } from "db/services/channels"
+import { FeedsDb } from "db/services/feeds"
+import { MediaDb } from "db/services/media"
+import { PostsDb } from "db/services/posts"
 import {
   seedBackendPosts,
   seedBackendRecovery,
@@ -17,6 +21,7 @@ import {
   inspectBackendRetention,
   seedBackendRetention,
 } from "db/services/retention/backend-fixture"
+import { WorkspacesDb } from "db/services/workspaces"
 import type { AppConfig } from "env/server"
 import { WorkerResources } from "env/server"
 import type { User } from "rpc/contracts/accounts"
@@ -41,8 +46,9 @@ const paginationSetup = Effect.fn("paginationSetup")(function* (
   userId: string,
   timing?: { readonly scheduledAt?: string; readonly boundaryAt?: string },
 ) {
-  const core = yield* CoreDb
-  const workspace = yield* core.workspaceAccess(userId, workspaceId)
+  const workspacesDb = yield* WorkspacesDb
+  const channelsDb = yield* ChannelsDb
+  const workspace = yield* workspacesDb.workspaceAccess({ userId, workspaceId })
   const resources = yield* WorkerResources
   const time = yield* DateTime.now
 
@@ -63,7 +69,7 @@ const paginationSetup = Effect.fn("paginationSetup")(function* (
   const boundaryAt = timing?.boundaryAt ?? scheduledBefore
   const channelId = crypto.randomUUID()
   const channelName = `Backend scheduled channel ${channelId.slice(0, 8)}`
-  yield* core.upsertChannel({
+  yield* channelsDb.upsertChannel({
     id: channelId,
     workspaceId,
     platform: "x",
@@ -96,7 +102,9 @@ const paginationChecks = Effect.fn("paginationChecks")(function* (
 ) {
   const seed = yield* paginationSetup(workspaceId, userId)
   const posts = yield* PostService
-  const core = yield* CoreDb
+  const postsDb = yield* PostsDb
+  const workspacesDb = yield* WorkspacesDb
+  const channelsDb = yield* ChannelsDb
 
   const base: typeof PostListPageInput.Type = {
     workspaceId,
@@ -125,7 +133,7 @@ const paginationChecks = Effect.fn("paginationChecks")(function* (
     cursor = page.nextCursor ?? undefined
   } while (cursor)
 
-  const expected = yield* core.listPostsPage({
+  const expected = yield* postsDb.listPostsPage({
     workspaceId,
     filter: "all",
     limit: 100,
@@ -147,16 +155,30 @@ const paginationChecks = Effect.fn("paginationChecks")(function* (
     .listPage(userId, { ...base, workspaceId: crypto.randomUUID() })
     .pipe(Effect.result)
 
-  const foreign = yield* core.createWorkspace(
+  const foreign = yield* workspacesDb.createWorkspace({
     userId,
-    "Foreign calendar workspace",
-    "personal",
-    "UTC",
-  )
+    name: "Foreign calendar workspace",
+    kind: "personal",
+    timezone: "UTC",
+  })
 
-  const foreignPost = yield* core.savePost(foreign.id, content, null)
-  yield* core.setPostState(foreign.id, foreignPost.id, "cancelled")
-  const foreignDraft = yield* core.savePost(foreign.id, content, null)
+  const foreignPost = yield* postsDb.savePost({
+    workspaceId: foreign.id,
+    content,
+    scheduledAt: null,
+  })
+
+  yield* postsDb.setPostState({
+    workspaceId: foreign.id,
+    postId: foreignPost.id,
+    state: "cancelled",
+  })
+
+  const foreignDraft = yield* postsDb.savePost({
+    workspaceId: foreign.id,
+    content,
+    scheduledAt: null,
+  })
 
   const draft: typeof PostListPageInput.Type = {
     ...base,
@@ -191,7 +213,7 @@ const paginationChecks = Effect.fn("paginationChecks")(function* (
 
   for (let index = 41; index >= 0; index--) {
     const channelId = crypto.randomUUID()
-    yield* core.upsertChannel({
+    yield* channelsDb.upsertChannel({
       id: channelId,
       workspaceId,
       platform: "x",
@@ -203,7 +225,7 @@ const paginationChecks = Effect.fn("paginationChecks")(function* (
 
     for (const post of targets) {
       const id = `${post.id}:delivery:${String(index).padStart(2, "0")}`
-      yield* core.saveDelivery({
+      yield* postsDb.saveDelivery({
         id,
         postId: post.id,
         channelId,
@@ -347,20 +369,21 @@ const mediaChecks = Effect.fn("mediaChecks")(function* (
   userId: string,
   workspaceId: string,
 ) {
-  const core = yield* CoreDb
+  const workspacesDb = yield* WorkspacesDb
+  const mediaDb = yield* MediaDb
   const media = yield* MediaService
 
-  const other = yield* core.createWorkspace(
+  const other = yield* workspacesDb.createWorkspace({
     userId,
-    "Other media workspace",
-    "personal",
-    "UTC",
-  )
+    name: "Other media workspace",
+    kind: "personal",
+    timezone: "UTC",
+  })
 
   const ids = Array.from({ length: 3 }, () => crypto.randomUUID())
 
   for (const [index, id] of ids.entries())
-    yield* core.saveMedia({
+    yield* mediaDb.saveMedia({
       id,
       workspaceId: index === 2 ? other.id : workspaceId,
       name: "Fixture attachment.png",
@@ -421,80 +444,161 @@ const publicationChecks = Effect.fn("publicationChecks")(function* (
   userId: string,
   workspaceId: string,
 ) {
-  const core = yield* CoreDb
-  const original = yield* core.savePost(workspaceId, content, null)
+  const postsDb = yield* PostsDb
+  const channelsDb = yield* ChannelsDb
 
-  const edited = yield* core.savePost(
-    workspaceId,
-    { ...content, text: "Edited before claim" },
-    null,
-    original.id,
-  )
-
-  const changed = yield* core
-    .claimPost(workspaceId, original.id, crypto.randomUUID(), original)
-    .pipe(Effect.result)
-
-  const schedule = yield* core.savePost(workspaceId, content, null)
-  const time = yield* DateTime.now
-  yield* core.savePost(
+  const original = yield* postsDb.savePost({
     workspaceId,
     content,
-    DateTime.formatIso(DateTime.add(time, { days: 1 })),
-    schedule.id,
-  )
+    scheduledAt: null,
+  })
 
-  const changedSchedule = yield* core
-    .claimPost(workspaceId, schedule.id, crypto.randomUUID(), schedule)
-    .pipe(Effect.result)
+  const edited = yield* postsDb.savePost({
+    workspaceId,
+    content: { ...content, text: "Edited before claim" },
+    scheduledAt: null,
+    postId: original.id,
+  })
 
-  const key = crypto.randomUUID()
-  const unchanged = yield* core.claimPost(workspaceId, edited.id, key, edited)
-  const idempotent = yield* core.claimPost(workspaceId, edited.id, key, edited)
-
-  const differentKey = yield* core
-    .claimPost(workspaceId, edited.id, crypto.randomUUID(), edited)
-    .pipe(Effect.result)
-
-  const cancelled = yield* core.savePost(workspaceId, content, null)
-  yield* core.setPostState(workspaceId, cancelled.id, "cancelled")
-
-  const cancelledClaim = yield* core
-    .claimPost(workspaceId, cancelled.id, crypto.randomUUID(), cancelled)
-    .pipe(Effect.result)
-
-  const review = yield* core.savePost(workspaceId, content, null)
-  yield* core.setPostState(workspaceId, review.id, "needs-review")
-
-  const reviewClaim = yield* core
-    .claimPost(workspaceId, review.id, crypto.randomUUID(), review)
-    .pipe(Effect.result)
-
-  const resources = yield* WorkerResources
-  const queued = yield* core.savePost(workspaceId, content, null)
-  yield* seedBackendRecovery(resources.DB, workspaceId, [queued.id])
-  const loadedQueued = yield* core.getPost(workspaceId, queued.id)
-
-  const queuedMismatch = yield* core
-    .claimPost(workspaceId, queued.id, `scheduled:${queued.id}`, {
-      ...loadedQueued,
-      content: { ...content, text: "Stale queued content" },
+  const changed = yield* postsDb
+    .claimPost({
+      workspaceId,
+      postId: original.id,
+      operationKey: crypto.randomUUID(),
+      expectedPost: original,
     })
     .pipe(Effect.result)
 
-  yield* core.setPostState(
+  const schedule = yield* postsDb.savePost({
     workspaceId,
-    edited.id,
-    "pending",
-    "Unresolved publication",
-  )
+    content,
+    scheduledAt: null,
+  })
 
-  const cannotCancel = yield* core
-    .cancelPost(workspaceId, edited.id)
+  const time = yield* DateTime.now
+  yield* postsDb.savePost({
+    workspaceId,
+    content,
+    scheduledAt: DateTime.formatIso(DateTime.add(time, { days: 1 })),
+    postId: schedule.id,
+  })
+
+  const changedSchedule = yield* postsDb
+    .claimPost({
+      workspaceId,
+      postId: schedule.id,
+      operationKey: crypto.randomUUID(),
+      expectedPost: schedule,
+    })
     .pipe(Effect.result)
 
-  const cannotEdit = yield* core
-    .savePost(workspaceId, content, null, edited.id)
+  const key = crypto.randomUUID()
+
+  const unchanged = yield* postsDb.claimPost({
+    workspaceId,
+    postId: edited.id,
+    operationKey: key,
+    expectedPost: edited,
+  })
+
+  const idempotent = yield* postsDb.claimPost({
+    workspaceId,
+    postId: edited.id,
+    operationKey: key,
+    expectedPost: edited,
+  })
+
+  const differentKey = yield* postsDb
+    .claimPost({
+      workspaceId,
+      postId: edited.id,
+      operationKey: crypto.randomUUID(),
+      expectedPost: edited,
+    })
+    .pipe(Effect.result)
+
+  const cancelled = yield* postsDb.savePost({
+    workspaceId,
+    content,
+    scheduledAt: null,
+  })
+
+  yield* postsDb.setPostState({
+    workspaceId,
+    postId: cancelled.id,
+    state: "cancelled",
+  })
+
+  const cancelledClaim = yield* postsDb
+    .claimPost({
+      workspaceId,
+      postId: cancelled.id,
+      operationKey: crypto.randomUUID(),
+      expectedPost: cancelled,
+    })
+    .pipe(Effect.result)
+
+  const review = yield* postsDb.savePost({
+    workspaceId,
+    content,
+    scheduledAt: null,
+  })
+
+  yield* postsDb.setPostState({
+    workspaceId,
+    postId: review.id,
+    state: "needs-review",
+  })
+
+  const reviewClaim = yield* postsDb
+    .claimPost({
+      workspaceId,
+      postId: review.id,
+      operationKey: crypto.randomUUID(),
+      expectedPost: review,
+    })
+    .pipe(Effect.result)
+
+  const resources = yield* WorkerResources
+
+  const queued = yield* postsDb.savePost({
+    workspaceId,
+    content,
+    scheduledAt: null,
+  })
+
+  yield* seedBackendRecovery(resources.DB, workspaceId, [queued.id])
+
+  const loadedQueued = yield* postsDb.getPost({
+    workspaceId,
+    postId: queued.id,
+  })
+
+  const queuedMismatch = yield* postsDb
+    .claimPost({
+      workspaceId,
+      postId: queued.id,
+      operationKey: `scheduled:${queued.id}`,
+      expectedPost: {
+        ...loadedQueued,
+        content: { ...content, text: "Stale queued content" },
+      },
+    })
+    .pipe(Effect.result)
+
+  yield* postsDb.setPostState({
+    workspaceId,
+    postId: edited.id,
+    state: "pending",
+    reviewReason: "Unresolved publication",
+  })
+
+  const cannotCancel = yield* postsDb
+    .cancelPost({ workspaceId, postId: edited.id })
+    .pipe(Effect.result)
+
+  const cannotEdit = yield* postsDb
+    .savePost({ workspaceId, content, scheduledAt: null, postId: edited.id })
     .pipe(Effect.result)
 
   const connections = yield* fixtureConnections()
@@ -514,7 +618,7 @@ const publicationChecks = Effect.fn("publicationChecks")(function* (
     accounts.map((account) => account.ref.accountId),
   )
 
-  const channel = (yield* core.listChannels(workspaceId)).find((value) =>
+  const channel = (yield* channelsDb.listChannels(workspaceId)).find((value) =>
     accounts.some(
       (account) =>
         value.backend === `${account.ref.backend}:${account.ref.accountId}` &&
@@ -526,11 +630,11 @@ const publicationChecks = Effect.fn("publicationChecks")(function* (
   if (!channel)
     return yield* fixtureError("Publication count fixture channel missing")
 
-  const counted = yield* core.savePost(
+  const counted = yield* postsDb.savePost({
     workspaceId,
-    { ...content, channelIds: [channel.id] },
-    null,
-  )
+    content: { ...content, channelIds: [channel.id] },
+    scheduledAt: null,
+  })
 
   const social = yield* SocialService
   let providerWrites = 0
@@ -559,12 +663,15 @@ const publicationChecks = Effect.fn("publicationChecks")(function* (
       yield* social.prepare(principal, workspace, post, files)
 
       if (race)
-        yield* core.savePost(
-          workspace,
-          { ...post.content, text: "Concurrent edit before provider write" },
-          post.scheduledAt,
-          post.id,
-        )
+        yield* postsDb.savePost({
+          workspaceId: workspace,
+          content: {
+            ...post.content,
+            text: "Concurrent edit before provider write",
+          },
+          scheduledAt: post.scheduledAt,
+          postId: post.id,
+        })
     }),
     publish: Effect.fn("fixtureCountedPublish")(function* (
       principal: string,
@@ -619,9 +726,19 @@ const publicationChecks = Effect.fn("publicationChecks")(function* (
       .publish(userId, workspaceId, counted.id, crypto.randomUUID())
       .pipe(Effect.result)
 
-    const active = yield* core.savePost(workspaceId, counted.content, null)
+    const active = yield* postsDb.savePost({
+      workspaceId,
+      content: counted.content,
+      scheduledAt: null,
+    })
+
     const activeKey = crypto.randomUUID()
-    yield* core.claimPost(workspaceId, active.id, activeKey, active)
+    yield* postsDb.claimPost({
+      workspaceId,
+      postId: active.id,
+      operationKey: activeKey,
+      expectedPost: active,
+    })
 
     const activeResult = yield* service.publish(
       userId,
@@ -634,8 +751,8 @@ const publicationChecks = Effect.fn("publicationChecks")(function* (
       .publish(userId, workspaceId, active.id, crypto.randomUUID())
       .pipe(Effect.result)
 
-    const activeCancel = yield* core
-      .cancelPost(workspaceId, active.id)
+    const activeCancel = yield* postsDb
+      .cancelPost({ workspaceId, postId: active.id })
       .pipe(Effect.result)
 
     diagnostics = JSON.stringify({
@@ -709,15 +826,15 @@ const retentionChecks = Effect.fn("retentionChecks")(function* (
   workspaceId: string,
 ) {
   const resources = yield* WorkerResources
-  const core = yield* CoreDb
+  const workspacesDb = yield* WorkspacesDb
   const retention = yield* RetentionDb
 
-  const heldWorkspace = yield* core.createWorkspace(
+  const heldWorkspace = yield* workspacesDb.createWorkspace({
     userId,
-    "Held retention workspace",
-    "personal",
-    "UTC",
-  )
+    name: "Held retention workspace",
+    kind: "personal",
+    timezone: "UTC",
+  })
 
   const seed = yield* seedBackendRetention(
     resources.DB,
@@ -750,18 +867,24 @@ const retentionChecks = Effect.fn("retentionChecks")(function* (
 const snapshotChecks = Effect.fn("snapshotChecks")(function* (
   config: AppConfig,
 ) {
-  const core = yield* CoreDb
+  const accountsDb = yield* AccountsDb
+  const workspacesDb = yield* WorkspacesDb
+  const channelsDb = yield* ChannelsDb
+  const postsDb = yield* PostsDb
   const resources = yield* WorkerResources
   const deletion = yield* AccountDeletion
   const id = crypto.randomUUID()
 
-  const peer = yield* core.provisionUser(config.AUTH_ISSUER, {
-    id: `snapshot:${id}`,
-    name: "Snapshot fixture",
-    email: `snapshot-${id}@fixtures.example.test`,
+  const peer = yield* accountsDb.provisionUser({
+    issuer: config.AUTH_ISSUER,
+    subject: {
+      id: `snapshot:${id}`,
+      name: "Snapshot fixture",
+      email: `snapshot-${id}@fixtures.example.test`,
+    },
   })
 
-  const workspace = (yield* core.listWorkspaces(peer.id))[0]
+  const workspace = (yield* workspacesDb.listWorkspaces(peer.id))[0]
 
   if (!workspace) return yield* fixtureError("Snapshot workspace missing")
   const key = `feed-snapshots/${workspace.id}/feed/snapshot`
@@ -775,18 +898,23 @@ const snapshotChecks = Effect.fn("snapshotChecks")(function* (
     catch: () => fixtureError("Snapshot setup failed"),
   })
 
-  const remoteOwner = yield* core.provisionUser(config.AUTH_ISSUER, {
-    id: `scheduled-snapshot:${id}`,
-    name: "Scheduled snapshot fixture",
-    email: `scheduled-snapshot-${id}@fixtures.example.test`,
+  const remoteOwner = yield* accountsDb.provisionUser({
+    issuer: config.AUTH_ISSUER,
+    subject: {
+      id: `scheduled-snapshot:${id}`,
+      name: "Scheduled snapshot fixture",
+      email: `scheduled-snapshot-${id}@fixtures.example.test`,
+    },
   })
 
-  const remoteWorkspace = (yield* core.listWorkspaces(remoteOwner.id))[0]
+  const remoteWorkspace = (yield* workspacesDb.listWorkspaces(
+    remoteOwner.id,
+  ))[0]
 
   if (!remoteWorkspace)
     return yield* fixtureError("Scheduled snapshot workspace missing")
   const channelId = crypto.randomUUID()
-  yield* core.upsertChannel({
+  yield* channelsDb.upsertChannel({
     id: channelId,
     workspaceId: remoteWorkspace.id,
     platform: "x",
@@ -796,14 +924,14 @@ const snapshotChecks = Effect.fn("snapshotChecks")(function* (
     status: "connected",
   })
 
-  const remotePost = yield* core.savePost(
-    remoteWorkspace.id,
-    { ...content, channelIds: [channelId] },
-    null,
-  )
+  const remotePost = yield* postsDb.savePost({
+    workspaceId: remoteWorkspace.id,
+    content: { ...content, channelIds: [channelId] },
+    scheduledAt: null,
+  })
 
   const time = yield* DateTime.now
-  yield* core.saveDelivery({
+  yield* postsDb.saveDelivery({
     id: crypto.randomUUID(),
     postId: remotePost.id,
     channelId,
@@ -815,7 +943,11 @@ const snapshotChecks = Effect.fn("snapshotChecks")(function* (
     observedAt: DateTime.formatIso(time),
     retryDisposition: null,
   })
-  yield* core.setPostState(remoteWorkspace.id, remotePost.id, "pending")
+  yield* postsDb.setPostState({
+    workspaceId: remoteWorkspace.id,
+    postId: remotePost.id,
+    state: "pending",
+  })
   const ownBlocked = yield* deletion.remove(remoteOwner.id).pipe(Effect.result)
   yield* deletion.remove(peer.id)
 
@@ -847,32 +979,36 @@ const rssChecks = Effect.fn("rssChecks")(function* (
   workspaceId: string,
   config: AppConfig,
 ) {
-  const core = yield* CoreDb
+  const feedsDb = yield* FeedsDb
+  const postsDb = yield* PostsDb
   const resources = yield* WorkerResources
   const cipher = yield* CredentialCrypto
 
-  const feed = yield* core.saveFeed(workspaceId, {
-    url: "https://feeds.example.test/rss",
-    name: "Tombstone fixture",
-    mode: "draft",
-    channelIds: [],
-    includeImages: true,
-    includeVideos: false,
-    enabled: true,
+  const feed = yield* feedsDb.saveFeed({
+    workspaceId,
+    config: {
+      url: "https://feeds.example.test/rss",
+      name: "Tombstone fixture",
+      mode: "draft",
+      channelIds: [],
+      includeImages: true,
+      includeVideos: false,
+      enabled: true,
+    },
   })
 
   const deletedKey = yield* cipher.hash("deleted-item")
   const laterKey = yield* cipher.hash("later-item")
 
-  const imported = yield* core.importFeedPost(
+  const imported = yield* feedsDb.importFeedPost({
     workspaceId,
-    feed.id,
-    deletedKey,
+    feedId: feed.id,
+    itemKey: deletedKey,
     content,
-  )
+  })
 
   if (!imported.post) return yield* fixtureError("RSS fixture import missing")
-  yield* core.deletePost(workspaceId, imported.post.id)
+  yield* postsDb.deletePost({ workspaceId, postId: imported.post.id })
   const { lastCheckedAt: _checked, error: _error, ...feedConfig } = feed
   const revision = yield* cipher.hash(JSON.stringify(feedConfig))
   const snapshotId = crypto.randomUUID()
@@ -922,20 +1058,24 @@ const rssChecks = Effect.fn("rssChecks")(function* (
     ),
   )
 
-  const existing = yield* core.findImportedPost(
+  const existing = yield* feedsDb.findImportedPost({
     workspaceId,
-    feed.id,
-    deletedKey,
-  )
+    feedId: feed.id,
+    itemKey: deletedKey,
+  })
 
-  const later = yield* core.findImportedPost(workspaceId, feed.id, laterKey)
-
-  const deleted = yield* core.importFeedPost(
+  const later = yield* feedsDb.findImportedPost({
     workspaceId,
-    feed.id,
-    deletedKey,
+    feedId: feed.id,
+    itemKey: laterKey,
+  })
+
+  const deleted = yield* feedsDb.importFeedPost({
+    workspaceId,
+    feedId: feed.id,
+    itemKey: deletedKey,
     content,
-  )
+  })
 
   return {
     enclosureNotRequested: enclosureRequests === 0,
@@ -949,25 +1089,25 @@ const rssChecks = Effect.fn("rssChecks")(function* (
 const recoveryChecks = Effect.fn("recoveryChecks")(function* (
   workspaceId: string,
 ) {
-  const core = yield* CoreDb
+  const postsDb = yield* PostsDb
   const resources = yield* WorkerResources
 
   const created = yield* Effect.forEach([0, 1, 2, 3], () =>
-    core.savePost(workspaceId, content, null),
+    postsDb.savePost({ workspaceId, content, scheduledAt: null }),
   )
 
   const ids = created.map((post) => post.id)
   yield* seedBackendRecovery(resources.DB, workspaceId, ids)
-  const due = yield* core.claimDuePosts(100)
+  const due = yield* postsDb.claimDuePosts(100)
   const recovered = due.find((post) => post.id === ids[0])
 
   const sameKey = recovered
-    ? yield* core.claimPost(
+    ? yield* postsDb.claimPost({
         workspaceId,
-        recovered.id,
-        `scheduled:${recovered.id}`,
-        recovered,
-      )
+        postId: recovered.id,
+        operationKey: `scheduled:${recovered.id}`,
+        expectedPost: recovered,
+      })
     : false
 
   return {
@@ -980,18 +1120,23 @@ const recoveryChecks = Effect.fn("recoveryChecks")(function* (
 })
 
 const timezoneChecks = Effect.fn("timezoneChecks")(function* (userId: string) {
-  const core = yield* CoreDb
+  const workspacesDb = yield* WorkspacesDb
 
-  const invalid = yield* core
-    .createWorkspace(userId, "Invalid timezone", "personal", "Not/AZone")
+  const invalid = yield* workspacesDb
+    .createWorkspace({
+      userId,
+      name: "Invalid timezone",
+      kind: "personal",
+      timezone: "Not/AZone",
+    })
     .pipe(Effect.result)
 
-  const valid = yield* core.createWorkspace(
+  const valid = yield* workspacesDb.createWorkspace({
     userId,
-    "Valid timezone",
-    "personal",
-    "America/New_York",
-  )
+    name: "Valid timezone",
+    kind: "personal",
+    timezone: "America/New_York",
+  })
 
   return {
     invalidRejected:
@@ -1035,14 +1180,14 @@ export const backendWorkflowFixture = Effect.fn("backendWorkflowFixture")(
       return Response.json(yield* paginationSetup(workspaceId, user.id, timing))
     }
 
-    const core = yield* CoreDb
+    const workspacesDb = yield* WorkspacesDb
 
-    const isolated = yield* core.createWorkspace(
-      user.id,
-      "Backend workflow",
-      "personal",
-      "UTC",
-    )
+    const isolated = yield* workspacesDb.createWorkspace({
+      userId: user.id,
+      name: "Backend workflow",
+      kind: "personal",
+      timezone: "UTC",
+    })
 
     let checks: Record<string, boolean>
 

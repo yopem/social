@@ -23,7 +23,7 @@ import {
   WorkflowSchema,
 } from "db/schema/channels/social"
 import { SocialDb } from "db/services/channels/social"
-import { CoreDb } from "db/services/client"
+import { WorkspacesDb } from "db/services/workspaces"
 import { Channel } from "rpc/contracts/channels"
 import { ApiError } from "rpc/lib/errors"
 import { JsonValueSchema } from "rpc/lib/json"
@@ -152,7 +152,7 @@ export function makeSdkStores(provenance?: {
 }) {
   return Effect.gen(function* () {
     const db = yield* SocialDb
-    const core = yield* CoreDb
+    const workspacesDb = yield* WorkspacesDb
     const encryption = yield* CredentialCrypto
     const context = yield* Effect.context<never>()
 
@@ -469,7 +469,10 @@ export function makeSdkStores(provenance?: {
                 allowed: false,
                 reason: "Authenticated workspace is required",
               }))
-            yield* core.workspaceAccess(principal, tenant)
+            yield* workspacesDb.workspaceAccess({
+              userId: principal,
+              workspaceId: tenant,
+            })
 
             return yield* Effect.forEach(input.accounts, (account) =>
               db

@@ -3,7 +3,7 @@ import { Context, DateTime, Effect, Result, Layer, Schema } from "effect"
 import { authClient } from "auth/client"
 import { CredentialCrypto } from "auth/services/crypto"
 import { subjects } from "auth/subjects"
-import { CoreDb } from "db/services/client"
+import { AccountsDb } from "db/services/accounts"
 import { SessionDb } from "db/services/session"
 import type { AppConfig } from "env/server"
 import { ApiError } from "rpc/lib/errors"
@@ -77,7 +77,7 @@ const LoginAttempt = Schema.Struct({
 
 function makeSession(config: AppConfig) {
   return Effect.gen(function* () {
-    const db = yield* CoreDb
+    const accountsDb = yield* AccountsDb
     const sessions = yield* SessionDb
     const cipher = yield* CredentialCrypto
     const client = authClient(config)
@@ -191,10 +191,10 @@ function makeSession(config: AppConfig) {
 
             if (!identity) return null
 
-            const user = yield* db.getUser(
-              config.AUTH_ISSUER,
-              identity.subject.properties.id,
-            )
+            const user = yield* accountsDb.getUser({
+              issuer: config.AUTH_ISSUER,
+              subjectId: identity.subject.properties.id,
+            })
 
             if (!user || user.id !== session.userId) return null
 
@@ -280,7 +280,7 @@ function makeSession(config: AppConfig) {
             JSON.stringify({ verifier: result.challenge.verifier, returnTo }),
           )
 
-          yield* db.saveAuthAttempt({
+          yield* accountsDb.saveAuthAttempt({
             state: result.challenge.state,
             nonceHash,
             verifier,
@@ -315,8 +315,8 @@ function makeSession(config: AppConfig) {
               headers: { "set-cookie": cleared, "cache-control": "no-store" },
             })
 
-          const attempt = yield* db
-            .consumeAuthAttempt(state, yield* cipher.hash(nonce))
+          const attempt = yield* accountsDb
+            .consumeAuthAttempt({ state, nonceHash: yield* cipher.hash(nonce) })
             .pipe(Effect.result)
 
           if (Result.isFailure(attempt)) {
@@ -369,10 +369,10 @@ function makeSession(config: AppConfig) {
 
           const identity = yield* verified(issued.access)
 
-          const user = yield* db.provisionUser(
-            config.AUTH_ISSUER,
-            identity.subject.properties,
-          )
+          const user = yield* accountsDb.provisionUser({
+            issuer: config.AUTH_ISSUER,
+            subject: identity.subject.properties,
+          })
 
           const now = DateTime.toEpochMillis(yield* DateTime.now)
           yield* sessions.create({

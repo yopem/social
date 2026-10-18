@@ -10,7 +10,7 @@ import {
   inArray,
 } from "drizzle-orm"
 import { alias } from "drizzle-orm/sqlite-core"
-import { Effect, Schema } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
 
 import { users, UserRow } from "db/schema/accounts"
 import {
@@ -23,23 +23,69 @@ import {
   invites,
   WorkspaceRow,
 } from "db/schema/workspaces"
-import type { CoreContext } from "db/services/core"
-import { failure, now, hash } from "db/services/core"
+import { Database } from "db/services/client"
+import type { DatabaseContext } from "db/services/context"
+import { failure, now, hash } from "db/services/context"
 import { DatabaseRunResult, validateOperation } from "db/services/validation"
 import { User } from "rpc/contracts/accounts"
-import { WorkspaceTimezone } from "rpc/contracts/workspaces"
-import { WorkspaceKind } from "rpc/contracts/workspaces"
-import { Member, Role, Workspace } from "rpc/contracts/workspaces"
+import {
+  Member,
+  Role,
+  Workspace,
+  WorkspaceAcceptInviteInput,
+  WorkspaceCreateInput,
+  WorkspaceInviteInput,
+} from "rpc/contracts/workspaces"
 import { ApiError } from "rpc/lib/errors"
 
-export function createWorkspacesRepository(context: CoreContext) {
+const WorkspaceMembershipInput = Schema.Struct({
+  userId: Schema.String,
+  workspaceId: Schema.String,
+})
+
+const WorkspaceAccessInput = Schema.Struct({
+  ...WorkspaceMembershipInput.fields,
+  manage: Schema.optional(Schema.Boolean),
+})
+
+const WorkspaceCreationInput = Schema.Struct({
+  userId: Schema.String,
+  ...WorkspaceCreateInput.fields,
+})
+
+const WorkspaceInvitationInput = Schema.Struct({
+  userId: Schema.String,
+  ...WorkspaceInviteInput.fields,
+})
+
+const InvitationAcceptanceInput = Schema.Struct({
+  user: User,
+  ...WorkspaceAcceptInviteInput.fields,
+})
+
+const WorkspaceMemberChangeInput = Schema.Struct({
+  ...WorkspaceMembershipInput.fields,
+  memberId: Schema.String,
+})
+
+export class WorkspacesDb extends Context.Service<
+  WorkspacesDb,
+  ReturnType<typeof createWorkspacesRepository>
+>()("social/WorkspacesDb") {
+  static readonly layer = Layer.effect(
+    WorkspacesDb,
+    Effect.map(Database, createWorkspacesRepository),
+  )
+}
+
+export function createWorkspacesRepository(context: DatabaseContext) {
   const { client, query, write, batch, required } = context
 
-  function workspaceAccess(
-    userId: string,
-    workspaceId: string,
+  function workspaceAccess({
+    userId,
+    workspaceId,
     manage = false,
-  ) {
+  }: typeof WorkspaceAccessInput.Type) {
     return query(WorkspaceRow, () =>
       client
         .select({ ...getTableColumns(workspaces), role: memberships.role })
@@ -69,7 +115,7 @@ export function createWorkspacesRepository(context: CoreContext) {
     )
   }
 
-  const operations = {
+  const workspaceOperations = {
     automationPrincipal(this: void, workspaceId: string) {
       return query(UserRow, () =>
         client
@@ -83,18 +129,12 @@ export function createWorkspacesRepository(context: CoreContext) {
     },
     workspaceAccess,
     listWorkspaces,
-    createWorkspace: Effect.fn("core.createWorkspace")(function* (
-      userId: string,
-      name: string,
-      kind: typeof WorkspaceKind.Type,
-      timezone: string,
-    ) {
-      yield* Schema.decodeUnknownEffect(WorkspaceTimezone)(timezone).pipe(
-        Effect.mapError(() =>
-          failure("invalid-input", "Invalid workspace timezone"),
-        ),
-      )
-
+    createWorkspace: Effect.fn("workspaces.createWorkspace")(function* ({
+      userId,
+      name,
+      kind,
+      timezone,
+    }: typeof WorkspaceCreationInput.Type) {
       const value = yield* Schema.decodeUnknownEffect(Workspace)({
         id: crypto.randomUUID(),
         name,
@@ -121,8 +161,11 @@ export function createWorkspacesRepository(context: CoreContext) {
 
       return value
     }),
-    members(this: void, userId: string, workspaceId: string) {
-      return workspaceAccess(userId, workspaceId).pipe(
+    members(
+      this: void,
+      { userId, workspaceId }: typeof WorkspaceMembershipInput.Type,
+    ) {
+      return workspaceAccess({ userId, workspaceId }).pipe(
         Effect.andThen(
           query(
             Schema.Struct({
@@ -161,18 +204,15 @@ export function createWorkspacesRepository(context: CoreContext) {
         ),
       )
     },
-    invite: Effect.fn("core.invite")(function* (
-      userId: string,
-      workspaceId: string,
-      email: string,
-      role: "admin" | "editor",
-    ) {
-      yield* workspaceAccess(userId, workspaceId, true)
+    invite: Effect.fn("workspaces.invite")(function* ({
+      userId,
+      workspaceId,
+      email,
+      role,
+    }: typeof WorkspaceInvitationInput.Type) {
+      yield* workspaceAccess({ userId, workspaceId, manage: true })
 
-      if (
-        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
-        !["admin", "editor"].includes(role)
-      )
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
         return yield* Effect.fail(
           failure("invalid-input", "Invalid invitation"),
         )
@@ -191,17 +231,18 @@ export function createWorkspacesRepository(context: CoreContext) {
 
       return { token }
     }),
-    acceptInvite: Effect.fn("core.acceptInvite")(function* (
-      user: User,
-      token: string,
-    ) {
+    acceptInvite: Effect.fn("workspaces.acceptInvite")(function* ({
+      user,
+      token,
+    }: typeof InvitationAcceptanceInput.Type) {
       const digest = yield* hash(token)
-      const claim = crypto.randomUUID()
+      const acceptanceClaim = crypto.randomUUID()
       const stamp = yield* now()
+      // Consume the token and add the member in one atomic batch.
       yield* batch([
         client
           .update(invites)
-          .set({ consumed_by: user.id, claim_key: claim })
+          .set({ consumed_by: user.id, claim_key: acceptanceClaim })
           .where(
             sql`token_hash=${digest} AND email=lower(${user.email}) AND expires_at>${stamp} AND consumed_by IS NULL`,
           ),
@@ -218,7 +259,7 @@ export function createWorkspacesRepository(context: CoreContext) {
               .where(
                 and(
                   eq(invites.token_hash, digest),
-                  eq(invites.claim_key, claim),
+                  eq(invites.claim_key, acceptanceClaim),
                 ),
               ),
           )
@@ -234,17 +275,23 @@ export function createWorkspacesRepository(context: CoreContext) {
             .select({ workspace_id: invites.workspace_id })
             .from(invites)
             .where(
-              and(eq(invites.token_hash, digest), eq(invites.claim_key, claim)),
+              and(
+                eq(invites.token_hash, digest),
+                eq(invites.claim_key, acceptanceClaim),
+              ),
             ),
       ).pipe(Effect.flatMap(required))
 
-      return yield* workspaceAccess(user.id, invite.workspace_id)
+      return yield* workspaceAccess({
+        userId: user.id,
+        workspaceId: invite.workspace_id,
+      })
     }),
-    transferOwnership: Effect.fn("core.transferOwnership")(function* (
-      userId: string,
-      workspaceId: string,
-      memberId: string,
-    ) {
+    transferOwnership: Effect.fn("workspaces.transferOwnership")(function* ({
+      userId,
+      workspaceId,
+      memberId,
+    }: typeof WorkspaceMemberChangeInput.Type) {
       if (userId === memberId)
         return yield* failure(
           "invalid-input",
@@ -372,12 +419,12 @@ export function createWorkspacesRepository(context: CoreContext) {
           "Ownership transfer requires an active owner and member.",
         )
     }),
-    removeMember: Effect.fn("core.removeMember")(function* (
-      userId: string,
-      workspaceId: string,
-      memberId: string,
-    ) {
-      yield* workspaceAccess(userId, workspaceId, true)
+    removeMember: Effect.fn("workspaces.removeMember")(function* ({
+      userId,
+      workspaceId,
+      memberId,
+    }: typeof WorkspaceMemberChangeInput.Type) {
+      yield* workspaceAccess({ userId, workspaceId, manage: true })
 
       if (userId === memberId)
         return yield* Effect.fail(
@@ -409,54 +456,40 @@ export function createWorkspacesRepository(context: CoreContext) {
 
   return {
     automationPrincipal: validateOperation(
-      operations.automationPrincipal,
+      workspaceOperations.automationPrincipal,
       Schema.Tuple([Schema.String]),
     ),
     workspaceAccess: validateOperation(
-      operations.workspaceAccess,
-      Schema.Tuple([
-        Schema.String,
-        Schema.String,
-        Schema.optionalKey(Schema.UndefinedOr(Schema.Boolean)),
-      ]),
+      workspaceOperations.workspaceAccess,
+      Schema.Tuple([WorkspaceAccessInput]),
     ),
     listWorkspaces: validateOperation(
-      operations.listWorkspaces,
+      workspaceOperations.listWorkspaces,
       Schema.Tuple([Schema.String]),
     ),
     createWorkspace: validateOperation(
-      operations.createWorkspace,
-      Schema.Tuple([
-        Schema.String,
-        Schema.String,
-        WorkspaceKind,
-        Schema.String,
-      ]),
+      workspaceOperations.createWorkspace,
+      Schema.Tuple([WorkspaceCreationInput]),
     ),
     members: validateOperation(
-      operations.members,
-      Schema.Tuple([Schema.String, Schema.String]),
+      workspaceOperations.members,
+      Schema.Tuple([WorkspaceMembershipInput]),
     ),
     invite: validateOperation(
-      operations.invite,
-      Schema.Tuple([
-        Schema.String,
-        Schema.String,
-        Schema.String,
-        Schema.Literals(["admin", "editor"]),
-      ]),
+      workspaceOperations.invite,
+      Schema.Tuple([WorkspaceInvitationInput]),
     ),
     acceptInvite: validateOperation(
-      operations.acceptInvite,
-      Schema.Tuple([User, Schema.String]),
+      workspaceOperations.acceptInvite,
+      Schema.Tuple([InvitationAcceptanceInput]),
     ),
     transferOwnership: validateOperation(
-      operations.transferOwnership,
-      Schema.Tuple([Schema.String, Schema.String, Schema.String]),
+      workspaceOperations.transferOwnership,
+      Schema.Tuple([WorkspaceMemberChangeInput]),
     ),
     removeMember: validateOperation(
-      operations.removeMember,
-      Schema.Tuple([Schema.String, Schema.String, Schema.String]),
+      workspaceOperations.removeMember,
+      Schema.Tuple([WorkspaceMemberChangeInput]),
     ),
   }
 }

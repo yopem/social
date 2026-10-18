@@ -3,9 +3,14 @@ import { OperationGate } from "server/features/accounts/operation-gate"
 import { SocialService } from "server/features/channels/service"
 import { MediaService } from "server/features/media/service"
 
-import { CoreDb } from "db/services/client"
-import type { PostListPageInput } from "rpc/contracts/posts"
-import type { Delivery, Post, PostContent } from "rpc/contracts/posts"
+import { PostsDb } from "db/services/posts"
+import { WorkspacesDb } from "db/services/workspaces"
+import type {
+  Delivery,
+  Post,
+  PostListPageInput,
+  PostSaveInput,
+} from "rpc/contracts/posts"
 import { ApiError } from "rpc/lib/errors"
 
 export function publicationState(
@@ -35,62 +40,75 @@ export function publicationState(
 
 function makePosts() {
   return Effect.gen(function* () {
-    const db = yield* CoreDb
+    const workspacesDb = yield* WorkspacesDb
+    const postsDb = yield* PostsDb
     const gate = yield* OperationGate
     const social = yield* SocialService
     const media = yield* MediaService
 
-    function save(
-      userId: string,
-      workspaceId: string,
-      content: PostContent,
-      scheduledAt: string | null,
-      postId?: string,
-    ) {
-      return Effect.gen(function* () {
-        yield* db.workspaceAccess(userId, workspaceId)
+    function save({
+      userId,
+      workspaceId,
+      content,
+      scheduledAt,
+      postId,
+    }: typeof PostSaveInput.Type & { readonly userId: string }) {
+      return gate
+        .run(
+          userId,
+          workspaceId,
+          Effect.gen(function* () {
+            yield* workspacesDb.workspaceAccess({ userId, workspaceId })
 
-        if (!content.text.trim() && content.mediaIds.length === 0) {
-          return yield* Effect.fail(
-            new ApiError({
-              code: "invalid-input",
-              message: "Add text or media before saving.",
-            }),
-          )
-        }
+            if (!content.text.trim() && content.mediaIds.length === 0) {
+              return yield* Effect.fail(
+                new ApiError({
+                  code: "invalid-input",
+                  message: "Add text or media before saving.",
+                }),
+              )
+            }
 
-        let schedule: string | null = null
+            let schedule: string | null = null
 
-        if (scheduledAt !== null) {
-          const parsed = DateTime.make(scheduledAt)
-          const now = yield* DateTime.now
+            if (scheduledAt !== null) {
+              const parsed = DateTime.make(scheduledAt)
+              const now = yield* DateTime.now
 
-          if (
-            Option.isNone(parsed) ||
-            DateTime.toEpochMillis(parsed.value) <= DateTime.toEpochMillis(now)
-          ) {
-            return yield* Effect.fail(
-              new ApiError({
-                code: "invalid-input",
-                message: "Choose a future publication time.",
-              }),
-            )
-          }
+              if (
+                Option.isNone(parsed) ||
+                DateTime.toEpochMillis(parsed.value) <=
+                  DateTime.toEpochMillis(now)
+              ) {
+                return yield* Effect.fail(
+                  new ApiError({
+                    code: "invalid-input",
+                    message: "Choose a future publication time.",
+                  }),
+                )
+              }
 
-          if (content.channelIds.length === 0) {
-            return yield* Effect.fail(
-              new ApiError({
-                code: "invalid-input",
-                message: "Select a channel before scheduling.",
-              }),
-            )
-          }
+              if (content.channelIds.length === 0) {
+                return yield* Effect.fail(
+                  new ApiError({
+                    code: "invalid-input",
+                    message: "Select a channel before scheduling.",
+                  }),
+                )
+              }
 
-          schedule = DateTime.formatIso(parsed.value)
-        }
+              schedule = DateTime.formatIso(parsed.value)
+            }
 
-        return yield* db.savePost(workspaceId, content, schedule, postId)
-      })
+            return yield* postsDb.savePost({
+              workspaceId,
+              content,
+              scheduledAt: schedule,
+              postId,
+            })
+          }),
+        )
+        .pipe(Effect.withSpan("PostService.save"))
     }
 
     function persist(
@@ -105,14 +123,14 @@ function makePosts() {
           ? "Publication is uncertain. Check the platform before retrying."
           : null
 
-        yield* db.setPostState(
+        yield* postsDb.setPostState({
           workspaceId,
           postId,
-          publicationState(deliveries),
-          review,
-        )
+          state: publicationState(deliveries),
+          reviewReason: review,
+        })
 
-        return yield* db.getPost(workspaceId, postId)
+        return yield* postsDb.getPost({ workspaceId, postId })
       })
     }
 
@@ -123,8 +141,12 @@ function makePosts() {
       operationKey: string,
     ) {
       return Effect.gen(function* () {
-        yield* db.workspaceAccess(userId, workspaceId)
-        const operation = yield* db.publicationOperation(workspaceId, postId)
+        yield* workspacesDb.workspaceAccess({ userId, workspaceId })
+
+        const operation = yield* postsDb.publicationOperation({
+          workspaceId,
+          postId,
+        })
 
         if (
           operation.operation_key !== null &&
@@ -144,8 +166,8 @@ function makePosts() {
               operation.state,
             ))
         )
-          return yield* db.getPost(workspaceId, postId)
-        const post = yield* db.getPost(workspaceId, postId)
+          return yield* postsDb.getPost({ workspaceId, postId })
+        const post = yield* postsDb.getPost({ workspaceId, postId })
 
         if (post.content.channelIds.length === 0) {
           return yield* Effect.fail(
@@ -164,14 +186,14 @@ function makePosts() {
 
         yield* social.prepare(userId, workspaceId, post, files)
 
-        const claimed = yield* db.claimPost(
+        const claimed = yield* postsDb.claimPost({
           workspaceId,
           postId,
           operationKey,
-          post,
-        )
+          expectedPost: post,
+        })
 
-        if (!claimed) return yield* db.getPost(workspaceId, postId)
+        if (!claimed) return yield* postsDb.getPost({ workspaceId, postId })
 
         return yield* social
           .publish(userId, workspaceId, post, files, operationKey)
@@ -180,13 +202,14 @@ function makePosts() {
               persist(workspaceId, postId, deliveries),
             ),
             Effect.catch((error) =>
-              db
-                .setPostState(
+              postsDb
+                .setPostState({
                   workspaceId,
                   postId,
-                  "pending",
-                  "Publication needs reconciliation. Do not publish again without checking the platform.",
-                )
+                  state: "pending",
+                  reviewReason:
+                    "Publication needs reconciliation. Do not publish again without checking the platform.",
+                })
                 .pipe(
                   Effect.catch(() =>
                     Effect.logError(
@@ -206,7 +229,7 @@ function makePosts() {
       operationKey: string,
     ) {
       return Effect.gen(function* () {
-        const owner = yield* db.automationPrincipal(workspaceId)
+        const owner = yield* workspacesDb.automationPrincipal(workspaceId)
 
         return yield* publish(owner.id, workspaceId, postId, operationKey).pipe(
           Effect.catch((error) => {
@@ -215,9 +238,9 @@ function makePosts() {
                 error.code,
               )
             ) {
-              return db
-                .holdPost(workspaceId, postId, error.message)
-                .pipe(Effect.andThen(db.getPost(workspaceId, postId)))
+              return postsDb
+                .holdPost({ workspaceId, postId, reason: error.message })
+                .pipe(Effect.andThen(postsDb.getPost({ workspaceId, postId })))
             }
 
             return Effect.fail(error)
@@ -228,8 +251,8 @@ function makePosts() {
 
     function reconcile(workspaceId: string, postId: string) {
       return Effect.gen(function* () {
-        const owner = yield* db.automationPrincipal(workspaceId)
-        const post = yield* db.getPost(workspaceId, postId)
+        const owner = yield* workspacesDb.automationPrincipal(workspaceId)
+        const post = yield* postsDb.getPost({ workspaceId, postId })
 
         if (post.state !== "pending") return post
         const deliveries = yield* social.reconcile(owner.id, workspaceId, post)
@@ -239,15 +262,15 @@ function makePosts() {
     }
 
     function cancel(userId: string, workspaceId: string, postId: string) {
-      return db
-        .workspaceAccess(userId, workspaceId)
-        .pipe(Effect.andThen(db.cancelPost(workspaceId, postId)))
+      return workspacesDb
+        .workspaceAccess({ userId, workspaceId })
+        .pipe(Effect.andThen(postsDb.cancelPost({ workspaceId, postId })))
     }
 
     function remove(userId: string, workspaceId: string, postId: string) {
-      return db
-        .workspaceAccess(userId, workspaceId)
-        .pipe(Effect.andThen(db.deletePost(workspaceId, postId)))
+      return workspacesDb
+        .workspaceAccess({ userId, workspaceId })
+        .pipe(Effect.andThen(postsDb.deletePost({ workspaceId, postId })))
     }
 
     function list(
@@ -255,13 +278,13 @@ function makePosts() {
       workspaceId: string,
       filter: "all" | "draft" | "queue" | "sent",
     ) {
-      return db
-        .workspaceAccess(userId, workspaceId)
-        .pipe(Effect.andThen(db.listPosts(workspaceId, filter)))
+      return workspacesDb
+        .workspaceAccess({ userId, workspaceId })
+        .pipe(Effect.andThen(postsDb.listPosts({ workspaceId, filter })))
     }
 
     return {
-      save: gate.wrap(save),
+      save,
       publish: gate.wrap(publish),
       publishJob,
       reconcile,
@@ -272,9 +295,12 @@ function makePosts() {
         userId: string,
         input: typeof PostListPageInput.Type,
       ) {
-        yield* db.workspaceAccess(userId, input.workspaceId)
+        yield* workspacesDb.workspaceAccess({
+          userId,
+          workspaceId: input.workspaceId,
+        })
 
-        return yield* db.listPostsPage(input)
+        return yield* postsDb.listPostsPage(input)
       }),
     }
   })

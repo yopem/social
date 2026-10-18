@@ -5,14 +5,18 @@ import { OperationGate } from "server/features/accounts/operation-gate"
 import { FeedService } from "server/features/feeds/service"
 import { PostService } from "server/features/posts/service"
 
-import { CoreDb } from "db/services/client"
+import { FeedsDb } from "db/services/feeds"
+import { PostsDb } from "db/services/posts"
+import { WorkspacesDb } from "db/services/workspaces"
 import type { ResourceBindings } from "env/server"
 import { JobMessage, WorkerResources } from "env/server"
 import { ApiError } from "rpc/lib/errors"
 
 function makeJobs(bindings?: Pick<ResourceBindings, "JOBS">) {
   return Effect.gen(function* () {
-    const db = yield* CoreDb
+    const postsDb = yield* PostsDb
+    const feedsDb = yield* FeedsDb
+    const workspacesDb = yield* WorkspacesDb
     const gate = yield* OperationGate
     const feeds = yield* FeedService
     const posts = yield* PostService
@@ -32,7 +36,7 @@ function makeJobs(bindings?: Pick<ResourceBindings, "JOBS">) {
 
     function enqueueDue() {
       return Effect.gen(function* () {
-        const due = yield* db.claimDuePosts(20)
+        const due = yield* postsDb.claimDuePosts(20)
         yield* Effect.forEach(
           due,
           (post) =>
@@ -44,15 +48,15 @@ function makeJobs(bindings?: Pick<ResourceBindings, "JOBS">) {
                 postId: post.id,
                 operationKey,
               })
-              yield* db.markPostEnqueued(
-                post.workspaceId,
-                post.id,
+              yield* postsDb.markPostEnqueued({
+                workspaceId: post.workspaceId,
+                postId: post.id,
                 operationKey,
-              )
+              })
             }),
           { concurrency: 4, discard: true },
         )
-        const feedList = yield* db.listDueFeeds(10)
+        const feedList = yield* feedsDb.listDueFeeds(10)
         yield* Effect.forEach(
           feedList,
           (feed) =>
@@ -63,7 +67,7 @@ function makeJobs(bindings?: Pick<ResourceBindings, "JOBS">) {
             }),
           { concurrency: 4, discard: true },
         )
-        const pending = yield* db.listPendingPosts(20)
+        const pending = yield* postsDb.listPendingPosts(20)
         yield* Effect.forEach(
           pending,
           (post) =>
@@ -87,27 +91,33 @@ function makeJobs(bindings?: Pick<ResourceBindings, "JOBS">) {
             }),
         ),
         Effect.flatMap((job) =>
-          Effect.flatMap(db.automationPrincipal(job.workspaceId), (owner) =>
-            gate.run(
-              owner.id,
-              job.workspaceId,
-              Effect.suspend(() => {
-                switch (job.type) {
-                  case "publish":
-                    return posts
-                      .publishJob(job.workspaceId, job.postId, job.operationKey)
-                      .pipe(Effect.asVoid)
-                  case "feed":
-                    return feeds
-                      .refreshJob(job.workspaceId, job.feedId, job.cursor)
-                      .pipe(Effect.asVoid)
-                  case "reconcile":
-                    return posts
-                      .reconcile(job.workspaceId, job.postId)
-                      .pipe(Effect.asVoid)
-                }
-              }),
-            ),
+          Effect.flatMap(
+            workspacesDb.automationPrincipal(job.workspaceId),
+            (owner) =>
+              gate.run(
+                owner.id,
+                job.workspaceId,
+                Effect.suspend(() => {
+                  switch (job.type) {
+                    case "publish":
+                      return posts
+                        .publishJob(
+                          job.workspaceId,
+                          job.postId,
+                          job.operationKey,
+                        )
+                        .pipe(Effect.asVoid)
+                    case "feed":
+                      return feeds
+                        .refreshJob(job.workspaceId, job.feedId, job.cursor)
+                        .pipe(Effect.asVoid)
+                    case "reconcile":
+                      return posts
+                        .reconcile(job.workspaceId, job.postId)
+                        .pipe(Effect.asVoid)
+                  }
+                }),
+              ),
           ),
         ),
         Effect.catchIf(

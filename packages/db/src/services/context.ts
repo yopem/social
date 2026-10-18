@@ -32,7 +32,7 @@ export function hash(value: string) {
   )
 }
 
-export function makeCoreContext(db: D1Database) {
+export function makeDatabaseContext(db: D1Database) {
   const client = drizzle(db)
 
   function query<A, I, Row>(
@@ -89,4 +89,4 @@ export function makeCoreContext(db: D1Database) {
   return { client, query, write, batch, required }
 }
 
-export type CoreContext = ReturnType<typeof makeCoreContext>
+export type DatabaseContext = ReturnType<typeof makeDatabaseContext>

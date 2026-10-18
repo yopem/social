@@ -58,8 +58,10 @@ import { readBounded } from "server/platform/egress"
 
 import { CredentialCrypto } from "auth/services/crypto"
 import { CredentialSchema } from "db/schema/channels/social"
+import { ChannelsDb } from "db/services/channels"
 import { SocialDb } from "db/services/channels/social"
-import { CoreDb } from "db/services/client"
+import { PostsDb } from "db/services/posts"
+import { WorkspacesDb } from "db/services/workspaces"
 import type { AppConfig } from "env/server"
 import { Analytics } from "rpc/contracts/analytics"
 import type { PlatformAvailability } from "rpc/contracts/channels"
@@ -267,7 +269,9 @@ export function blueskyMetadata(config: AppConfig) {
 
 function makeSocial(config: AppConfig) {
   return Effect.gen(function* () {
-    const core = yield* CoreDb
+    const channelsDb = yield* ChannelsDb
+    const workspacesDb = yield* WorkspacesDb
+    const postsDb = yield* PostsDb
     const gate = yield* OperationGate
     const db = yield* SocialDb
     const encryption = yield* CredentialCrypto
@@ -481,7 +485,7 @@ function makeSocial(config: AppConfig) {
         let refreshStarted = false
 
         function reconnectRequired() {
-          return core.upsertChannel({
+          return channelsDb.upsertChannel({
             ...channel,
             status: "reconnect-required",
           })
@@ -705,7 +709,7 @@ function makeSocial(config: AppConfig) {
       operation: OperationName = "posts.publish",
     ) {
       return Effect.gen(function* () {
-        yield* core.workspaceAccess(userId, workspaceId)
+        yield* workspacesDb.workspaceAccess({ userId, workspaceId })
 
         const stores = yield* makeSdkStores({
           tenantId: workspaceId,
@@ -819,7 +823,7 @@ function makeSocial(config: AppConfig) {
             ),
           }
 
-          return core.saveDelivery(delivery).pipe(Effect.as(delivery))
+          return postsDb.saveDelivery(delivery).pipe(Effect.as(delivery))
         },
         { concurrency: 1 },
       )
@@ -831,9 +835,9 @@ function makeSocial(config: AppConfig) {
       channelId: string,
     ) {
       return Effect.gen(function* () {
-        yield* core.workspaceAccess(userId, workspaceId)
+        yield* workspacesDb.workspaceAccess({ userId, workspaceId })
         yield* requirePlatform("tiktok")
-        const channel = yield* core.channel(workspaceId, channelId)
+        const channel = yield* channelsDb.channel({ workspaceId, channelId })
 
         if (channel.platform !== "tiktok" || channel.status !== "connected")
           return yield* Effect.fail(
@@ -909,7 +913,7 @@ function makeSocial(config: AppConfig) {
       media: readonly Media[],
     ) {
       return Effect.gen(function* () {
-        yield* core.workspaceAccess(userId, workspaceId)
+        yield* workspacesDb.workspaceAccess({ userId, workspaceId })
 
         if (
           post.workspaceId !== workspaceId ||
@@ -978,7 +982,7 @@ function makeSocial(config: AppConfig) {
 
         const channels = yield* Effect.forEach(
           post.content.channelIds,
-          (id) => core.channel(workspaceId, id),
+          (id) => channelsDb.channel({ workspaceId, channelId: id }),
           { concurrency: 1 },
         )
 
@@ -1238,7 +1242,11 @@ function makeSocial(config: AppConfig) {
         loginHint?: string,
       ) {
         return Effect.gen(function* () {
-          yield* core.workspaceAccess(userId, workspaceId, true)
+          yield* workspacesDb.workspaceAccess({
+            userId,
+            workspaceId,
+            manage: true,
+          })
           yield* requirePlatform(platform)
 
           const stores = yield* makeSdkStores({
@@ -1278,7 +1286,11 @@ function makeSocial(config: AppConfig) {
         callbackUrl: string,
       ) {
         return Effect.gen(function* () {
-          yield* core.workspaceAccess(userId, workspaceId, true)
+          yield* workspacesDb.workspaceAccess({
+            userId,
+            workspaceId,
+            manage: true,
+          })
           const row = yield* db.attempt(attemptId)
 
           if (
@@ -1336,7 +1348,11 @@ function makeSocial(config: AppConfig) {
         attemptId: string,
       ) {
         return Effect.gen(function* () {
-          yield* core.workspaceAccess(userId, workspaceId, true)
+          yield* workspacesDb.workspaceAccess({
+            userId,
+            workspaceId,
+            manage: true,
+          })
           const row = yield* db.attempt(attemptId)
 
           if (
@@ -1380,7 +1396,11 @@ function makeSocial(config: AppConfig) {
         accountIds: readonly string[],
       ) {
         return Effect.gen(function* () {
-          yield* core.workspaceAccess(userId, workspaceId, true)
+          yield* workspacesDb.workspaceAccess({
+            userId,
+            workspaceId,
+            manage: true,
+          })
 
           const stores = yield* makeSdkStores({
             tenantId: workspaceId,
@@ -1431,8 +1451,12 @@ function makeSocial(config: AppConfig) {
         channelId: string,
       ) {
         return Effect.gen(function* () {
-          yield* core.workspaceAccess(userId, workspaceId, true)
-          const channel = yield* core.channel(workspaceId, channelId)
+          yield* workspacesDb.workspaceAccess({
+            userId,
+            workspaceId,
+            manage: true,
+          })
+          const channel = yield* channelsDb.channel({ workspaceId, channelId })
           yield* db.revoke(
             workspaceId,
             channel.backend,
@@ -1447,7 +1471,7 @@ function makeSocial(config: AppConfig) {
               channel.accountId,
             ),
           )
-          yield* core.disconnectChannel(workspaceId, channelId)
+          yield* channelsDb.disconnectChannel({ workspaceId, channelId })
         })
       },
       prepare(
@@ -1504,9 +1528,13 @@ function makeSocial(config: AppConfig) {
       },
       analytics(this: void, userId: string, workspaceId: string) {
         return Effect.gen(function* () {
-          yield* core.workspaceAccess(userId, workspaceId)
-          const channels = yield* core.listChannels(workspaceId)
-          const posts = yield* core.listPosts(workspaceId, "sent")
+          yield* workspacesDb.workspaceAccess({ userId, workspaceId })
+          const channels = yield* channelsDb.listChannels(workspaceId)
+
+          const posts = yield* postsDb.listPosts({
+            workspaceId,
+            filter: "sent",
+          })
 
           const results = yield* Effect.forEach(
             channels,
@@ -1629,7 +1657,7 @@ function makeSocial(config: AppConfig) {
       },
       reconcile(this: void, userId: string, workspaceId: string, post: Post) {
         return Effect.gen(function* () {
-          yield* core.workspaceAccess(userId, workspaceId)
+          yield* workspacesDb.workspaceAccess({ userId, workspaceId })
 
           if (post.workspaceId !== workspaceId)
             return yield* Effect.fail(
@@ -1641,7 +1669,7 @@ function makeSocial(config: AppConfig) {
 
           const channels = yield* Effect.forEach(
             post.content.channelIds,
-            (id) => core.channel(workspaceId, id),
+            (id) => channelsDb.channel({ workspaceId, channelId: id }),
             { concurrency: 1 },
           )
 

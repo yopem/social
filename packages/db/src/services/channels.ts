@@ -1,16 +1,27 @@
 import { sql, eq, and } from "drizzle-orm"
-import { Effect, Schema } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
 
 import { channels, ChannelRow } from "db/schema/channels"
-import type { CoreContext } from "db/services/core"
-import { failure } from "db/services/core"
+import { Database } from "db/services/client"
+import type { DatabaseContext } from "db/services/context"
+import { failure } from "db/services/context"
 import { validateOperation } from "db/services/validation"
-import { Channel } from "rpc/contracts/channels"
+import { Channel, ChannelInput } from "rpc/contracts/channels"
 
-export function createChannelsRepository(context: CoreContext) {
+export class ChannelsDb extends Context.Service<
+  ChannelsDb,
+  ReturnType<typeof createChannelsRepository>
+>()("social/ChannelsDb") {
+  static readonly layer = Layer.effect(
+    ChannelsDb,
+    Effect.map(Database, createChannelsRepository),
+  )
+}
+
+export function createChannelsRepository(context: DatabaseContext) {
   const { client, query, write, required } = context
 
-  function channel(workspaceId: string, id: string) {
+  function channel({ workspaceId, channelId: id }: typeof ChannelInput.Type) {
     return query(ChannelRow, () =>
       client
         .select({ data: channels.data })
@@ -24,7 +35,7 @@ export function createChannelsRepository(context: CoreContext) {
     )
   }
 
-  const operations = {
+  const channelOperations = {
     channel,
     listChannels(this: void, workspaceId: string) {
       return query(ChannelRow, () =>
@@ -57,8 +68,11 @@ export function createChannelsRepository(context: CoreContext) {
         ),
       )
     },
-    disconnectChannel(this: void, workspaceId: string, id: string) {
-      return channel(workspaceId, id).pipe(
+    disconnectChannel(
+      this: void,
+      { workspaceId, channelId: id }: typeof ChannelInput.Type,
+    ) {
+      return channel({ workspaceId, channelId: id }).pipe(
         Effect.flatMap((value) =>
           write(() =>
             client
@@ -80,20 +94,20 @@ export function createChannelsRepository(context: CoreContext) {
 
   return {
     channel: validateOperation(
-      operations.channel,
-      Schema.Tuple([Schema.String, Schema.String]),
+      channelOperations.channel,
+      Schema.Tuple([ChannelInput]),
     ),
     listChannels: validateOperation(
-      operations.listChannels,
+      channelOperations.listChannels,
       Schema.Tuple([Schema.String]),
     ),
     upsertChannel: validateOperation(
-      operations.upsertChannel,
+      channelOperations.upsertChannel,
       Schema.Tuple([Channel]),
     ),
     disconnectChannel: validateOperation(
-      operations.disconnectChannel,
-      Schema.Tuple([Schema.String, Schema.String]),
+      channelOperations.disconnectChannel,
+      Schema.Tuple([ChannelInput]),
     ),
   }
 }

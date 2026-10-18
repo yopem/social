@@ -1,5 +1,5 @@
 import { sql, eq, and, gt, isNull } from "drizzle-orm"
-import { Effect, Schema } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
 
 import {
   users,
@@ -9,15 +9,45 @@ import {
   UserRow,
 } from "db/schema/accounts"
 import { workspaces, memberships } from "db/schema/workspaces"
-import type { CoreContext } from "db/services/core"
-import { failure, now } from "db/services/core"
+import { Database } from "db/services/client"
+import type { DatabaseContext } from "db/services/context"
+import { failure, now } from "db/services/context"
 import { validateOperation } from "db/services/validation"
 import { User } from "rpc/contracts/accounts"
 
-export function createIdentityRepository(context: CoreContext) {
+const AccountIdentityInput = Schema.Struct({
+  issuer: Schema.String,
+  subjectId: Schema.String,
+})
+
+const AccountProvisionInput = Schema.Struct({
+  issuer: Schema.String,
+  subject: Schema.Struct({
+    id: Schema.String,
+    email: Schema.String,
+    name: Schema.NullOr(Schema.String),
+  }),
+})
+
+const AuthAttemptConsumeInput = Schema.Struct({
+  state: Schema.String,
+  nonceHash: Schema.String,
+})
+
+export class AccountsDb extends Context.Service<
+  AccountsDb,
+  ReturnType<typeof createIdentityRepository>
+>()("social/AccountsDb") {
+  static readonly layer = Layer.effect(
+    AccountsDb,
+    Effect.map(Database, createIdentityRepository),
+  )
+}
+
+export function createIdentityRepository(context: DatabaseContext) {
   const { client, query, batch } = context
 
-  function getUser(issuer: string, subjectId: string) {
+  function getUser({ issuer, subjectId }: typeof AccountIdentityInput.Type) {
     return query(UserRow, () =>
       client
         .select({ id: users.id, name: users.name, email: users.email })
@@ -26,16 +56,12 @@ export function createIdentityRepository(context: CoreContext) {
     ).pipe(Effect.map((rows) => rows[0] ?? null))
   }
 
-  const operations = {
+  const accountOperations = {
     getUser,
-    provisionUser: Effect.fn("core.provisionUser")(function* (
-      issuer: string,
-      subject: {
-        readonly id: string
-        readonly email: string
-        readonly name: string | null
-      },
-    ) {
+    provisionUser: Effect.fn("accounts.provisionUser")(function* ({
+      issuer,
+      subject,
+    }: typeof AccountProvisionInput.Type) {
       const subjectName = subject.name?.trim() ?? ""
 
       const user = yield* Schema.decodeUnknownEffect(User)({
@@ -92,7 +118,7 @@ export function createIdentityRepository(context: CoreContext) {
           )
           .onConflictDoNothing(),
       ])
-      const saved = yield* getUser(issuer, subject.id)
+      const saved = yield* getUser({ issuer, subjectId: subject.id })
 
       if (saved === null)
         return yield* Effect.fail(
@@ -101,7 +127,7 @@ export function createIdentityRepository(context: CoreContext) {
 
       return saved
     }),
-    saveAuthAttempt: Effect.fn("core.saveAuthAttempt")(function* (
+    saveAuthAttempt: Effect.fn("accounts.saveAuthAttempt")(function* (
       value: typeof AuthAttempt.Type,
     ) {
       const stamp = yield* now()
@@ -125,10 +151,10 @@ export function createIdentityRepository(context: CoreContext) {
         ),
       )
     }),
-    consumeAuthAttempt: Effect.fn("core.consumeAuthAttempt")(function* (
-      state: string,
-      nonceHash: string,
-    ) {
+    consumeAuthAttempt: Effect.fn("accounts.consumeAuthAttempt")(function* ({
+      state,
+      nonceHash,
+    }: typeof AuthAttemptConsumeInput.Type) {
       const stamp = yield* now()
 
       return yield* query(ConsumedAuthAttempt, () =>
@@ -158,27 +184,20 @@ export function createIdentityRepository(context: CoreContext) {
 
   return {
     getUser: validateOperation(
-      operations.getUser,
-      Schema.Tuple([Schema.String, Schema.String]),
+      accountOperations.getUser,
+      Schema.Tuple([AccountIdentityInput]),
     ),
     provisionUser: validateOperation(
-      operations.provisionUser,
-      Schema.Tuple([
-        Schema.String,
-        Schema.Struct({
-          id: Schema.String,
-          email: Schema.String,
-          name: Schema.NullOr(Schema.String),
-        }),
-      ]),
+      accountOperations.provisionUser,
+      Schema.Tuple([AccountProvisionInput]),
     ),
     saveAuthAttempt: validateOperation(
-      operations.saveAuthAttempt,
+      accountOperations.saveAuthAttempt,
       Schema.Tuple([AuthAttempt]),
     ),
     consumeAuthAttempt: validateOperation(
-      operations.consumeAuthAttempt,
-      Schema.Tuple([Schema.String, Schema.String]),
+      accountOperations.consumeAuthAttempt,
+      Schema.Tuple([AuthAttemptConsumeInput]),
     ),
   }
 }

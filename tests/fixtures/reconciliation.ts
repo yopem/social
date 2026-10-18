@@ -3,9 +3,11 @@ import { DateTime, Effect, Schema } from "effect"
 import { OutcomeSchema } from "server/features/channels/sdk-stores"
 import { processQueue, JobService } from "server/features/publishing/jobs"
 
+import { ChannelsDb } from "db/services/channels"
 import { SocialDb } from "db/services/channels/social"
-import { CoreDb } from "db/services/client"
 import { fixtureDatabaseStats } from "db/services/migrations"
+import { PostsDb } from "db/services/posts"
+import { WorkspacesDb } from "db/services/workspaces"
 import { WorkerResources } from "env/server"
 
 import { fixtureError, fixtureJson } from "./auth"
@@ -25,8 +27,10 @@ export function reconciliationFixture(
       }),
     )
 
-    const core = yield* CoreDb
-    yield* core.workspaceAccess(userId, workspaceId)
+    const workspacesDb = yield* WorkspacesDb
+    const channelsDb = yield* ChannelsDb
+    const postsDb = yield* PostsDb
+    yield* workspacesDb.workspaceAccess({ userId, workspaceId })
     const social = yield* SocialDb
     let postId = input.postId
 
@@ -54,23 +58,23 @@ export function reconciliationFixture(
         accounts.map((account) => account.ref.accountId),
       )
 
-      const channel = (yield* core.listChannels(workspaceId)).find(
+      const channel = (yield* channelsDb.listChannels(workspaceId)).find(
         (channel) => channel.backend === started.attempt.backend,
       )
 
       if (!channel)
         return yield* fixtureError("Reconciliation fixture channel missing")
 
-      const post = yield* core.savePost(
+      const post = yield* postsDb.savePost({
         workspaceId,
-        {
+        content: {
           text: "Reconciliation outage fixture",
           channelIds: [channel.id],
           mediaIds: [],
           overrides: [],
         },
-        null,
-      )
+        scheduledAt: null,
+      })
 
       postId = post.id
       const jobs = yield* JobService
@@ -90,12 +94,17 @@ export function reconciliationFixture(
 
     if (!postId)
       return yield* fixtureError("Reconciliation fixture post missing")
-    const post = yield* core.getPost(workspaceId, postId)
+    const post = yield* postsDb.getPost({ workspaceId, postId })
     const delivery = post.deliveries[0]
 
     if (!delivery)
       return yield* fixtureError("Reconciliation fixture delivery missing")
-    const channel = yield* core.channel(workspaceId, delivery.channelId)
+
+    const channel = yield* channelsDb.channel({
+      workspaceId,
+      channelId: delivery.channelId,
+    })
+
     const workflowId = `${workspaceId}:${postId}:${channel.id}`
 
     if ((yield* social.workflow(`${workflowId}:lookup`)) !== "outage")
@@ -148,7 +157,7 @@ export function reconciliationFixture(
       ])
     const resources = yield* WorkerResources
     const stats = yield* fixtureDatabaseStats(resources.DB, workspaceId)
-    const saved = yield* core.getPost(workspaceId, postId)
+    const saved = yield* postsDb.getPost({ workspaceId, postId })
 
     return Response.json({
       postId,

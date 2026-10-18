@@ -18,13 +18,7 @@ export function postRpcHandlers() {
           Effect.flatMap(CurrentUser, (user) => posts.listPage(user.id, input)),
         PostSave: (input) =>
           Effect.flatMap(CurrentUser, (user) =>
-            posts.save(
-              user.id,
-              input.workspaceId,
-              input.content,
-              input.scheduledAt,
-              input.postId,
-            ),
+            posts.save({ ...input, userId: user.id }),
           ),
         PostPublish: (input) =>
           Effect.flatMap(CurrentUser, (user) =>

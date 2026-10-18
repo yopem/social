@@ -20,8 +20,10 @@ import {
 
 import { CredentialCrypto } from "auth/services/crypto"
 import { CredentialSchema } from "db/schema/channels/social"
+import { ChannelsDb } from "db/services/channels"
 import { SocialDb } from "db/services/channels/social"
-import { CoreDb } from "db/services/client"
+import { PostsDb } from "db/services/posts"
+import { WorkspacesDb } from "db/services/workspaces"
 import type { AppConfig } from "env/server"
 import { Analytics } from "rpc/contracts/analytics"
 import type { Channel } from "rpc/contracts/channels"
@@ -59,15 +61,17 @@ export function fixtureSocialLayer(_config: AppConfig) {
   return Layer.effect(
     SocialService,
     Effect.gen(function* () {
-      const core = yield* CoreDb
+      const workspacesDb = yield* WorkspacesDb
+      const channelsDb = yield* ChannelsDb
+      const postsDb = yield* PostsDb
       const db = yield* SocialDb
       const connections = yield* fixtureConnections()
       const cipher = yield* CredentialCrypto
 
       function creator(userId: string, workspaceId: string, channelId: string) {
         return Effect.gen(function* () {
-          yield* core.workspaceAccess(userId, workspaceId)
-          const channel = yield* core.channel(workspaceId, channelId)
+          yield* workspacesDb.workspaceAccess({ userId, workspaceId })
+          const channel = yield* channelsDb.channel({ workspaceId, channelId })
 
           if (channel.platform !== "tiktok")
             return yield* Effect.fail(fixtureError("TikTok channel required"))
@@ -166,7 +170,7 @@ export function fixtureSocialLayer(_config: AppConfig) {
         operation: string,
       ) {
         return Effect.gen(function* () {
-          yield* core.workspaceAccess(userId, workspaceId)
+          yield* workspacesDb.workspaceAccess({ userId, workspaceId })
 
           if (
             channel.workspaceId !== workspaceId ||
@@ -371,7 +375,7 @@ export function fixtureSocialLayer(_config: AppConfig) {
                   outcome.state === "unknown" ? "reconcile-first" : null,
               }
 
-              yield* core.saveDelivery(delivery)
+              yield* postsDb.saveDelivery(delivery)
 
               return delivery
             }),
@@ -386,7 +390,7 @@ export function fixtureSocialLayer(_config: AppConfig) {
         media: readonly Media[],
       ) {
         return Effect.gen(function* () {
-          yield* core.workspaceAccess(userId, workspaceId)
+          yield* workspacesDb.workspaceAccess({ userId, workspaceId })
 
           if (
             post.workspaceId !== workspaceId ||
@@ -396,7 +400,7 @@ export function fixtureSocialLayer(_config: AppConfig) {
 
           const channels = yield* Effect.forEach(
             post.content.channelIds,
-            (id) => core.channel(workspaceId, id),
+            (id) => channelsDb.channel({ workspaceId, channelId: id }),
             { concurrency: 1 },
           )
 
@@ -576,7 +580,11 @@ export function fixtureSocialLayer(_config: AppConfig) {
         },
         discovered(userId: string, workspaceId: string, id: string) {
           return Effect.gen(function* () {
-            yield* core.workspaceAccess(userId, workspaceId, true)
+            yield* workspacesDb.workspaceAccess({
+              userId,
+              workspaceId,
+              manage: true,
+            })
             const row = yield* db.attempt(id)
 
             if (
@@ -615,12 +623,21 @@ export function fixtureSocialLayer(_config: AppConfig) {
         ) {
           return connections
             .select(userId, workspaceId, id, ids)
-            .pipe(Effect.andThen(core.listChannels(workspaceId)))
+            .pipe(Effect.andThen(channelsDb.listChannels(workspaceId)))
         },
         disconnect(userId: string, workspaceId: string, id: string) {
           return Effect.gen(function* () {
-            yield* core.workspaceAccess(userId, workspaceId, true)
-            const channel = yield* core.channel(workspaceId, id)
+            yield* workspacesDb.workspaceAccess({
+              userId,
+              workspaceId,
+              manage: true,
+            })
+
+            const channel = yield* channelsDb.channel({
+              workspaceId,
+              channelId: id,
+            })
+
             yield* db.revoke(
               workspaceId,
               channel.backend,
@@ -635,7 +652,7 @@ export function fixtureSocialLayer(_config: AppConfig) {
                 channel.accountId,
               ),
             )
-            yield* core.disconnectChannel(workspaceId, id)
+            yield* channelsDb.disconnectChannel({ workspaceId, channelId: id })
           })
         },
         prepare(
@@ -671,9 +688,13 @@ export function fixtureSocialLayer(_config: AppConfig) {
         },
         analytics(userId: string, workspaceId: string) {
           return Effect.gen(function* () {
-            yield* core.workspaceAccess(userId, workspaceId)
-            const channels = yield* core.listChannels(workspaceId)
-            const posts = yield* core.listPosts(workspaceId, "sent")
+            yield* workspacesDb.workspaceAccess({ userId, workspaceId })
+            const channels = yield* channelsDb.listChannels(workspaceId)
+
+            const posts = yield* postsDb.listPosts({
+              workspaceId,
+              filter: "sent",
+            })
 
             return yield* Schema.decodeUnknownEffect(Analytics)({
               channels: channels.map((channel) => ({
@@ -701,14 +722,14 @@ export function fixtureSocialLayer(_config: AppConfig) {
         },
         reconcile(userId: string, workspaceId: string, post: Post) {
           return Effect.gen(function* () {
-            yield* core.workspaceAccess(userId, workspaceId)
+            yield* workspacesDb.workspaceAccess({ userId, workspaceId })
 
             if (post.workspaceId !== workspaceId)
               return yield* Effect.fail(fixtureError("Wrong workspace"))
 
             const channels = yield* Effect.forEach(
               post.content.channelIds,
-              (id) => core.channel(workspaceId, id),
+              (id) => channelsDb.channel({ workspaceId, channelId: id }),
               { concurrency: 1 },
             )
 

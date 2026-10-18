@@ -7,8 +7,9 @@ import {
   checkAuthentication,
   readAuthTokens,
 } from "auth/services/session"
-import { CoreDb } from "db/services/client"
+import { AccountsDb } from "db/services/accounts"
 import { SessionDb } from "db/services/session"
+import { WorkspacesDb } from "db/services/workspaces"
 import type { AppConfig } from "env/server"
 import { Session } from "rpc/contracts/session"
 import { ApiError } from "rpc/lib/errors"
@@ -89,7 +90,8 @@ export function fixtureSignIn(request: Request, config: AppConfig) {
     )
 
     const cipher = yield* CredentialCrypto
-    const db = yield* CoreDb
+    const accountsDb = yield* AccountsDb
+    const workspacesDb = yield* WorkspacesDb
     const old = fixtureCookie(request, "fixture_namespace")
 
     const namespace = old
@@ -103,46 +105,49 @@ export function fixtureSignIn(request: Request, config: AppConfig) {
 
     const profile = subject(namespace, identity)
 
-    const user = yield* db.provisionUser(config.AUTH_ISSUER, {
-      ...profile,
-      name: name ?? profile.name,
+    const user = yield* accountsDb.provisionUser({
+      issuer: config.AUTH_ISSUER,
+      subject: {
+        ...profile,
+        name: name ?? profile.name,
+      },
     })
 
     if (identity === "editor") {
-      const owner = yield* db.provisionUser(
-        config.AUTH_ISSUER,
-        subject(namespace, "owner"),
-      )
+      const owner = yield* accountsDb.provisionUser({
+        issuer: config.AUTH_ISSUER,
+        subject: subject(namespace, "owner"),
+      })
 
-      const workspaces = yield* db.listWorkspaces(owner.id)
+      const workspaces = yield* workspacesDb.listWorkspaces(owner.id)
 
       let shared = workspaces.find(
         (workspace) => workspace.name === "Shared Editor Workspace",
       )
 
-      shared ??= yield* db.createWorkspace(
-        owner.id,
-        "Shared Editor Workspace",
-        "organization",
-        "UTC",
-      )
-      const current = yield* db.listWorkspaces(user.id)
+      shared ??= yield* workspacesDb.createWorkspace({
+        userId: owner.id,
+        name: "Shared Editor Workspace",
+        kind: "organization",
+        timezone: "UTC",
+      })
+      const current = yield* workspacesDb.listWorkspaces(user.id)
 
       if (!current.some((workspace) => workspace.id === shared.id)) {
-        const invite = yield* db.invite(
-          owner.id,
-          shared.id,
-          user.email,
-          "editor",
-        )
+        const invite = yield* workspacesDb.invite({
+          userId: owner.id,
+          workspaceId: shared.id,
+          email: user.email,
+          role: "editor",
+        })
 
-        yield* db.acceptInvite(user, invite.token)
+        yield* workspacesDb.acceptInvite({ user, token: invite.token })
       }
     }
 
     const session = yield* Schema.decodeUnknownEffect(Session)({
       user,
-      workspaces: yield* db.listWorkspaces(user.id),
+      workspaces: yield* workspacesDb.listWorkspaces(user.id),
     }).pipe(Effect.mapError(() => fixtureError("Invalid fixture session")))
 
     const now = DateTime.toEpochMillis(yield* DateTime.now)
@@ -213,7 +218,7 @@ export function fixtureAuthLayer(config: AppConfig) {
       )
 
       const cipher = yield* CredentialCrypto
-      const db = yield* CoreDb
+      const accountsDb = yield* AccountsDb
       const sessions = yield* SessionDb
 
       return {
@@ -283,10 +288,10 @@ export function fixtureAuthLayer(config: AppConfig) {
                 ),
               )
 
-              const user = yield* db.getUser(
-                config.AUTH_ISSUER,
-                subject(ticket.namespace, ticket.identity).id,
-              )
+              const user = yield* accountsDb.getUser({
+                issuer: config.AUTH_ISSUER,
+                subjectId: subject(ticket.namespace, ticket.identity).id,
+              })
 
               if (!user || user.id !== session.userId) return null
 

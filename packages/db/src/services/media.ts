@@ -1,19 +1,40 @@
 import { sql, eq, and, inArray } from "drizzle-orm"
-import { Effect, Schema } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
 
 import { media, MediaRow } from "db/schema/media"
 import { memberships } from "db/schema/workspaces"
-import type { CoreContext } from "db/services/core"
-import { failure } from "db/services/core"
+import { Database } from "db/services/client"
+import type { DatabaseContext } from "db/services/context"
+import { failure } from "db/services/context"
 import { validateOperation } from "db/services/validation"
 import { MediaListInput } from "rpc/contracts/media"
 import { Media } from "rpc/contracts/media"
 
-export function createMediaRepository(context: CoreContext) {
+const MediaReferenceInput = Schema.Struct({
+  workspaceId: Schema.String,
+  mediaId: Schema.String,
+})
+
+const UserMediaInput = Schema.Struct({
+  userId: Schema.String,
+  mediaId: Schema.String,
+})
+
+export class MediaDb extends Context.Service<
+  MediaDb,
+  ReturnType<typeof createMediaRepository>
+>()("social/MediaDb") {
+  static readonly layer = Layer.effect(
+    MediaDb,
+    Effect.map(Database, createMediaRepository),
+  )
+}
+
+export function createMediaRepository(context: DatabaseContext) {
   const { client, query, write, required } = context
 
-  const operations = {
-    listMedia: Effect.fn("core.listMedia")(function* (
+  const mediaOperations = {
+    listMedia: Effect.fn("media.listMedia")(function* (
       input: typeof MediaListInput.Type,
     ) {
       const value = yield* Schema.decodeUnknownEffect(MediaListInput)(
@@ -69,7 +90,10 @@ export function createMediaRepository(context: CoreContext) {
         ),
       )
     },
-    media(this: void, workspaceId: string, id: string) {
+    media(
+      this: void,
+      { workspaceId, mediaId: id }: typeof MediaReferenceInput.Type,
+    ) {
       return query(MediaRow, () =>
         client
           .select({ data: media.data, object_key: media.object_key })
@@ -80,7 +104,7 @@ export function createMediaRepository(context: CoreContext) {
         Effect.map((row) => ({ ...row.data, objectKey: row.object_key })),
       )
     },
-    mediaById(this: void, userId: string, id: string) {
+    mediaById(this: void, { userId, mediaId: id }: typeof UserMediaInput.Type) {
       return query(MediaRow, () =>
         client
           .select({ data: media.data, object_key: media.object_key })
@@ -95,7 +119,10 @@ export function createMediaRepository(context: CoreContext) {
         Effect.map((row) => ({ ...row.data, objectKey: row.object_key })),
       )
     },
-    deleteUnusedMedia(this: void, workspaceId: string, id: string) {
+    deleteUnusedMedia(
+      this: void,
+      { workspaceId, mediaId: id }: typeof MediaReferenceInput.Type,
+    ) {
       return query(Schema.Struct({ object_key: Schema.String }), () =>
         client
           .delete(media)
@@ -113,26 +140,26 @@ export function createMediaRepository(context: CoreContext) {
 
   return {
     listMedia: validateOperation(
-      operations.listMedia,
+      mediaOperations.listMedia,
       Schema.Tuple([MediaListInput]),
     ),
     saveMedia: validateOperation(
-      operations.saveMedia,
+      mediaOperations.saveMedia,
       Schema.Tuple([
         Schema.Struct({ ...Media.fields, objectKey: Schema.String }),
       ]),
     ),
     media: validateOperation(
-      operations.media,
-      Schema.Tuple([Schema.String, Schema.String]),
+      mediaOperations.media,
+      Schema.Tuple([MediaReferenceInput]),
     ),
     mediaById: validateOperation(
-      operations.mediaById,
-      Schema.Tuple([Schema.String, Schema.String]),
+      mediaOperations.mediaById,
+      Schema.Tuple([UserMediaInput]),
     ),
     deleteUnusedMedia: validateOperation(
-      operations.deleteUnusedMedia,
-      Schema.Tuple([Schema.String, Schema.String]),
+      mediaOperations.deleteUnusedMedia,
+      Schema.Tuple([MediaReferenceInput]),
     ),
   }
 }

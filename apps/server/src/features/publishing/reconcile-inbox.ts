@@ -2,15 +2,17 @@ import { Effect } from "effect"
 import { drainSocialInbox } from "server/features/channels/inbox"
 import { PostService } from "server/features/posts/service"
 
-import { CoreDb } from "db/services/client"
+import { ChannelsDb } from "db/services/channels"
+import { PostsDb } from "db/services/posts"
 
 export function reconcileInbox() {
   return drainSocialInbox((event, workspaceId) =>
     Effect.gen(function* () {
-      const db = yield* CoreDb
+      const postsDb = yield* PostsDb
+      const channelsDb = yield* ChannelsDb
       const posts = yield* PostService
-      const pending = yield* db.listPosts(workspaceId, "queue")
-      const channels = yield* db.listChannels(workspaceId)
+      const pending = yield* postsDb.listPosts({ workspaceId, filter: "queue" })
+      const channels = yield* channelsDb.listChannels(workspaceId)
 
       const affected = new Set(
         channels

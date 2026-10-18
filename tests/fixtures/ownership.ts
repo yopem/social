@@ -1,7 +1,9 @@
 import { Effect, Result } from "effect"
 
+import { AccountsDb } from "db/services/accounts"
 import { DeletionDb } from "db/services/accounts/deletion"
-import { CoreDb } from "db/services/client"
+import { PostsDb } from "db/services/posts"
+import { WorkspacesDb } from "db/services/workspaces"
 import type { AppConfig } from "env/server"
 import type { User } from "rpc/contracts/accounts"
 
@@ -9,48 +11,56 @@ import { fixtureError } from "./auth"
 
 export const ownershipFixtureGuards = Effect.fn("ownershipFixtureGuards")(
   function* (config: AppConfig, user: User) {
-    const core = yield* CoreDb
+    const accountsDb = yield* AccountsDb
+    const workspacesDb = yield* WorkspacesDb
+    const postsDb = yield* PostsDb
     const deletion = yield* DeletionDb
     const id = crypto.randomUUID()
 
-    const peer = yield* core.provisionUser(config.AUTH_ISSUER, {
-      id: `ownership-peer:${id}`,
-      name: "Ownership peer",
-      email: `ownership-${id}@fixtures.example.test`,
+    const peer = yield* accountsDb.provisionUser({
+      issuer: config.AUTH_ISSUER,
+      subject: {
+        id: `ownership-peer:${id}`,
+        name: "Ownership peer",
+        email: `ownership-${id}@fixtures.example.test`,
+      },
     })
 
-    const outsider = yield* core.provisionUser(config.AUTH_ISSUER, {
-      id: `ownership-outsider:${id}`,
-      name: "Ownership outsider",
-      email: `ownership-outsider-${id}@fixtures.example.test`,
+    const outsider = yield* accountsDb.provisionUser({
+      issuer: config.AUTH_ISSUER,
+      subject: {
+        id: `ownership-outsider:${id}`,
+        name: "Ownership outsider",
+        email: `ownership-outsider-${id}@fixtures.example.test`,
+      },
     })
 
-    const workspace = yield* core.createWorkspace(
-      user.id,
-      "Ownership guard workspace",
-      "organization",
-      "UTC",
-    )
+    const workspace = yield* workspacesDb.createWorkspace({
+      userId: user.id,
+      name: "Ownership guard workspace",
+      kind: "organization",
+      timezone: "UTC",
+    })
 
-    const invitation = yield* core.invite(
-      user.id,
-      workspace.id,
-      peer.email,
-      "editor",
-    )
+    const invitation = yield* workspacesDb.invite({
+      userId: user.id,
+      workspaceId: workspace.id,
+      email: peer.email,
+      role: "editor",
+    })
 
-    yield* core.acceptInvite(peer, invitation.token)
+    yield* workspacesDb.acceptInvite({ user: peer, token: invitation.token })
 
-    const post = yield* core.savePost(
-      workspace.id,
-      {
+    const post = yield* postsDb.savePost({
+      workspaceId: workspace.id,
+      content: {
         text: "Retained ownership data",
         channelIds: [],
         mediaIds: [],
         overrides: [],
       },
-      null,
-    )
+      scheduledAt: null,
+    })
 
     for (const [requester, target, code] of [
       [user.id, user.id, "invalid-input"],
@@ -58,16 +68,28 @@ export const ownershipFixtureGuards = Effect.fn("ownershipFixtureGuards")(
       [user.id, outsider.id, "forbidden"],
       [peer.id, user.id, "forbidden"],
     ] as const) {
-      const attempted = yield* core
-        .transferOwnership(requester, workspace.id, target)
+      const attempted = yield* workspacesDb
+        .transferOwnership({
+          userId: requester,
+          workspaceId: workspace.id,
+          memberId: target,
+        })
         .pipe(Effect.result)
 
       if (!Result.isFailure(attempted) || attempted.failure.code !== code)
         return yield* fixtureError(
           "Invalid ownership target did not return the expected failure",
         )
-      const members = yield* core.members(user.id, workspace.id)
-      const retained = yield* core.getPost(workspace.id, post.id)
+
+      const members = yield* workspacesDb.members({
+        userId: user.id,
+        workspaceId: workspace.id,
+      })
+
+      const retained = yield* postsDb.getPost({
+        workspaceId: workspace.id,
+        postId: post.id,
+      })
 
       if (
         members.length !== 2 ||
@@ -87,8 +109,12 @@ export const ownershipFixtureGuards = Effect.fn("ownershipFixtureGuards")(
 
     const [transferred, deleting] = yield* Effect.all(
       [
-        core
-          .transferOwnership(user.id, workspace.id, peer.id)
+        workspacesDb
+          .transferOwnership({
+            userId: user.id,
+            workspaceId: workspace.id,
+            memberId: peer.id,
+          })
           .pipe(Effect.result),
         deletion.begin(peer.id).pipe(Effect.result),
       ],
@@ -99,8 +125,17 @@ export const ownershipFixtureGuards = Effect.fn("ownershipFixtureGuards")(
       return yield* fixtureError(
         "Ownership transfer and member deletion did not have one winner",
       )
-    const members = yield* core.members(user.id, workspace.id)
-    const retained = yield* core.listPosts(workspace.id, "all")
+
+    const members = yield* workspacesDb.members({
+      userId: user.id,
+      workspaceId: workspace.id,
+    })
+
+    const retained = yield* postsDb.listPosts({
+      workspaceId: workspace.id,
+      filter: "all",
+    })
+
     const expectedOwner = Result.isSuccess(transferred) ? peer.id : user.id
     const expectedOldRole = Result.isSuccess(transferred) ? "admin" : "owner"
 
@@ -121,13 +156,21 @@ export const ownershipFixtureGuards = Effect.fn("ownershipFixtureGuards")(
       return yield* fixtureError("Ownership race changed owner or data")
 
     if (Result.isFailure(transferred)) {
-      const retried = yield* core
-        .transferOwnership(user.id, workspace.id, peer.id)
+      const retried = yield* workspacesDb
+        .transferOwnership({
+          userId: user.id,
+          workspaceId: workspace.id,
+          memberId: peer.id,
+        })
         .pipe(Effect.result)
 
       if (!Result.isFailure(retried) || retried.failure.code !== "forbidden")
         return yield* fixtureError("Deleting target accepted ownership")
-      const unchanged = yield* core.members(user.id, workspace.id)
+
+      const unchanged = yield* workspacesDb.members({
+        userId: user.id,
+        workspaceId: workspace.id,
+      })
 
       if (
         !unchanged.some(

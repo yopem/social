@@ -5,12 +5,14 @@ import { JobService } from "server/features/publishing/jobs"
 
 import { AuthSession } from "auth/services/session"
 import { DeletionDb } from "db/services/accounts/deletion"
+import { ChannelsDb } from "db/services/channels"
 import { SocialDb } from "db/services/channels/social"
-import { CoreDb } from "db/services/client"
 import {
   fixtureDatabaseStats,
   verifyLocalFixtureDatabase,
 } from "db/services/migrations"
+import { PostsDb } from "db/services/posts"
+import { WorkspacesDb } from "db/services/workspaces"
 import type { AppConfig } from "env/server"
 import { WorkerResources } from "env/server"
 
@@ -34,9 +36,10 @@ import { ChannelScenario } from "./social"
 function drainFixtureInbox() {
   return drainSocialInbox((event, workspaceId) =>
     Effect.gen(function* () {
-      const core = yield* CoreDb
+      const channelsDb = yield* ChannelsDb
+      const postsDb = yield* PostsDb
       const jobs = yield* JobService
-      const channels = yield* core.listChannels(workspaceId)
+      const channels = yield* channelsDb.listChannels(workspaceId)
 
       const affected = new Set(
         channels
@@ -48,7 +51,7 @@ function drainFixtureInbox() {
           .map((channel) => channel.id),
       )
 
-      const pending = yield* core.listPosts(workspaceId, "queue")
+      const pending = yield* postsDb.listPosts({ workspaceId, filter: "queue" })
       yield* Effect.forEach(
         pending.filter(
           (post) =>
@@ -127,8 +130,10 @@ export function fixtureRequest(request: Request, config: AppConfig) {
     const session = yield* auth.authenticate(request)
 
     if (!session.user) return new Response(null, { status: 401 })
-    const core = yield* CoreDb
-    const workspaces = yield* core.listWorkspaces(session.user.id)
+    const workspacesDb = yield* WorkspacesDb
+    const channelsDb = yield* ChannelsDb
+    const postsDb = yield* PostsDb
+    const workspaces = yield* workspacesDb.listWorkspaces(session.user.id)
     const hint = new URL(request.url).searchParams.get("workspace")
 
     const workspace = hint
@@ -258,7 +263,7 @@ export function fixtureRequest(request: Request, config: AppConfig) {
 
       const connectingUser =
         scenario === "editor-shared-account"
-          ? (yield* core.automationPrincipal(workspaceId)).id
+          ? (yield* workspacesDb.automationPrincipal(workspaceId)).id
           : userId
 
       for (const platform of platforms) {
@@ -295,7 +300,9 @@ export function fixtureRequest(request: Request, config: AppConfig) {
         )
       }
 
-      return Response.json({ channels: yield* core.listChannels(workspaceId) })
+      return Response.json({
+        channels: yield* channelsDb.listChannels(workspaceId),
+      })
     }
 
     if (path === "/__fixtures/connection/begin" && request.method === "POST") {
@@ -360,23 +367,23 @@ export function fixtureRequest(request: Request, config: AppConfig) {
         "fixture-x",
       ])
 
-      const channel = (yield* core.listChannels(workspaceId)).find(
+      const channel = (yield* channelsDb.listChannels(workspaceId)).find(
         (value) => value.platform === "x",
       )
 
       if (!channel)
         return yield* Effect.fail(fixtureError("Fixture queue channel missing"))
 
-      const post = yield* core.savePost(
+      const post = yield* postsDb.savePost({
         workspaceId,
-        {
+        content: {
           text: "Queue fixture",
           channelIds: [channel.id],
           mediaIds: [],
           overrides: [],
         },
-        null,
-      )
+        scheduledAt: null,
+      })
 
       const jobs = yield* JobService
 
@@ -395,7 +402,7 @@ export function fixtureRequest(request: Request, config: AppConfig) {
 
       if (input.duplicate) yield* jobs.handle(message)
       yield* jobs.handle({ type: "reconcile", workspaceId, postId: post.id })
-      const saved = yield* core.getPost(workspaceId, post.id)
+      const saved = yield* postsDb.getPost({ workspaceId, postId: post.id })
       const stats = yield* fixtureDatabaseStats(resources.DB, workspaceId)
 
       return Response.json({

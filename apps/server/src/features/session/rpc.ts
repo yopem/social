@@ -1,13 +1,13 @@
 import { Effect } from "effect"
 
-import { CoreDb } from "db/services/client"
+import { WorkspacesDb } from "db/services/workspaces"
 import { SessionRpc } from "rpc/contracts/session"
 import { RequestIdentity } from "rpc/middleware"
 
 export function sessionRpcHandlers() {
   return SessionRpc.toLayer(
     Effect.gen(function* () {
-      const db = yield* CoreDb
+      const workspacesDb = yield* WorkspacesDb
 
       return {
         SessionRead: () =>
@@ -16,7 +16,9 @@ export function sessionRpcHandlers() {
 
             return {
               user,
-              workspaces: user ? yield* db.listWorkspaces(user.id) : [],
+              workspaces: user
+                ? yield* workspacesDb.listWorkspaces(user.id)
+                : [],
             }
           }),
       }

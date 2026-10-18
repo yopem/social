@@ -3,7 +3,8 @@ import { OperationGate } from "server/features/accounts/operation-gate"
 import { Egress } from "server/platform/egress"
 
 import { CredentialCrypto } from "auth/services/crypto"
-import { CoreDb } from "db/services/client"
+import { MediaDb } from "db/services/media"
+import { WorkspacesDb } from "db/services/workspaces"
 import type { AppConfig, WorkerBindings } from "env/server"
 import type { MediaListInput } from "rpc/contracts/media"
 import { Media } from "rpc/contracts/media"
@@ -122,7 +123,8 @@ function byteRange(value: string | null, size: number) {
 
 function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
   return Effect.gen(function* () {
-    const db = yield* CoreDb
+    const workspacesDb = yield* WorkspacesDb
+    const mediaDb = yield* MediaDb
     const gate = yield* OperationGate
     const secrets = yield* CredentialCrypto
     const egress = yield* Egress
@@ -137,7 +139,7 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
     ) {
       return Effect.scoped(
         Effect.gen(function* () {
-          yield* db.workspaceAccess(userId, workspaceId)
+          yield* workspacesDb.workspaceAccess({ userId, workspaceId })
 
           const safeName = yield* Schema.decodeUnknownEffect(Name)(name).pipe(
             Effect.mapError(
@@ -441,7 +443,7 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
           )
 
           // Wait for the write before cleanup can decide whether the object is linked.
-          yield* db.saveMedia({ ...value, objectKey }).pipe(
+          yield* mediaDb.saveMedia({ ...value, objectKey }).pipe(
             Effect.tap(() =>
               Effect.sync(() => {
                 linked = true
@@ -528,8 +530,8 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
     }
 
     function download(userId: string, id: string, request: Request) {
-      return db
-        .mediaById(userId, id)
+      return mediaDb
+        .mediaById({ userId, mediaId: id })
         .pipe(Effect.flatMap((value) => serve(value.objectKey, request)))
     }
 
@@ -553,7 +555,10 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
           )
         }
 
-        const media = yield* db.media(value.workspaceId, value.mediaId)
+        const media = yield* mediaDb.media({
+          workspaceId: value.workspaceId,
+          mediaId: value.mediaId,
+        })
 
         return yield* serve(media.objectKey, request)
       })
@@ -565,14 +570,14 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
       ids: readonly string[],
     ) {
       return Effect.gen(function* () {
-        yield* db.workspaceAccess(userId, workspaceId)
+        yield* workspacesDb.workspaceAccess({ userId, workspaceId })
         const now = yield* DateTime.now
 
         return yield* Effect.forEach(
           ids,
           (id) =>
             Effect.gen(function* () {
-              const value = yield* db.media(workspaceId, id)
+              const value = yield* mediaDb.media({ workspaceId, mediaId: id })
 
               const token = yield* secrets.encrypt(
                 JSON.stringify({
@@ -600,7 +605,7 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
       typeHint?: string,
     ) {
       return Effect.gen(function* () {
-        yield* db.workspaceAccess(userId, workspaceId)
+        yield* workspacesDb.workspaceAccess({ userId, workspaceId })
         const opened = yield* egress.open(url)
 
         const declared =
@@ -628,9 +633,12 @@ function makeMedia(bindings: Pick<WorkerBindings, "MEDIA">, config: AppConfig) {
         userId: string,
         input: typeof MediaListInput.Type,
       ) {
-        yield* db.workspaceAccess(userId, input.workspaceId)
+        yield* workspacesDb.workspaceAccess({
+          userId,
+          workspaceId: input.workspaceId,
+        })
 
-        return yield* db.listMedia(input)
+        return yield* mediaDb.listMedia(input)
       }),
       upload: gate.wrap(upload),
       download,

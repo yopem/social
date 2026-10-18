@@ -1,24 +1,29 @@
 import { Effect } from "effect"
 import { SocialService } from "server/features/channels/service"
 
-import { CoreDb } from "db/services/client"
+import { ChannelsDb } from "db/services/channels"
+import { WorkspacesDb } from "db/services/workspaces"
 import { ChannelRpc } from "rpc/contracts/channels"
 import { Authentication, CurrentUser } from "rpc/middleware"
 
 export function channelRpcHandlers() {
   return ChannelRpc.middleware(Authentication).toLayer(
     Effect.gen(function* () {
-      const db = yield* CoreDb
+      const workspacesDb = yield* WorkspacesDb
+      const channelsDb = yield* ChannelsDb
       const social = yield* SocialService
 
       return {
         ChannelList: (input) =>
           Effect.gen(function* () {
             const user = yield* CurrentUser
-            yield* db.workspaceAccess(user.id, input.workspaceId)
+            yield* workspacesDb.workspaceAccess({
+              userId: user.id,
+              workspaceId: input.workspaceId,
+            })
 
             return {
-              channels: yield* db.listChannels(input.workspaceId),
+              channels: yield* channelsDb.listChannels(input.workspaceId),
               platforms: yield* social.availability(),
             }
           }),

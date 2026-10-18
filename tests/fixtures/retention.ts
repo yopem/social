@@ -1,13 +1,13 @@
 import { Effect, Schema } from "effect"
 
 import { CredentialCrypto } from "auth/services/crypto"
-import { CoreDb } from "db/services/client"
 import { RetentionDb } from "db/services/retention"
 import {
   releaseRetentionFixture,
   retentionFixtureCounts,
   seedRetentionFixture,
 } from "db/services/retention/fixture"
+import { WorkspacesDb } from "db/services/workspaces"
 import { WorkerResources } from "env/server"
 
 import { fixtureError, fixtureJson } from "./auth"
@@ -23,8 +23,8 @@ export function retentionFixtureSetup(
       Schema.Struct({ mode: Schema.Literals(["normal", "bounded", "held"]) }),
     )
 
-    const core = yield* CoreDb
-    yield* core.workspaceAccess(userId, workspaceId)
+    const workspacesDb = yield* WorkspacesDb
+    yield* workspacesDb.workspaceAccess({ userId, workspaceId })
     const resources = yield* WorkerResources
     const cipher = yield* CredentialCrypto
     const fixtureId = crypto.randomUUID()
@@ -68,8 +68,8 @@ export function retentionFixtureCleanup(
       }),
     )
 
-    const core = yield* CoreDb
-    yield* core.workspaceAccess(userId, workspaceId)
+    const workspacesDb = yield* WorkspacesDb
+    yield* workspacesDb.workspaceAccess({ userId, workspaceId })
     const resources = yield* WorkerResources
     const input = { fixtureId, userId, workspaceId }
     const before = yield* retentionFixtureCounts(resources.DB, input)

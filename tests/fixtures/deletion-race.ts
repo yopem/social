@@ -1,7 +1,9 @@
 import { Effect, Result } from "effect"
 
+import { AccountsDb } from "db/services/accounts"
 import { DeletionDb } from "db/services/accounts/deletion"
-import { CoreDb } from "db/services/client"
+import { PostsDb } from "db/services/posts"
+import { WorkspacesDb } from "db/services/workspaces"
 import type { AppConfig } from "env/server"
 import type { User } from "rpc/contracts/accounts"
 
@@ -13,36 +15,43 @@ export function deletionInvitationRace(
   workspaceId: string,
 ) {
   return Effect.gen(function* () {
-    const core = yield* CoreDb
+    const accountsDb = yield* AccountsDb
+    const postsDb = yield* PostsDb
+    const workspacesDb = yield* WorkspacesDb
     const deletion = yield* DeletionDb
 
-    const peer = yield* core.provisionUser(config.AUTH_ISSUER, {
-      id: `race-peer:${user.id}`,
-      name: "Race peer",
-      email: `race-${user.id}@fixtures.example.test`,
+    const peer = yield* accountsDb.provisionUser({
+      issuer: config.AUTH_ISSUER,
+      subject: {
+        id: `race-peer:${user.id}`,
+        name: "Race peer",
+        email: `race-${user.id}@fixtures.example.test`,
+      },
     })
 
-    const post = yield* core.savePost(
+    const post = yield* postsDb.savePost({
       workspaceId,
-      {
+      content: {
         text: "Retained race post",
         channelIds: [],
         mediaIds: [],
         overrides: [],
       },
-      null,
-    )
+      scheduledAt: null,
+    })
 
-    const invite = yield* core.invite(
-      user.id,
+    const invite = yield* workspacesDb.invite({
+      userId: user.id,
       workspaceId,
-      peer.email,
-      "editor",
-    )
+      email: peer.email,
+      role: "editor",
+    })
 
     const [accepted, frozen] = yield* Effect.all(
       [
-        core.acceptInvite(peer, invite.token).pipe(Effect.result),
+        workspacesDb
+          .acceptInvite({ user: peer, token: invite.token })
+          .pipe(Effect.result),
         deletion.begin(user.id).pipe(Effect.result),
       ],
       { concurrency: 2 },
@@ -53,7 +62,7 @@ export function deletionInvitationRace(
         fixtureError("Invite and deletion did not have one winner"),
       )
     const snapshot = yield* deletion.fixtureSnapshot(user.id, workspaceId)
-    const retained = yield* core.getPost(workspaceId, post.id)
+    const retained = yield* postsDb.getPost({ workspaceId, postId: post.id })
 
     if (
       snapshot.posts !== 1 ||
@@ -63,7 +72,10 @@ export function deletionInvitationRace(
       return yield* Effect.fail(fixtureError("Race deleted workspace data"))
 
     if (Result.isSuccess(accepted)) {
-      const members = yield* core.members(user.id, workspaceId)
+      const members = yield* workspacesDb.members({
+        userId: user.id,
+        workspaceId,
+      })
 
       if (
         snapshot.fences !== 0 ||

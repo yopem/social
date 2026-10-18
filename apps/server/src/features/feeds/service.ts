@@ -6,7 +6,11 @@ import { MediaService } from "server/features/media/service"
 import { Egress, publicUrl, readBounded } from "server/platform/egress"
 
 import { CredentialCrypto } from "auth/services/crypto"
-import { CoreDb } from "db/services/client"
+import { ChannelsDb } from "db/services/channels"
+import { FeedsDb } from "db/services/feeds"
+import { MediaDb } from "db/services/media"
+import { PostsDb } from "db/services/posts"
+import { WorkspacesDb } from "db/services/workspaces"
 import type { JobMessage } from "env/server"
 import { WorkerResources } from "env/server"
 import type { Feed } from "rpc/contracts/feeds"
@@ -181,7 +185,11 @@ function parse(xml: string, base: string, name: string) {
 
 function makeFeeds() {
   return Effect.gen(function* () {
-    const db = yield* CoreDb
+    const mediaDb = yield* MediaDb
+    const workspacesDb = yield* WorkspacesDb
+    const feedsDb = yield* FeedsDb
+    const postsDb = yield* PostsDb
+    const channelsDb = yield* ChannelsDb
     const gate = yield* OperationGate
     const cryptoService = yield* CredentialCrypto
     const egress = yield* Egress
@@ -204,7 +212,7 @@ function makeFeeds() {
       return Effect.forEach(
         ids,
         (id) =>
-          db.deleteUnusedMedia(workspaceId, id).pipe(
+          mediaDb.deleteUnusedMedia({ workspaceId, mediaId: id }).pipe(
             Effect.flatMap((value) =>
               value
                 ? Effect.tryPromise({
@@ -236,8 +244,8 @@ function makeFeeds() {
     ) {
       return Effect.scoped(
         Effect.gen(function* () {
-          yield* db.workspaceAccess(userId, workspaceId)
-          const feed = yield* db.getFeed(workspaceId, feedId)
+          yield* workspacesDb.workspaceAccess({ userId, workspaceId })
+          const feed = yield* feedsDb.getFeed({ workspaceId, feedId })
           const currentRevision = yield* revision(feed)
 
           if (
@@ -303,11 +311,11 @@ function makeFeeds() {
           for (const entry of entries.slice(offset, offset + BatchSize)) {
             const itemKey = yield* cryptoService.hash(entry.identity)
 
-            const existing = yield* db.findImportedPost(
+            const existing = yield* feedsDb.findImportedPost({
               workspaceId,
               feedId,
               itemKey,
-            )
+            })
 
             if (existing) {
               // Queue retries must recover a durable draft after a failed send.
@@ -389,7 +397,7 @@ function makeFeeds() {
                 overrides: [],
               }
 
-              const latest = yield* db.getFeed(workspaceId, feedId)
+              const latest = yield* feedsDb.getFeed({ workspaceId, feedId })
 
               if ((yield* revision(latest)) !== currentRevision)
                 return yield* Effect.fail(
@@ -400,13 +408,13 @@ function makeFeeds() {
                   }),
                 )
 
-              const result = yield* db.importFeedPost(
+              const result = yield* feedsDb.importFeedPost({
                 workspaceId,
                 feedId,
                 itemKey,
                 content,
-                reason,
-              )
+                reviewReason: reason,
+              })
 
               if (!result.created || !result.post) {
                 yield* discard(workspaceId, ids)
@@ -433,11 +441,11 @@ function makeFeeds() {
                     )
                   )
                     return yield* Effect.fail(prepared.failure)
-                  yield* db.holdPost(
+                  yield* postsDb.holdPost({
                     workspaceId,
-                    result.post.id,
-                    prepared.failure.message,
-                  )
+                    postId: result.post.id,
+                    reason: prepared.failure.message,
+                  })
                 } else
                   yield* send({
                     type: "publish",
@@ -488,7 +496,7 @@ function makeFeeds() {
                     message: "Feed snapshot could not be removed.",
                   }),
               })
-            yield* db.recordFeedCheck(workspaceId, feedId, null)
+            yield* feedsDb.recordFeedCheck({ workspaceId, feedId, error: null })
           }
 
           return { imported }
@@ -497,16 +505,20 @@ function makeFeeds() {
         Effect.tapError((error) =>
           error.code === "forbidden"
             ? Effect.void
-            : db.recordFeedCheck(workspaceId, feedId, error.message),
+            : feedsDb.recordFeedCheck({
+                workspaceId,
+                feedId,
+                error: error.message,
+              }),
         ),
       )
     }
 
     const operations = {
       list(this: void, userId: string, workspaceId: string) {
-        return db
-          .workspaceAccess(userId, workspaceId)
-          .pipe(Effect.andThen(db.listFeeds(workspaceId)))
+        return workspacesDb
+          .workspaceAccess({ userId, workspaceId })
+          .pipe(Effect.andThen(feedsDb.listFeeds(workspaceId)))
       },
       save(
         this: void,
@@ -516,7 +528,7 @@ function makeFeeds() {
         feedId?: string,
       ) {
         return Effect.gen(function* () {
-          yield* db.workspaceAccess(userId, workspaceId)
+          yield* workspacesDb.workspaceAccess({ userId, workspaceId })
           const url = yield* publicUrl(config.url)
 
           if (config.mode === "automatic" && !config.channelIds.length)
@@ -525,7 +537,10 @@ function makeFeeds() {
             )
 
           for (const id of config.channelIds) {
-            const channel = yield* db.channel(workspaceId, id)
+            const channel = yield* channelsDb.channel({
+              workspaceId,
+              channelId: id,
+            })
 
             if (config.mode === "automatic" && channel.status !== "connected")
               return yield* Effect.fail(
@@ -533,11 +548,11 @@ function makeFeeds() {
               )
           }
 
-          return yield* db.saveFeed(
+          return yield* feedsDb.saveFeed({
             workspaceId,
-            { ...config, url: url.href },
+            config: { ...config, url: url.href },
             feedId,
-          )
+          })
         })
       },
       refresh,
@@ -548,8 +563,8 @@ function makeFeeds() {
         cursor?: Cursor,
       ) {
         return Effect.gen(function* () {
-          const owner = yield* db.automationPrincipal(workspaceId)
-          const feed = yield* db.getFeed(workspaceId, feedId)
+          const owner = yield* workspacesDb.automationPrincipal(workspaceId)
+          const feed = yield* feedsDb.getFeed({ workspaceId, feedId })
 
           return feed.enabled || cursor
             ? yield* refresh(owner.id, workspaceId, feedId, cursor)
@@ -557,9 +572,9 @@ function makeFeeds() {
         })
       },
       remove(this: void, userId: string, workspaceId: string, id: string) {
-        return db
-          .workspaceAccess(userId, workspaceId)
-          .pipe(Effect.andThen(db.deleteFeed(workspaceId, id)))
+        return workspacesDb
+          .workspaceAccess({ userId, workspaceId })
+          .pipe(Effect.andThen(feedsDb.deleteFeed({ workspaceId, feedId: id })))
       },
     }
 

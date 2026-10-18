@@ -10,7 +10,7 @@ import {
 
 import { CredentialCrypto } from "auth/services/crypto"
 import { SocialDb } from "db/services/channels/social"
-import { CoreDb } from "db/services/client"
+import { WorkspacesDb } from "db/services/workspaces"
 import type { Platform } from "rpc/contracts/channels"
 
 import { fixtureError } from "./auth"
@@ -29,7 +29,7 @@ export function fixtureSdk<A>(call: () => Promise<A>) {
 
 export function fixtureConnections() {
   return Effect.gen(function* () {
-    const core = yield* CoreDb
+    const workspacesDb = yield* WorkspacesDb
     const db = yield* SocialDb
     const cipher = yield* CredentialCrypto
     const stores = yield* makeSdkStores()
@@ -89,27 +89,29 @@ export function fixtureConnections() {
       scenario = "success",
       displayName = "Alex on X",
     ) {
-      return core.workspaceAccess(userId, workspaceId, true).pipe(
-        Effect.andThen(
-          fixtureSdk(() =>
-            manager.begin({
-              backend: `fixture:${scenario}:${workspaceId}:${platform}`,
-              tenantId: workspaceId,
-              principalId: userId,
-              platforms: [platform],
-              capabilities: [
-                "posts.publish",
-                "posts.read",
-                "analytics.read",
-                "analytics.account.read",
-              ],
-              redirectUri: fixtureRedirect,
-              allowedRedirectUris: [fixtureRedirect],
-              provider: provider(platform, displayName),
-            }),
+      return workspacesDb
+        .workspaceAccess({ userId, workspaceId, manage: true })
+        .pipe(
+          Effect.andThen(
+            fixtureSdk(() =>
+              manager.begin({
+                backend: `fixture:${scenario}:${workspaceId}:${platform}`,
+                tenantId: workspaceId,
+                principalId: userId,
+                platforms: [platform],
+                capabilities: [
+                  "posts.publish",
+                  "posts.read",
+                  "analytics.read",
+                  "analytics.account.read",
+                ],
+                redirectUri: fixtureRedirect,
+                allowedRedirectUris: [fixtureRedirect],
+                provider: provider(platform, displayName),
+              }),
+            ),
           ),
-        ),
-      )
+        )
     }
 
     function discover(
@@ -120,7 +122,11 @@ export function fixtureConnections() {
       displayName = "Alex on X",
     ) {
       return Effect.gen(function* () {
-        yield* core.workspaceAccess(userId, workspaceId, true)
+        yield* workspacesDb.workspaceAccess({
+          userId,
+          workspaceId,
+          manage: true,
+        })
         const row = yield* db.attempt(id)
 
         if (!row) return yield* Effect.fail(fixtureError("Connection missing"))
@@ -145,18 +151,20 @@ export function fixtureConnections() {
       id: string,
       accountIds: readonly string[],
     ) {
-      return core.workspaceAccess(userId, workspaceId, true).pipe(
-        Effect.andThen(
-          fixtureSdk(() =>
-            manager.select({
-              attemptId: id,
-              tenantId: workspaceId,
-              principalId: userId,
-              selectedAccountIds: accountIds,
-            }),
+      return workspacesDb
+        .workspaceAccess({ userId, workspaceId, manage: true })
+        .pipe(
+          Effect.andThen(
+            fixtureSdk(() =>
+              manager.select({
+                attemptId: id,
+                tenantId: workspaceId,
+                principalId: userId,
+                selectedAccountIds: accountIds,
+              }),
+            ),
           ),
-        ),
-      )
+        )
     }
 
     return { begin, discover, select, stores }

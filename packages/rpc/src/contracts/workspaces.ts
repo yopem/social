@@ -36,9 +36,23 @@ export const WorkspaceTimezone = Name.check(
   }),
 )
 
+export const WorkspaceCreateInput = Schema.Struct({
+  name: Name,
+  kind: WorkspaceKind,
+  timezone: WorkspaceTimezone,
+})
+
+export const WorkspaceInviteInput = Schema.Struct({
+  workspaceId: Id,
+  email: Schema.String,
+  role: Schema.Literals(["admin", "editor"]),
+})
+
+export const WorkspaceAcceptInviteInput = Schema.Struct({ token: Id })
+
 export class WorkspaceRpc extends RpcGroup.make(
   Rpc.make("WorkspaceCreate", {
-    payload: { name: Name, kind: WorkspaceKind, timezone: WorkspaceTimezone },
+    payload: WorkspaceCreateInput,
     success: Workspace,
     error: ApiError,
   }),
@@ -48,16 +62,12 @@ export class WorkspaceRpc extends RpcGroup.make(
     error: ApiError,
   }),
   Rpc.make("WorkspaceInvite", {
-    payload: {
-      workspaceId: Id,
-      email: Schema.String,
-      role: Schema.Literals(["admin", "editor"]),
-    },
+    payload: WorkspaceInviteInput,
     success: Schema.Struct({ url: Schema.String }),
     error: ApiError,
   }),
   Rpc.make("WorkspaceAcceptInvite", {
-    payload: { token: Id },
+    payload: WorkspaceAcceptInviteInput,
     success: Workspace,
     error: ApiError,
   }),

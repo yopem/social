@@ -143,12 +143,21 @@ export const PostListPageResult = Schema.Struct({
   nextCursor: Schema.NullOr(PostCursor),
 })
 
+export const PostListInput = Schema.Struct({
+  workspaceId: Id,
+  filter: Schema.Literals(["all", "draft", "queue", "sent"]),
+})
+
+export const PostSaveInput = Schema.Struct({
+  workspaceId: Id,
+  postId: Schema.optional(Id),
+  content: PostContent,
+  scheduledAt: Schema.NullOr(Schema.String),
+})
+
 export class PostRpc extends RpcGroup.make(
   Rpc.make("PostList", {
-    payload: {
-      workspaceId: Id,
-      filter: Schema.Literals(["all", "draft", "queue", "sent"]),
-    },
+    payload: PostListInput,
     success: Schema.Array(Post),
     error: ApiError,
   }),
@@ -158,12 +167,7 @@ export class PostRpc extends RpcGroup.make(
     error: ApiError,
   }),
   Rpc.make("PostSave", {
-    payload: {
-      workspaceId: Id,
-      postId: Schema.optional(Id),
-      content: PostContent,
-      scheduledAt: Schema.NullOr(Schema.String),
-    },
+    payload: PostSaveInput,
     success: Post,
     error: ApiError,
   }),

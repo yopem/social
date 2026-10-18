@@ -2,7 +2,7 @@ import { Effect, Exit, Fiber, Schema } from "effect"
 import { OperationGate } from "server/features/accounts/operation-gate"
 import { MediaService, mediaLayer } from "server/features/media/service"
 
-import { CoreDb } from "db/services/client"
+import { MediaDb } from "db/services/media"
 import type { AppConfig } from "env/server"
 import { WorkerResources } from "env/server"
 
@@ -29,7 +29,7 @@ export function mediaLifetimeFixture(
   return Effect.gen(function* () {
     const { fault } = yield* fixtureJson(request, Fault)
     const resources = yield* WorkerResources
-    const core = yield* CoreDb
+    const mediaDb = yield* MediaDb
     const gate = yield* OperationGate
     const reached = Promise.withResolvers<void>()
     const release = Promise.withResolvers<void>()
@@ -114,13 +114,13 @@ export function mediaLifetimeFixture(
       delete: remove,
     }
 
-    const saveMedia: typeof core.saveMedia = (value) => {
+    const saveMedia: typeof mediaDb.saveMedia = (value) => {
       mediaId = value.id
 
       if (fault === "save")
         return Effect.fail(fixtureError("Injected save failure"))
 
-      return core.saveMedia(value).pipe(
+      return mediaDb.saveMedia(value).pipe(
         Effect.andThen(
           fault === "linked-interrupt"
             ? Effect.tryPromise({
@@ -150,7 +150,7 @@ export function mediaLifetimeFixture(
 
     const service = yield* MediaService.pipe(
       Effect.provide(mediaLayer({ MEDIA: bucket }, config)),
-      Effect.provideService(CoreDb, { ...core, saveMedia }),
+      Effect.provideService(MediaDb, { ...mediaDb, saveMedia }),
       Effect.provideService(OperationGate, { ...gate, wrap }),
     )
 
@@ -223,7 +223,7 @@ export function mediaLifetimeFixture(
       : null
 
     const linked = mediaId
-      ? yield* core.media(workspaceId, mediaId).pipe(
+      ? yield* mediaDb.media({ workspaceId, mediaId }).pipe(
           Effect.as(true),
           Effect.catchTag("ApiError", (error) =>
             error.code === "not-found"

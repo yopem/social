@@ -11,30 +11,84 @@ import {
   or,
   gte,
 } from "drizzle-orm"
-import { DateTime, Effect, Match, Option, Schema } from "effect"
+import { Context, DateTime, Effect, Layer, Match, Option, Schema } from "effect"
 
 import { channels } from "db/schema/channels"
 import { media, MediaRow } from "db/schema/media"
 import { posts, deliveries, DeliveryRow, PostRow } from "db/schema/posts"
-import type { createChannelsRepository } from "db/services/channels"
-import type { CoreContext } from "db/services/core"
-import { failure, now } from "db/services/core"
+import { ChannelsDb, type createChannelsRepository } from "db/services/channels"
+import { Database } from "db/services/client"
+import type { DatabaseContext } from "db/services/context"
+import { failure, now } from "db/services/context"
 import { validateOperation } from "db/services/validation"
 import { PostListPageInput, PostListPageResult } from "rpc/contracts/posts"
-import type { Post } from "rpc/contracts/posts"
-import { Delivery, PostContent, PostState } from "rpc/contracts/posts"
+import {
+  Delivery,
+  PostContent,
+  PostInput,
+  PostListInput,
+  PostSaveInput,
+  PostState,
+} from "rpc/contracts/posts"
+
+const PostStateChangeInput = Schema.Struct({
+  workspaceId: Schema.String,
+  postId: Schema.String,
+  state: PostState,
+  reviewReason: Schema.optional(Schema.NullOr(Schema.String)),
+})
+
+const PostClaimInput = Schema.Struct({
+  workspaceId: Schema.String,
+  postId: Schema.String,
+  operationKey: Schema.String,
+  expectedPost: Schema.optional(
+    Schema.Struct({
+      content: PostContent,
+      scheduledAt: Schema.NullOr(Schema.String),
+      updatedAt: Schema.String,
+    }),
+  ),
+})
+
+const PostEnqueueInput = Schema.Struct({
+  workspaceId: Schema.String,
+  postId: Schema.String,
+  operationKey: Schema.String,
+})
+
+const PostHoldInput = Schema.Struct({
+  workspaceId: Schema.String,
+  postId: Schema.String,
+  reason: Schema.String,
+})
+
+export class PostsDb extends Context.Service<
+  PostsDb,
+  ReturnType<typeof createPostsRepository>
+>()("social/PostsDb") {
+  static readonly layer = Layer.effect(
+    PostsDb,
+    Effect.gen(function* () {
+      const context = yield* Database
+      const channelsRepository = yield* ChannelsDb
+
+      return createPostsRepository(context, channelsRepository)
+    }),
+  )
+}
 
 export function createPostsRepository(
-  context: CoreContext,
+  context: DatabaseContext,
   channelsRepository: ReturnType<typeof createChannelsRepository>,
 ) {
   const { client, query, write, required } = context
   const { channel } = channelsRepository
 
-  const publicationOperation = Effect.fnUntraced(function* (
-    workspaceId: string,
-    id: string,
-  ) {
+  const publicationOperation = Effect.fnUntraced(function* ({
+    workspaceId,
+    postId: id,
+  }: typeof PostInput.Type) {
     return yield* query(
       Schema.Struct({
         state: PostState,
@@ -53,10 +107,10 @@ export function createPostsRepository(
     ).pipe(Effect.flatMap(required))
   })
 
-  const getPost = Effect.fnUntraced(function* (
-    workspaceId: string,
-    id: string,
-  ) {
+  const getPost = Effect.fnUntraced(function* ({
+    workspaceId,
+    postId: id,
+  }: typeof PostInput.Type) {
     const row = yield* query(PostRow, () =>
       client
         .select()
@@ -86,14 +140,10 @@ export function createPostsRepository(
     }
   })
 
-  const operations = {
+  const postOperations = {
     getPost,
     publicationOperation,
-    listPosts(
-      this: void,
-      workspaceId: string,
-      filter: "all" | "draft" | "queue" | "sent",
-    ) {
+    listPosts(this: void, { workspaceId, filter }: typeof PostListInput.Type) {
       const states = Match.value(filter).pipe(
         Match.when("draft", () =>
           inArray(posts.state, ["draft", "needs-review"]),
@@ -116,13 +166,17 @@ export function createPostsRepository(
           .limit(100),
       ).pipe(
         Effect.flatMap((rows) =>
-          Effect.forEach(rows, (row) => getPost(workspaceId, row.id), {
-            concurrency: 4,
-          }),
+          Effect.forEach(
+            rows,
+            (row) => getPost({ workspaceId, postId: row.id }),
+            {
+              concurrency: 4,
+            },
+          ),
         ),
       )
     },
-    listPostsPage: Effect.fn("core.listPostsPage")(function* (
+    listPostsPage: Effect.fn("posts.listPostsPage")(function* (
       input: typeof PostListPageInput.Type,
     ) {
       const value = yield* Schema.decodeUnknownEffect(PostListPageInput)(
@@ -246,12 +300,12 @@ export function createPostsRepository(
         ),
       )
     }),
-    savePost: Effect.fn("core.savePost")(function* (
-      workspaceId: string,
-      content: PostContent,
-      scheduledAt: string | null,
-      postId?: string,
-    ) {
+    savePost: Effect.fn("posts.savePost")(function* ({
+      workspaceId,
+      content,
+      scheduledAt,
+      postId,
+    }: typeof PostSaveInput.Type) {
       const valid = yield* Schema.decodeUnknownEffect(PostContent)(
         content,
       ).pipe(
@@ -270,7 +324,8 @@ export function createPostsRepository(
           failure("invalid-input", "Schedule must use UTC ISO time"),
         )
 
-      for (const id of valid.channelIds) yield* channel(workspaceId, id)
+      for (const id of valid.channelIds)
+        yield* channel({ workspaceId, channelId: id })
 
       for (const override of valid.overrides)
         if (!valid.channelIds.includes(override.channelId))
@@ -332,14 +387,14 @@ export function createPostsRepository(
           }),
         )
 
-      return yield* getPost(workspaceId, id)
+      return yield* getPost({ workspaceId, postId: id })
     }),
-    setPostState: Effect.fn("core.setPostState")(function* (
-      workspaceId: string,
-      id: string,
-      state: typeof PostState.Type,
-      reviewReason: string | null = null,
-    ) {
+    setPostState: Effect.fn("posts.setPostState")(function* ({
+      workspaceId,
+      postId: id,
+      state,
+      reviewReason = null,
+    }: typeof PostStateChangeInput.Type) {
       const stamp = yield* now()
 
       return yield* Schema.decodeUnknownEffect(PostState)(state).pipe(
@@ -407,10 +462,10 @@ export function createPostsRepository(
         Effect.asVoid,
       )
     },
-    cancelPost: Effect.fn("core.cancelPost")(function* (
-      workspaceId: string,
-      id: string,
-    ) {
+    cancelPost: Effect.fn("posts.cancelPost")(function* ({
+      workspaceId,
+      postId: id,
+    }: typeof PostInput.Type) {
       const stamp = yield* now()
 
       return yield* query(Schema.Struct({ id: Schema.String }), () =>
@@ -426,9 +481,12 @@ export function createPostsRepository(
             ),
           )
           .returning({ id: posts.id }),
-      ).pipe(Effect.flatMap(required), Effect.andThen(getPost(workspaceId, id)))
+      ).pipe(
+        Effect.flatMap(required),
+        Effect.andThen(getPost({ workspaceId, postId: id })),
+      )
     }),
-    deletePost(this: void, workspaceId: string, id: string) {
+    deletePost(this: void, { workspaceId, postId: id }: typeof PostInput.Type) {
       return query(Schema.Struct({ id: Schema.String }), () =>
         client
           .delete(posts)
@@ -443,12 +501,12 @@ export function createPostsRepository(
           .returning({ id: posts.id }),
       ).pipe(Effect.flatMap(required), Effect.asVoid)
     },
-    claimPost: Effect.fn("core.claimPost")(function* (
-      workspaceId: string,
-      id: string,
-      operationKey: string,
-      expected?: Pick<Post, "content" | "scheduledAt" | "updatedAt">,
-    ) {
+    claimPost: Effect.fn("posts.claimPost")(function* ({
+      workspaceId,
+      postId: id,
+      operationKey,
+      expectedPost: expected,
+    }: typeof PostClaimInput.Type) {
       const stamp = yield* now()
 
       const claimed = yield* query(Schema.Struct({ id: Schema.String }), () =>
@@ -469,7 +527,7 @@ export function createPostsRepository(
 
       if (claimed || expected === undefined) return claimed
 
-      const current = yield* publicationOperation(workspaceId, id)
+      const current = yield* publicationOperation({ workspaceId, postId: id })
 
       if (
         current.operation_key === operationKey &&
@@ -487,7 +545,7 @@ export function createPostsRepository(
         ),
       )
     }),
-    claimDuePosts: Effect.fn("core.claimDuePosts")(function* (limit: number) {
+    claimDuePosts: Effect.fn("posts.claimDuePosts")(function* (limit: number) {
       const stamp = yield* now()
       const leaseUntil = yield* now(300000)
       const cutoff = yield* now(-900000)
@@ -510,17 +568,21 @@ export function createPostsRepository(
             .returning({ id: posts.id, workspace_id: posts.workspace_id }),
       ).pipe(
         Effect.flatMap((rows) =>
-          Effect.forEach(rows, (row) => getPost(row.workspace_id, row.id), {
-            concurrency: 4,
-          }),
+          Effect.forEach(
+            rows,
+            (row) => getPost({ workspaceId: row.workspace_id, postId: row.id }),
+            {
+              concurrency: 4,
+            },
+          ),
         ),
       )
     }),
-    markPostEnqueued: Effect.fn("core.markPostEnqueued")(function* (
-      workspaceId: string,
-      id: string,
-      operationKey: string,
-    ) {
+    markPostEnqueued: Effect.fn("posts.markPostEnqueued")(function* ({
+      workspaceId,
+      postId: id,
+      operationKey,
+    }: typeof PostEnqueueInput.Type) {
       const leaseUntil = yield* now(900000)
 
       return yield* write(() =>
@@ -538,11 +600,11 @@ export function createPostsRepository(
           ),
       )
     }),
-    holdPost: Effect.fn("core.holdPost")(function* (
-      workspaceId: string,
-      id: string,
-      reason: string,
-    ) {
+    holdPost: Effect.fn("posts.holdPost")(function* ({
+      workspaceId,
+      postId: id,
+      reason,
+    }: typeof PostHoldInput.Type) {
       const stamp = yield* now()
 
       const rows = yield* query(Schema.Struct({ id: Schema.String }), () =>
@@ -567,7 +629,7 @@ export function createPostsRepository(
           failure("conflict", "Post cannot be held after dispatch"),
         )
     }),
-    listPendingPosts: Effect.fn("core.listPendingPosts")(function* (
+    listPendingPosts: Effect.fn("posts.listPendingPosts")(function* (
       limit: number,
     ) {
       const cutoff = yield* now(-300000)
@@ -589,9 +651,13 @@ export function createPostsRepository(
             .limit(Math.max(1, Math.min(100, Math.floor(limit)))),
       ).pipe(
         Effect.flatMap((rows) =>
-          Effect.forEach(rows, (row) => getPost(row.workspace_id, row.id), {
-            concurrency: 4,
-          }),
+          Effect.forEach(
+            rows,
+            (row) => getPost({ workspaceId: row.workspace_id, postId: row.id }),
+            {
+              concurrency: 4,
+            },
+          ),
         ),
       )
     }),
@@ -599,85 +665,59 @@ export function createPostsRepository(
 
   return {
     getPost: validateOperation(
-      operations.getPost,
-      Schema.Tuple([Schema.String, Schema.String]),
+      postOperations.getPost,
+      Schema.Tuple([PostInput]),
     ),
     publicationOperation: validateOperation(
-      operations.publicationOperation,
-      Schema.Tuple([Schema.String, Schema.String]),
+      postOperations.publicationOperation,
+      Schema.Tuple([PostInput]),
     ),
     listPostsPage: validateOperation(
-      operations.listPostsPage,
+      postOperations.listPostsPage,
       Schema.Tuple([PostListPageInput]),
     ),
     listPosts: validateOperation(
-      operations.listPosts,
-      Schema.Tuple([
-        Schema.String,
-        Schema.Literals(["all", "draft", "queue", "sent"]),
-      ]),
+      postOperations.listPosts,
+      Schema.Tuple([PostListInput]),
     ),
     savePost: validateOperation(
-      operations.savePost,
-      Schema.Tuple([
-        Schema.String,
-        PostContent,
-        Schema.NullOr(Schema.String),
-        Schema.optionalKey(Schema.UndefinedOr(Schema.String)),
-      ]),
+      postOperations.savePost,
+      Schema.Tuple([PostSaveInput]),
     ),
     setPostState: validateOperation(
-      operations.setPostState,
-      Schema.Tuple([
-        Schema.String,
-        Schema.String,
-        PostState,
-        Schema.optionalKey(Schema.UndefinedOr(Schema.NullOr(Schema.String))),
-      ]),
+      postOperations.setPostState,
+      Schema.Tuple([PostStateChangeInput]),
     ),
     saveDelivery: validateOperation(
-      operations.saveDelivery,
+      postOperations.saveDelivery,
       Schema.Tuple([Delivery]),
     ),
     cancelPost: validateOperation(
-      operations.cancelPost,
-      Schema.Tuple([Schema.String, Schema.String]),
+      postOperations.cancelPost,
+      Schema.Tuple([PostInput]),
     ),
     deletePost: validateOperation(
-      operations.deletePost,
-      Schema.Tuple([Schema.String, Schema.String]),
+      postOperations.deletePost,
+      Schema.Tuple([PostInput]),
     ),
     claimPost: validateOperation(
-      operations.claimPost,
-      Schema.Tuple([
-        Schema.String,
-        Schema.String,
-        Schema.String,
-        Schema.optionalKey(
-          Schema.UndefinedOr(
-            Schema.Struct({
-              content: PostContent,
-              scheduledAt: Schema.NullOr(Schema.String),
-              updatedAt: Schema.String,
-            }),
-          ),
-        ),
-      ]),
+      postOperations.claimPost,
+      Schema.Tuple([PostClaimInput]),
     ),
     claimDuePosts: validateOperation(
-      operations.claimDuePosts,
+      postOperations.claimDuePosts,
       Schema.Tuple([Schema.Number]),
     ),
     markPostEnqueued: validateOperation(
-      operations.markPostEnqueued,
-      Schema.Tuple([Schema.String, Schema.String, Schema.String]),
+      postOperations.markPostEnqueued,
+      Schema.Tuple([PostEnqueueInput]),
     ),
     holdPost: validateOperation(
-      operations.holdPost,
-      Schema.Tuple([Schema.String, Schema.String, Schema.String]),
+      postOperations.holdPost,
+      Schema.Tuple([PostHoldInput]),
     ),
     listPendingPosts: validateOperation(
-      operations.listPendingPosts,
+      postOperations.listPendingPosts,
       Schema.Tuple([Schema.Number]),
     ),
   }

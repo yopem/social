@@ -50,6 +50,8 @@ export const DiscoveredAccount = Schema.Struct({
 
 export type DiscoveredAccount = typeof DiscoveredAccount.Type
 
+export const ChannelInput = Schema.Struct({ workspaceId: Id, channelId: Id })
+
 export class ChannelRpc extends RpcGroup.make(
   Rpc.make("ChannelList", {
     payload: WorkspaceInput,
@@ -80,12 +82,12 @@ export class ChannelRpc extends RpcGroup.make(
     error: ApiError,
   }),
   Rpc.make("TikTokCreatorInfo", {
-    payload: Schema.Struct({ workspaceId: Id, channelId: Id }),
+    payload: ChannelInput,
     success: JsonObject,
     error: ApiError,
   }),
   Rpc.make("ChannelDisconnect", {
-    payload: { workspaceId: Id, channelId: Id },
+    payload: ChannelInput,
     success: Schema.Void,
     error: ApiError,
   }),

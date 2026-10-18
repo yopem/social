@@ -4,14 +4,19 @@ import { JobService } from "server/features/publishing/jobs"
 
 import { CredentialCrypto } from "auth/services/crypto"
 import { AuthSession } from "auth/services/session"
+import { AccountsDb } from "db/services/accounts"
 import { DeletionDb } from "db/services/accounts/deletion"
 import {
   seedLegacyOtherClaim,
   readLegacyOtherClaim,
   readRemotePostRow,
 } from "db/services/accounts/deletion-fixture"
+import { ChannelsDb } from "db/services/channels"
 import { SocialDb } from "db/services/channels/social"
-import { CoreDb } from "db/services/client"
+import { FeedsDb } from "db/services/feeds"
+import { MediaDb } from "db/services/media"
+import { PostsDb } from "db/services/posts"
+import { WorkspacesDb } from "db/services/workspaces"
 import type { AppConfig } from "env/server"
 import { WorkerResources } from "env/server"
 import type { User } from "rpc/contracts/accounts"
@@ -75,7 +80,8 @@ export function deletionFixtureVerify(request: Request, config: AppConfig) {
     const ticket = yield* readDeletionTicket(request)
 
     const db = yield* DeletionDb
-    const core = yield* CoreDb
+    const workspacesDb = yield* WorkspacesDb
+    const postsDb = yield* PostsDb
     const resources = yield* WorkerResources
     const after = yield* db.fixtureSnapshot(ticket.userId, ticket.workspaceId)
 
@@ -132,8 +138,12 @@ export function deletionFixtureVerify(request: Request, config: AppConfig) {
         )
 
       if (ticket.sharedId) {
-        const owner = yield* core.automationPrincipal(ticket.sharedId)
-        const posts = yield* core.listPosts(ticket.sharedId, "all")
+        const owner = yield* workspacesDb.automationPrincipal(ticket.sharedId)
+
+        const posts = yield* postsDb.listPosts({
+          workspaceId: ticket.sharedId,
+          filter: "all",
+        })
 
         if (
           owner.id === ticket.userId ||
@@ -162,7 +172,12 @@ export function deletionFixtureSetup(
       }),
     )
 
-    const core = yield* CoreDb
+    const channelsDb = yield* ChannelsDb
+    const mediaDb = yield* MediaDb
+    const postsDb = yield* PostsDb
+    const feedsDb = yield* FeedsDb
+    const accountsDb = yield* AccountsDb
+    const workspacesDb = yield* WorkspacesDb
     const resources = yield* WorkerResources
     const db = yield* DeletionDb
     const cipher = yield* CredentialCrypto
@@ -225,7 +240,7 @@ export function deletionFixtureSetup(
       JSON.stringify({ accountIds: ["fixture-x"] }),
       [workspaceId],
     )
-    const channels = yield* core.listChannels(workspaceId)
+    const channels = yield* channelsDb.listChannels(workspaceId)
     const channel = channels[0]
 
     if (!channel)
@@ -237,7 +252,7 @@ export function deletionFixtureSetup(
       try: () => resources.MEDIA.put(objectKey, png),
       catch: () => fixtureError("Deletion media setup failed"),
     })
-    yield* core.saveMedia({
+    yield* mediaDb.saveMedia({
       id: mediaId,
       workspaceId,
       kind: "image",
@@ -248,63 +263,69 @@ export function deletionFixtureSetup(
       objectKey,
     })
 
-    const post = yield* core.savePost(
+    const post = yield* postsDb.savePost({
       workspaceId,
-      {
+      content: {
         text: "Deletion queued post",
         channelIds: [channel.id],
         mediaIds: [mediaId],
         overrides: [],
       },
-      "2099-01-01T00:00:00.000Z",
-    )
+      scheduledAt: "2099-01-01T00:00:00.000Z",
+    })
 
-    yield* core.saveFeed(workspaceId, {
-      name: "Deletion feed",
-      url: "https://fixtures.example.test/feed",
-      mode: "draft",
-      channelIds: [channel.id],
-      includeImages: true,
-      includeVideos: true,
-      enabled: true,
+    yield* feedsDb.saveFeed({
+      workspaceId,
+      config: {
+        name: "Deletion feed",
+        url: "https://fixtures.example.test/feed",
+        mode: "draft",
+        channelIds: [channel.id],
+        includeImages: true,
+        includeVideos: true,
+        enabled: true,
+      },
     })
     let sharedId: string | null = null
 
     if (scenario !== "sole") {
-      const other = yield* core.provisionUser(config.AUTH_ISSUER, {
-        id: `deletion-peer:${user.id}`,
-        name: "Deletion peer",
-        email: `peer-${user.id}@fixtures.example.test`,
+      const other = yield* accountsDb.provisionUser({
+        issuer: config.AUTH_ISSUER,
+        subject: {
+          id: `deletion-peer:${user.id}`,
+          name: "Deletion peer",
+          email: `peer-${user.id}@fixtures.example.test`,
+        },
       })
 
       const owner = scenario === "shared-owner" ? user : other
       const member = scenario === "shared-owner" ? other : user
 
-      const shared = yield* core.createWorkspace(
-        owner.id,
-        "Deletion shared workspace",
-        "organization",
-        "UTC",
-      )
+      const shared = yield* workspacesDb.createWorkspace({
+        userId: owner.id,
+        name: "Deletion shared workspace",
+        kind: "organization",
+        timezone: "UTC",
+      })
 
-      const invite = yield* core.invite(
-        owner.id,
-        shared.id,
-        member.email,
-        remoteState ? "admin" : "editor",
-      )
+      const invite = yield* workspacesDb.invite({
+        userId: owner.id,
+        workspaceId: shared.id,
+        email: member.email,
+        role: remoteState ? "admin" : "editor",
+      })
 
-      yield* core.acceptInvite(member, invite.token)
-      yield* core.savePost(
-        shared.id,
-        {
+      yield* workspacesDb.acceptInvite({ user: member, token: invite.token })
+      yield* postsDb.savePost({
+        workspaceId: shared.id,
+        content: {
           text: "Retained shared post",
           channelIds: [],
           mediaIds: [],
           overrides: [],
         },
-        null,
-      )
+        scheduledAt: null,
+      })
       sharedId = shared.id
     }
 
@@ -337,7 +358,8 @@ function remoteSnapshot(ticket: typeof Ticket.Type) {
   return Effect.gen(function* () {
     if (!ticket.remote || !ticket.workflowId)
       return yield* fixtureError("Remote deletion ticket missing")
-    const core = yield* CoreDb
+    const channelsDb = yield* ChannelsDb
+    const postsDb = yield* PostsDb
     const social = yield* SocialDb
     const resources = yield* WorkerResources
 
@@ -354,12 +376,12 @@ function remoteSnapshot(ticket: typeof Ticket.Type) {
     if (!ownedPostRow || !remotePostRow)
       return yield* fixtureError("Remote post snapshot missing")
 
-    const channel = yield* core.channel(
-      ticket.remote.workspaceId,
-      ticket.remote.channelId,
-    )
+    const channel = yield* channelsDb.channel({
+      workspaceId: ticket.remote.workspaceId,
+      channelId: ticket.remote.channelId,
+    })
 
-    const ownedChannels = yield* core.listChannels(ticket.workspaceId)
+    const ownedChannels = yield* channelsDb.listChannels(ticket.workspaceId)
 
     const credentials = yield* Effect.forEach(
       [channel, ...ownedChannels],
@@ -397,11 +419,14 @@ function remoteSnapshot(ticket: typeof Ticket.Type) {
     return JSON.stringify({
       ownedPostRow,
       remotePostRow,
-      ownedPost: yield* core.getPost(ticket.workspaceId, ticket.postId),
-      remotePost: yield* core.getPost(
-        ticket.remote.workspaceId,
-        ticket.remote.postId,
-      ),
+      ownedPost: yield* postsDb.getPost({
+        workspaceId: ticket.workspaceId,
+        postId: ticket.postId,
+      }),
+      remotePost: yield* postsDb.getPost({
+        workspaceId: ticket.remote.workspaceId,
+        postId: ticket.remote.postId,
+      }),
       channel,
       ownedChannels,
       grants,
@@ -425,7 +450,8 @@ export function deletionRemoteFixture(
 ) {
   return Effect.gen(function* () {
     const path = new URL(request.url).pathname
-    const core = yield* CoreDb
+    const channelsDb = yield* ChannelsDb
+    const postsDb = yield* PostsDb
     const social = yield* SocialDb
 
     if (path.endsWith("/remote")) {
@@ -458,7 +484,7 @@ export function deletionRemoteFixture(
       )
 
       const remoteWorkspaceId = ticket.sharedId ?? workspaceId
-      let channel = (yield* core.listChannels(remoteWorkspaceId))[0]
+      let channel = (yield* channelsDb.listChannels(remoteWorkspaceId))[0]
 
       if (scope === "shared-grant") {
         const connections = yield* fixtureConnections()
@@ -483,36 +509,36 @@ export function deletionRemoteFixture(
           started.attempt.id,
           accounts.map((account) => account.ref.accountId),
         )
-        channel = (yield* core.listChannels(remoteWorkspaceId))[0]
+        channel = (yield* channelsDb.listChannels(remoteWorkspaceId))[0]
       }
 
       if (!channel)
         return yield* fixtureError("Remote deletion channel missing")
 
-      const remotePost = yield* core.savePost(
-        remoteWorkspaceId,
-        {
+      const remotePost = yield* postsDb.savePost({
+        workspaceId: remoteWorkspaceId,
+        content: {
           text: "Remote deletion fixture",
           channelIds: [channel.id],
           mediaIds: [],
           overrides: [],
         },
-        null,
-      )
+        scheduledAt: null,
+      })
 
       if (state === "dispatching-without-result") {
-        const claimed = yield* core.claimPost(
-          remoteWorkspaceId,
-          remotePost.id,
-          `remote:${remotePost.id}`,
-        )
+        const claimed = yield* postsDb.claimPost({
+          workspaceId: remoteWorkspaceId,
+          postId: remotePost.id,
+          operationKey: `remote:${remotePost.id}`,
+        })
 
         if (!claimed)
           return yield* fixtureError(
             "Remote dispatch fixture could not claim post",
           )
       } else {
-        yield* core.saveDelivery({
+        yield* postsDb.saveDelivery({
           id: `${remotePost.id}:${channel.id}`,
           postId: remotePost.id,
           channelId: channel.id,
@@ -526,12 +552,12 @@ export function deletionRemoteFixture(
         })
       }
 
-      yield* core.setPostState(
-        remoteWorkspaceId,
-        remotePost.id,
-        "pending",
-        "Remote publication is not resolved",
-      )
+      yield* postsDb.setPostState({
+        workspaceId: remoteWorkspaceId,
+        postId: remotePost.id,
+        state: "pending",
+        reviewReason: "Remote publication is not resolved",
+      })
 
       const remote = {
         workspaceId: remoteWorkspaceId,
@@ -593,21 +619,21 @@ export function deletionRemoteFixture(
       return Response.json({ unchanged: true })
     }
 
-    const post = yield* core.getPost(
-      ticket.remote.workspaceId,
-      ticket.remote.postId,
-    )
+    const post = yield* postsDb.getPost({
+      workspaceId: ticket.remote.workspaceId,
+      postId: ticket.remote.postId,
+    })
 
     const delivery = post.deliveries.find(
       (value) => value.channelId === ticket.remote?.channelId,
     )
 
-    const channel = yield* core.channel(
-      ticket.remote.workspaceId,
-      ticket.remote.channelId,
-    )
+    const channel = yield* channelsDb.channel({
+      workspaceId: ticket.remote.workspaceId,
+      channelId: ticket.remote.channelId,
+    })
 
-    yield* core.saveDelivery({
+    yield* postsDb.saveDelivery({
       id: `${post.id}:${channel.id}`,
       postId: post.id,
       channelId: channel.id,
@@ -620,12 +646,12 @@ export function deletionRemoteFixture(
       message: null,
       retryDisposition: null,
     })
-    yield* core.setPostState(
-      ticket.remote.workspaceId,
-      ticket.remote.postId,
-      "published",
-      null,
-    )
+    yield* postsDb.setPostState({
+      workspaceId: ticket.remote.workspaceId,
+      postId: ticket.remote.postId,
+      state: "published",
+      reviewReason: null,
+    })
 
     return Response.json({ resolved: true })
   })
@@ -639,17 +665,20 @@ export function deletionLegacyOtherFixture(
   return Effect.gen(function* () {
     const ticket = yield* readDeletionTicket(request)
     const resources = yield* WorkerResources
-    const core = yield* CoreDb
+    const accountsDb = yield* AccountsDb
 
     if (new URL(request.url).pathname.endsWith("/legacy-other")) {
       if (!user || ticket.userId !== user.id)
         return yield* fixtureError("Legacy fixture access denied")
       const fixtureId = crypto.randomUUID()
 
-      const other = yield* core.provisionUser(config.AUTH_ISSUER, {
-        id: `legacy-other:${fixtureId}`,
-        name: "Legacy claim owner",
-        email: `legacy-${fixtureId}@fixtures.example.test`,
+      const other = yield* accountsDb.provisionUser({
+        issuer: config.AUTH_ISSUER,
+        subject: {
+          id: `legacy-other:${fixtureId}`,
+          name: "Legacy claim owner",
+          email: `legacy-${fixtureId}@fixtures.example.test`,
+        },
       })
 
       const legacy = { fixtureId, principalId: other.id }
@@ -682,10 +711,10 @@ export function deletionLegacyOtherFixture(
         "Account deletion changed foreign legacy claim",
       )
 
-    const other = yield* core.getUser(
-      config.AUTH_ISSUER,
-      `legacy-other:${ticket.legacy.fixtureId}`,
-    )
+    const other = yield* accountsDb.getUser({
+      issuer: config.AUTH_ISSUER,
+      subjectId: `legacy-other:${ticket.legacy.fixtureId}`,
+    })
 
     if (other.id !== ticket.legacy.principalId)
       return yield* fixtureError("Foreign legacy principal changed")

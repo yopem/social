@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { OperationGate } from "server/features/accounts/operation-gate"
 
-import { CoreDb } from "db/services/client"
+import { WorkspacesDb } from "db/services/workspaces"
 import type { AppConfig } from "env/server"
 import { WorkspaceRpc } from "rpc/contracts/workspaces"
 import { Authentication, CurrentUser } from "rpc/middleware"
@@ -9,7 +9,7 @@ import { Authentication, CurrentUser } from "rpc/middleware"
 export function workspaceRpcHandlers(config: AppConfig) {
   return WorkspaceRpc.middleware(Authentication).toLayer(
     Effect.gen(function* () {
-      const db = yield* CoreDb
+      const workspacesDb = yield* WorkspacesDb
       const gate = yield* OperationGate
 
       function guarded<A, E, R>(operation: Effect.Effect<A, E, R>) {
@@ -21,15 +21,28 @@ export function workspaceRpcHandlers(config: AppConfig) {
       return {
         WorkspaceCreate: (input) =>
           Effect.flatMap(CurrentUser, (user) =>
-            db.createWorkspace(user.id, input.name, input.kind, input.timezone),
+            workspacesDb.createWorkspace({
+              userId: user.id,
+              name: input.name,
+              kind: input.kind,
+              timezone: input.timezone,
+            }),
           ).pipe(guarded),
         WorkspaceMembers: (input) =>
           Effect.flatMap(CurrentUser, (user) =>
-            db.members(user.id, input.workspaceId),
+            workspacesDb.members({
+              userId: user.id,
+              workspaceId: input.workspaceId,
+            }),
           ),
         WorkspaceInvite: (input) =>
           Effect.flatMap(CurrentUser, (user) =>
-            db.invite(user.id, input.workspaceId, input.email, input.role),
+            workspacesDb.invite({
+              userId: user.id,
+              workspaceId: input.workspaceId,
+              email: input.email,
+              role: input.role,
+            }),
           ).pipe(
             guarded,
             Effect.map(({ token }) => ({
@@ -38,19 +51,27 @@ export function workspaceRpcHandlers(config: AppConfig) {
           ),
         WorkspaceAcceptInvite: (input) =>
           Effect.flatMap(CurrentUser, (user) =>
-            db.acceptInvite(user, input.token),
+            workspacesDb.acceptInvite({ user, token: input.token }),
           ).pipe(guarded),
         WorkspaceTransfer: (input) =>
           Effect.flatMap(CurrentUser, (user) =>
             gate.run(
               user.id,
               input.workspaceId,
-              db.transferOwnership(user.id, input.workspaceId, input.memberId),
+              workspacesDb.transferOwnership({
+                userId: user.id,
+                workspaceId: input.workspaceId,
+                memberId: input.memberId,
+              }),
             ),
           ),
         WorkspaceRemoveMember: (input) =>
           Effect.flatMap(CurrentUser, (user) =>
-            db.removeMember(user.id, input.workspaceId, input.userId),
+            workspacesDb.removeMember({
+              userId: user.id,
+              workspaceId: input.workspaceId,
+              memberId: input.userId,
+            }),
           ).pipe(guarded),
       }
     }),
