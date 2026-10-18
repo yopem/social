@@ -66,7 +66,7 @@ const PkceVerifier = Schema.String.check(
 
 const LoginReturnTarget = Schema.String.check(
   Schema.isTrimmed(),
-  Schema.isPattern(/^\/(?:invite)?(?:[?#][^\\]*)?$/),
+  Schema.isPattern(/^\/(?:invite|queue)?(?:[?#][^\\]*)?$/),
   Schema.isPattern(/^[!-~]+$/),
 )
 
@@ -251,7 +251,7 @@ function makeSession(config: AppConfig) {
             "returnTo",
           )
 
-          const returnTo = returnTargets[0] ?? "/"
+          const returnTo = returnTargets[0] ?? "/queue"
 
           if (
             returnTargets.length > 1 ||
@@ -333,7 +333,7 @@ function makeSession(config: AppConfig) {
 
           // Old attempts contain only the PKCE verifier and return to the desk.
           const decoded = Schema.is(PkceVerifier)(stored)
-            ? Effect.succeed({ verifier: stored, returnTo: "/" })
+            ? Effect.succeed({ verifier: stored, returnTo: "/queue" })
             : Schema.decodeUnknownEffect(Schema.fromJsonString(LoginAttempt))(
                 stored,
               )

@@ -23,7 +23,7 @@ export function InviteSession({ token }: { token: string }) {
       client,
       token,
       onAccepted: (workspace) =>
-        navigate({ to: "/", search: { workspace: workspace.id } }),
+        navigate({ to: "/queue", search: { workspace: workspace.id } }),
     }),
   )
 

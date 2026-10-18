@@ -53,7 +53,7 @@ export function InvitePage() {
               </Stack>
             </CardPanel>
             <CardFooter>
-              <Button variant="link" render={<Link to="/" />}>
+              <Button variant="link" render={<Link to="/queue" />}>
                 Back to publishing desk
               </Button>
             </CardFooter>

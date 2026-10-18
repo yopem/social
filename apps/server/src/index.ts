@@ -90,6 +90,8 @@ function frontendRequest(
       renderFrontend &&
       [
         "/",
+        "/queue",
+        "/sign-in",
         "/drafts",
         "/calendar",
         "/channels",

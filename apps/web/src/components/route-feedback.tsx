@@ -6,9 +6,10 @@ import { Stack } from "ui/components/stack"
 import { Text } from "ui/components/text"
 
 import { PageHeading } from "@/components/desk-ui"
+import { WorkspaceLoading } from "@/components/workspace-loading"
 
 export function RoutePending() {
-  return <output>Loading page…</output>
+  return <WorkspaceLoading />
 }
 
 export function RouteFailure() {
@@ -20,7 +21,7 @@ export function RouteFailure() {
       <Text role="alert">This page could not load.</Text>
       <HStack>
         <Button onClick={() => void router.invalidate()}>Try again</Button>
-        <Button render={<Link to="/" search={{}} />} variant="outline">
+        <Button render={<Link to="/queue" search={{}} />} variant="outline">
           Return to publishing
         </Button>
       </HStack>
@@ -33,7 +34,7 @@ export function RouteNotFound() {
     <Stack>
       <PageHeading title="Page not found" />
       <Text>The page address is not valid.</Text>
-      <Button render={<Link to="/" search={{}} />} variant="outline">
+      <Button render={<Link to="/queue" search={{}} />} variant="outline">
         Return to publishing
       </Button>
     </Stack>

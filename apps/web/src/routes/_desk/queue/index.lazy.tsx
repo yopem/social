@@ -13,7 +13,7 @@ import { PostList } from "@/features/posts/components/post-list"
 import { usePostEditor } from "@/features/posts/hooks/use-post-editor"
 import { usePostFilters } from "@/features/posts/hooks/use-post-filters"
 
-export const Route = createLazyFileRoute("/_desk/")({
+export const Route = createLazyFileRoute("/_desk/queue/")({
   component: QueuePage,
 })
 

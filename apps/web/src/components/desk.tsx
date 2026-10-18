@@ -10,7 +10,6 @@ import {
   FileTextIcon,
   LayersIcon,
   ListOrderedIcon,
-  LogInIcon,
   RadioIcon,
   RssIcon,
   SettingsIcon,
@@ -19,8 +18,6 @@ import {
 import type { PublicSession } from "rpc/contracts/session"
 import { Box } from "ui/components/box"
 import { Button } from "ui/components/button"
-import { Card, CardHeader, CardPanel, CardTitle } from "ui/components/card"
-import { Center } from "ui/components/center"
 import { Container } from "ui/components/container"
 import {
   Empty,
@@ -29,6 +26,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "ui/components/empty"
+import { Heading } from "ui/components/heading"
 import { HStack } from "ui/components/hstack"
 import { Separator } from "ui/components/separator"
 import {
@@ -49,7 +47,6 @@ import {
   sidebarSlotStyles,
   useSidebar,
 } from "ui/components/sidebar"
-import { Skeleton } from "ui/components/skeleton"
 import { Stack } from "ui/components/stack"
 import { Text } from "ui/components/text"
 import { Wrap } from "ui/components/wrap"
@@ -58,7 +55,8 @@ import { tokens } from "ui/styles/tokens.stylex"
 import { deskStyles } from "@/components/desk-styles"
 import { Failure } from "@/components/desk-ui"
 import { DeskWorkspaceContext } from "@/components/desk-workspace"
-import { LegalLinks } from "@/features/legal/components/legal-links"
+import { PublicShell, publicStyles } from "@/components/public-shell"
+import { WorkspaceLoading } from "@/components/workspace-loading"
 import { UserMenu } from "@/features/session/components/user-menu"
 import { sessionQuery } from "@/features/session/queries"
 import { Workspaces } from "@/features/workspaces/components/workspaces"
@@ -87,13 +85,6 @@ const styles = stylex.create({
   },
   headerDivider: { height: 16 },
   contextIcon: { color: tokens["--muted-foreground"], flexShrink: 0 },
-  authPage: { marginBlock: "max(2rem, 10vh)" },
-  authContainer: { maxInlineSize: "28rem" },
-  authCard: { width: "100%" },
-  skeletonTitle: { height: 20, width: "65%" },
-  skeletonLine: { height: 14, width: "90%" },
-  skeletonControl: { height: 36, width: "100%" },
-  skeletonBody: { height: 100, width: "100%" },
 })
 
 export type DeskView =
@@ -107,7 +98,7 @@ export type DeskView =
 
 const navigation = [
   {
-    to: "/",
+    to: "/queue",
     view: "queue",
     label: "Queue",
     icon: ListOrderedIcon,
@@ -162,82 +153,36 @@ export function DeskAccess({
 }: {
   session: UseQueryResult<PublicSession>
 }) {
+  if (session.isPending) return <WorkspaceLoading />
+
   return (
-    <Box
-      render={<main />}
-      aria-busy={session.isPending || undefined}
-      xstyle={styles.authPage}
-    >
-      <Center>
-        <Container xstyle={styles.authContainer}>
-          <Stack>
-            <HStack>
-              <LayersIcon
-                size={34}
-                aria-hidden="true"
-                {...stylex.props(styles.brandIcon)}
-              />
-              <Text>Yopem Social</Text>
-            </HStack>
-            <Card xstyle={styles.authCard}>
-              <CardHeader>
-                <CardTitle render={<h1>Publishing desk</h1>} />
-                {!session.isPending && session.isSuccess && (
-                  <Text>Sign in to manage your publishing workspace.</Text>
-                )}
-              </CardHeader>
-              <CardPanel>
-                <Stack>
-                  {session.isPending ? (
-                    <>
-                      <Box render={<output />} aria-live="polite">
-                        Loading your workspace…
-                      </Box>
-                      <Stack aria-hidden="true">
-                        <Skeleton xstyle={styles.skeletonTitle} />
-                        <Skeleton xstyle={styles.skeletonLine} />
-                        <Skeleton xstyle={styles.skeletonBody} />
-                        <Skeleton xstyle={styles.skeletonControl} />
-                      </Stack>
-                    </>
-                  ) : session.isSuccess && session.data.user === null ? (
-                    <>
-                      <Button
-                        render={
-                          <a
-                            href="/auth/login"
-                            aria-label="Sign in with Google"
-                          />
-                        }
-                      >
-                        <LogInIcon size={16} aria-hidden="true" />
-                        Sign in with Google
-                      </Button>
-                      <Text>
-                        By signing in, you agree to our Terms of Service and
-                        acknowledge our Privacy Policy.
-                      </Text>
-                    </>
-                  ) : (
-                    <>
-                      <Failure error={session.error} />
-                      <Button
-                        onClick={() => {
-                          void session.refetch()
-                        }}
-                      >
-                        Retry
-                      </Button>
-                    </>
-                  )}
-                </Stack>
-              </CardPanel>
-            </Card>
-            <LegalLinks />
-          </Stack>
-        </Container>
-      </Center>
-    </Box>
+    <PublicShell>
+      <Box render={<main />} xstyle={publicStyles.hero}>
+        <Stack>
+          <Heading render={<h1 />} xstyle={publicStyles.title}>
+            {session.isError
+              ? "Let’s try that again."
+              : "Your workspace is waiting."}
+          </Heading>
+          <Text role={session.isError ? "alert" : undefined}>
+            {session.isError
+              ? "We could not open your workspace. Check your connection and try again."
+              : "Sign in to see your drafts, plan your week, and publish your next post."}
+          </Text>
+          <Wrap>
+            {session.isError && (
+              <Button onClick={() => void session.refetch()}>Try again</Button>
+            )}
+            <Button
+              variant={session.isError ? "outline" : "default"}
+              render={<Link to="/sign-in" />}
+            >
+              Sign in
+            </Button>
+          </Wrap>
+        </Stack>
+      </Box>
+    </PublicShell>
   )
 }
 
