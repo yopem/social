@@ -17,7 +17,7 @@
   Use `get_file_summary` and `get_symbol_body` for focused symbol context.
 - If required files are absent from the index or the server is unavailable,
   use native search and state the reason.
-- Inspect existing callers, types, tests, and configuration before editing.
+- Inspect existing callers, types, and configuration before editing.
 - Make the smallest complete change. Reuse existing code before adding helpers,
   abstractions, dependencies, or configuration.
 - Preserve unrelated user changes. Never reset, delete, or overwrite them.
@@ -27,6 +27,41 @@
   usage, and license.
 - Preserve the project's license. Do not add or change a license without an
   explicit request.
+
+## Readability contract
+
+- Optimize code for the maintainer who reads it, not for the fewest lines.
+  Keep correctness, security, and runtime boundaries intact.
+- Use business names for modules, functions, inputs, and results. Avoid broad
+  names such as core, manager, processor, or operations when a specific name
+  exists.
+- Write business workflows in execution order. Prefer `Effect.gen` for
+  multi-step Effect workflows. Use `pipe` for short transformations. Do not
+  nest callbacks when sequential code is easier to follow.
+- Use ordinary TypeScript for simple synchronous calculations and choices.
+  Use Effect APIs when they improve typed errors, dependency management,
+  concurrency, resource safety, or exhaustive matching. Do not use `Match`
+  for a simple choice unless its exhaustive checks improve the result.
+  Use Effect date and duration APIs for application time logic. Keep native
+  APIs required by the runtime and validation at required boundaries.
+- Use a named input object when several arguments have the same type, or
+  when callers cannot tell what each argument means.
+- Keep reusable query and mutation definitions in feature query modules.
+  Keep rendering components free of transport and persistence details.
+  Hooks own focused interactive workflows, not all page responsibilities.
+- Use one canonical schema for each boundary contract. Reuse it when
+  boundaries have the same meaning. Define a separate schema only when
+  accepted data or guarantees differ. Keep validation at required boundaries.
+- Explain non-obvious state transitions, retry rules, and idempotency
+  decisions with short comments. Do not comment obvious syntax.
+- Before completion, trace one changed workflow from its entrypoint to its
+  result. Remove unclear names, needless forwarding, and hidden dependencies
+  on that path.
+- When the project has a user-approved reference workflow, read its files
+  before changing a similar workflow. Follow its naming, dependency, and
+  control-flow patterns. Do not call an example approved without user review.
+  If none exists, propose one small existing workflow for review; do not
+  refactor unrelated code to create an example.
 
 ## General scope
 
@@ -59,7 +94,7 @@
   `@yopem-ui/cli` to install source-owned components built on Base UI. Use
   `@yopem-ui/oxlint-plugin` to check component and StyleX usage.
 - **Development tooling:** Vite+ from https://viteplus.dev for development,
-  builds, Oxlint, Oxfmt, tests, cached tasks, and Git hooks. Use
+  builds, Oxlint, Oxfmt, cached tasks, and Git hooks. Use
   `@yopem/oxlint-config` for shared lint policy.
 - **Backend and client contract:** Effect RPC with Effect Schema. Use Effect
   HTTP APIs for transport and non-RPC handlers. Do not use Hono or Hono RPC.
@@ -111,7 +146,7 @@ bundles.
   with that release. Do not mix Effect major versions or imports from different
   releases.
 - Never install, recommend, or write code for Effect v3 or earlier. This rule
-  applies to dependencies, imports, APIs, examples, tests, and generated code.
+  applies to dependencies, imports, APIs, examples, and generated code.
 - Read official documentation and migration guidance for the selected release
   before writing code. Do not copy v3 APIs or package paths from old tutorials,
   search results, or model memory. Verify each API and import against that
@@ -138,7 +173,7 @@ required empty files. Do not create unused packages or optional folders:
 ├── pnpm-workspace.yaml            workspace packages and pnpm settings
 ├── pnpm-lock.yaml                 shared dependency lockfile
 ├── tsconfig.json                  shared TypeScript config and paths
-├── vite.config.ts                 lint, fmt, test, run, and staged settings
+├── vite.config.ts                 lint, fmt, run, and staged settings
 ├── alchemy.run.ts                 resources and single Worker deployment
 ├── apps/
 │   ├── web/                       frontend and deployed Worker assembly
@@ -150,7 +185,7 @@ required empty files. Do not create unused packages or optional folders:
 │   │       ├── worker.ts          RPC, SSR, auth, queue, and Cron assembly
 │   │       ├── router.tsx         TanStack Router and query context
 │   │       ├── routeTree.gen.ts   generated route tree; ignored
-│   │       ├── routes/            route files and thin page composition
+│   │       ├── routes/            route files and page UI composition
 │   │       │   ├── __root.tsx     document shell and shared providers
 │   │       │   └── index.tsx      application's main route
 │   │       ├── features/
@@ -230,10 +265,6 @@ required empty files. Do not create unused packages or optional folders:
 │       ├── package.json
 │       ├── tsconfig.json
 │       └── src/                   cache policies, services, and Layers
-├── tests/
-│   ├── e2e/                       real browser and Worker workflows
-│   └── fixtures/                  repeatable inputs and local test data
-├── test-results/                  generated test artifacts; ignored
 └── docs/                          local plans and working notes; ignored
 ```
 
@@ -263,8 +294,9 @@ The table below defines ownership; the tree shows starting paths.
 - Use the same domain name across web, server, RPC contracts, and database
   modules when they have the same owner. Do not require each domain to have
   code in every package.
-- Keep domain UI, hooks, and queries together. Keep routes thin. Put shared
-  application UI in `apps/web/src/components/` and UI primitives in `packages/ui`.
+- Keep domain UI, hooks, and queries together. Keep page UI and composition in
+  route files. Put shared application UI in `apps/web/src/components/` and UI
+  primitives in `packages/ui`.
 - Keep schemas in their owning package. Public RPC schemas belong in
   `packages/rpc/src/contracts/<domain>.ts`; persistence schemas belong in
   `packages/db/src/schema/<domain>.ts`. Do not copy them into web modules.
@@ -281,9 +313,14 @@ The table below defines ownership; the tree shows starting paths.
 
 ## Growth rules
 
-Start with files. Split a domain into focused modules when separate
-responsibilities become hard to follow. Do not use a fixed line-count limit.
-Keep domain ownership and import boundaries unchanged.
+Start with files. Split responsibilities that change independently or need
+unrelated dependencies. Keep related operations together when they share the
+same domain rules and dependencies. Keep each workflow's steps together.
+For example, separate connection management, publication preparation, and
+analytics when their rules or dependencies change independently. Share their
+existing SDK setup; do not copy it. Do not split only to reduce line count or
+create a file for each CRUD operation or helper. Keep domain ownership and
+import boundaries unchanged.
 
 ```text
 Small:
@@ -297,13 +334,23 @@ apps/server/src/features/documents/services/share-document.ts
 packages/db/src/schema/documents/documents.ts
 packages/db/src/schema/documents/versions.ts
 packages/db/src/schema/documents/shares.ts
-packages/db/src/services/documents/reads.ts
-packages/db/src/services/documents/writes.ts
+packages/db/src/services/documents/versions.ts
+packages/db/src/services/documents/sharing.ts
 ```
 
+- Keep reads and writes for the same business responsibility together. Do not
+  split modules only by database action.
 - Split frontend components, hooks, and query modules by responsibility in the
-  same way. Do not create a folder for each operation in advance.
-- When splitting a file, update callers, tests, package exports, and schema
+  same way. Separate page rendering from reusable query definitions and
+  distinct interactive workflows. Do not move a large component into an
+  equally broad hook. Do not create a folder for each operation in advance.
+- Follow feature domains for service and repository boundaries. Each workflow
+  depends only on the domain services or repositories it uses. Use focused
+  Effect services for these dependencies. Do not collect domain APIs under
+  `CoreDb`, `AppService`, or another application-wide service, even as named
+  groups. Share database connections and runtime setup, not business APIs.
+  Do not add forwarding-only services.
+- When splitting a file, update callers, package exports, and schema
   discovery in Drizzle configuration. Use concrete module paths. Do not keep
   a re-export-only barrel at the old path.
 - Extract a shared package only for clear ownership, runtime isolation, or
@@ -338,15 +385,17 @@ Shared contracts never import server implementations.
 - All database access lives in `packages/db/src/services/`.
 - Group related Drizzle tables, including join tables, in
   `packages/db/src/schema/<domain>.ts`. Keep their indexes, constraints, and
-  Effect input, row, and output schemas in the same module. For example,
-  `documents.ts` owns documents, document versions, and document shares.
+  stored-row schemas and table-derived validation in the same module.
+  For example, `documents.ts` owns documents, document versions, and shares.
   Start with one file per domain, not per table. Split within the domain as
   described in Growth rules. Do not separate tables from their validation.
 - Keep data access domain-based in `packages/db/src/services/<domain>.ts`.
   Services may use several domain schema modules for joins and atomic batches.
-  Keep operation-specific input and result schemas with the owning service
-  when they span domains. Keep generated SQL migrations and metadata in
-  `src/migrations/`.
+  Keep operation-specific input and result schemas with the owning database
+  service, for both single-domain and cross-domain operations. Keep public
+  request and response schemas in the owning RPC contract. Reuse compatible
+  schemas without exposing database runtime code to the browser. Keep generated
+  SQL migrations and metadata in `src/migrations/`.
 - Define domain schemas with Effect Schema and infer domain types from them.
   Use Drizzle's inferred types for database operations. Validate operation
   inputs before execution and decode selected or returned rows with Effect
@@ -425,7 +474,9 @@ Shared contracts never import server implementations.
   execution limits before exposing long-lived streams.
 - Use Effect's logging and tracing APIs with Workers Logs and Traces. Redact
   credentials, tokens, and private user data.
-- Use Effect data, date, duration, and schema APIs when they meet the need.
+- Use Effect data and schema APIs when they improve the contract or workflow,
+  not merely because they are available. Follow the Readability contract for
+  simple synchronous code and application time logic.
   Keep native Web APIs where they are required by Cloudflare or the framework.
 - Do not add duplicate validation, retry, dependency-injection, logging, or
   asynchronous utility libraries when Effect provides the required behavior.
@@ -473,7 +524,7 @@ Use the ownership table and growth rules above for file placement.
 - Supply D1, R2, KV, and other resource bindings as typed Effect services. Do
   not parse resource objects as strings or resolve them through `process.env`.
 - Validate required configuration before its first use. Do not skip validation
-  in CI; provide valid test configuration for checks that execute the app.
+  in CI; provide valid configuration for CI jobs that execute the app.
 - Do not read `.env` directly from application code. Local Node.js scripts may
   use a separate validated config provider through the same environment package.
 - Do not use `import.meta.env` as the server's environment source. Expose only
@@ -483,7 +534,7 @@ Use the ownership table and growth rules above for file placement.
   files committed to git.
 - Keep local environment and secret files untracked. Do not embed secret values
   in `alchemy.run.ts`.
-- Bind test resources and config through the same typed services as production.
+- Bind local development resources through the same typed services as production.
 - Use one local application origin and the project's configured port. Do not
   create a second API listener.
 - Use the selected Alchemy local mode and Cloudflare runtime integration for D1,
@@ -530,13 +581,74 @@ Use the ownership table and growth rules above for file placement.
 
 ## TanStack and application patterns
 
-- **TanStack Query:** call the typed Effect RPC client from `packages/rpc` inside
-  query and mutation hooks. Execute client Effects at this boundary and pass
-  cancellation signals where supported. Do not use raw `fetch` in components.
+- **Route organization:** use directory-based file routing in TanStack Start
+  and TanStack Router. Use folders for path segments, not dot-separated route
+  files such as `_desk.edit.$slug.tsx`. Put page UI in `home/index.tsx`, not
+  `home.tsx`. Put dynamic pages in `$slug/index.tsx`, not `$slug.tsx`.
+  Keep the root index in `routes/index.tsx`.
+- Use parenthesized route groups such as `(_desk)/` to organize related routes
+  without adding a URL segment. For example, use
+  `routes/(_desk)/edit/$slug/index.tsx` for `/edit/$slug`.
+  A route group does not create a layout or a route-level guard.
+- Use `route.tsx` only when a directory needs a parent route for shared layout
+  or route behavior. Use `_desk/route.tsx` for a pathless layout and put its
+  child routes in that directory. Keep `__root.tsx` as the root route.
+  Do not replace an existing `_desk` layout with `(_desk)` grouping and lose
+  its shared UI or guards. Preserve URLs, nesting, and access checks when
+  changing route files. Do not reorganize unrelated routes.
+- **Typed navigation:** use TanStack `Link`, `navigate`, and redirects with
+  typed `to`, `params`, and `search`. Do not build internal URLs by joining
+  strings. Use normal anchors for external links.
+- **URL state:** put shareable filters, sort order, pagination, and selected
+  tabs in search params. Validate them with `validateSearch` and the stack's
+  schema library. Keep temporary UI state, such as open dialogs, in components.
+- **Route data:** use loaders for data needed before a page renders. Reuse
+  feature query options and the shared QueryClient cache; do not add duplicate
+  query keys or API calls. Declare search params used by loaders in
+  `loaderDeps`. Do not add loaders to pages that do not need them.
+- **Shared layouts:** render `Outlet` in parent layout components. Keep index
+  page UI in the child `index.tsx`. Do not add parent routes only to match the
+  folder structure.
+- **Route access:** use `beforeLoad` for route access checks and redirects
+  before protected loaders run. Validate login return paths as application-local
+  paths. Server code must authorize each protected operation; client route
+  guards are not security boundaries.
+- **Route feedback:** set shared pending, error, and not-found UI defaults.
+  Override them only when a route needs different feedback or recovery. Report
+  missing records with `notFound`, not an empty success screen. Do not require
+  separate feedback files for each route.
+- **Route-local files:** prefer existing feature modules for components, hooks,
+  and queries. When files must stay beside a route, use the route generator's
+  ignored `-` prefix, such as `-components/`. Do not let helper files become
+  routes. Preserve the project's configured ignore rules.
+- **Route changes:** check URLs, route IDs, typed links, params, search
+  validation, layouts, and guards after moving route files. Let the route
+  generator update `routeTree.gen.ts`; never edit it by hand. Verify affected
+  direct links and navigation, including denied access and missing records.
+
+- **React components and TanStack Start routes:** write page UI directly in
+  `index.tsx` or the matching route file. Define the route component there and
+  register it with the route. Never create separate page components such as
+  `inbox-page.tsx` or `InboxPage` outside the route file. Do not make a route
+  render only an imported page component.
+- Keep components small, focused, and reusable. Extract UI parts such as
+  filters, lists, and forms when they have a distinct responsibility or actual
+  reuse. Compose these parts in the route file; do not extract the whole page.
+  Do not split components only to reduce line count. Keep reusable query options
+  and focused hooks in their owning feature modules.
+
 - Never spread TanStack Query query or mutation result objects. This includes
   `...query`, `{ ...query }`, `...mutation`, and `{ ...mutation }`. Read or return
   only the required properties explicitly. This rule does not apply to query
   or mutation option objects.
+
+- **TanStack Query:** `packages/rpc` owns the transport client and shared client
+  adapters. Feature `queries.ts` modules own application query keys and reusable
+  query and mutation options. Call the typed Effect RPC client in those options;
+  execute client Effects at this boundary and pass cancellation signals where
+  supported. Hooks and components consume the options. Do not use raw `fetch`
+  in components or duplicate definitions. Preserve existing placement until a
+  migration is part of the task.
 - **TanStack React Form:** use `useForm` with Effect Schema through its Standard
   Schema adapter. Validate required fields on blur and submit, not on change or
   mount, so untouched fields show no error. Repeat validation on the server.
@@ -635,7 +747,8 @@ Use the ownership table and growth rules above for file placement.
   imports for scripts that run without a bundler.
 - Add comments only for behavior that clear names and structure cannot explain,
   or for a required lint safety justification.
-- Keep components and functions focused and easy to understand.
+- Apply the Readability contract to components and functions. Keep each
+  responsible for one coherent task.
 - Fix check failures at their source. Do not suppress rules, weaken types, or
   remove assertions to hide failures.
 
@@ -643,10 +756,10 @@ Use the ownership table and growth rules above for file placement.
 
 - Use `defineConfig` from `vite-plus` in `vite.config.ts`. This file owns all
   lint and format configuration: Oxlint settings in `lint`, Oxfmt settings in
-  `fmt`. Put test settings in `test`, cached tasks in `run`, and staged-file
-  checks in `staged`.
+  `fmt`. Put cached tasks in `run` and staged-file checks in `staged`.
+  Do not add test libraries, runners, or test configuration.
 - Use the root config for shared monorepo defaults. Keep workspace configs only
-  for required framework, runtime, build, or test settings.
+  for required framework, runtime, or build settings.
 - Compose `@yopem/oxlint-config` with its React, TanStack Start, and Effect
   presets in the root Vite+ `lint` block. Apply frontend presets to frontend
   files and the Effect preset where Effect is used. Preserve plugin registrations
@@ -670,9 +783,9 @@ Use the ownership table and growth rules above for file placement.
 - Vite+ owns Oxlint and Oxfmt execution. Keep `@yopem/oxlint-config` and
   `@yopem-ui/oxlint-plugin` compatible with the Oxlint version bundled by the
   selected Vite+ release. Verify peer dependencies before setup or upgrades.
-- Use Vite+ checks and its Vitest-based test runner. Import test APIs from
-  `vite-plus/test` and the documented browser-test subpaths. Keep E2E coverage;
-  an existing dedicated E2E runner can run as a Vite+ task.
+- CI runs Vite+ checks. Do not run `check`, `typecheck`, `vp check`,
+  `tsc --noEmit`, or equivalent commands unless the user explicitly asks.
+  Do not run them indirectly through scripts, hooks, or other tools.
 - Use Vite+ tasks for workspace ordering and caching instead of Turborepo.
   Verify dependency ordering and file and environment tracking. Set `cache: false`
   for deployment, remote migrations, seeds, and other external mutations; tasks
@@ -683,10 +796,8 @@ Use the ownership table and growth rules above for file placement.
 - Do not create or maintain `oxlint.config.*`, `oxfmt.config.*`, `.oxlintrc.*`,
   or `.oxfmtrc.*`. Merge CLI-generated lint and format settings into
   `vite.config.ts`; verify them before removing generated standalone configs.
-- Do not maintain standalone Vitest configuration, `turbo.json`, or separate
-  staged-check configuration alongside Vite+. Keep a dedicated E2E runner's
-  config only when that runner needs it. Move and verify required settings
-  before removing old files.
+- Do not add `turbo.json` or separate staged-check configuration alongside
+  Vite+. Move and verify required settings before removing old files.
 - `package.json` owns package scripts. `pnpm-workspace.yaml` defines workspace
   packages; `pnpm-lock.yaml` is the dependency lockfile. Do not create lockfiles
   for other package managers. Use `pnpm exec` for installed CLIs and `pnpm dlx`
@@ -740,40 +851,53 @@ Use the ownership table and growth rules above for file placement.
 - Do not deploy with Wrangler or dashboard edits as a parallel configuration
   path. A tool may generate or consume runtime config internally under Alchemy.
 
-## Testing rules
+## Validation workflow
 
-- Prefer E2E tests that exercise real user workflows in the Cloudflare runtime.
-- Define expected behavior and tests before changing non-trivial behavior.
-- Test observable behavior and public contracts, not documentation wording.
-  Do not assert full sentences, descriptions, warnings, or lists of prose fragments.
-  Wording changes must not require test changes unless wording is the requested contract.
-- Assert exact text only for stable identifiers, commands, URLs, required legal text,
-  or accessible names used to operate the interface.
-  For documentation, check response status, content type, valid links, and usable examples.
-- Use public inventories to check published resources. Check structured fields,
-  dependencies, and consumer imports instead of full generated-file equality.
-- Do not test implementation source with string searches when rendered output or
-  user interaction can verify the same contract. Test copy controls through clipboard output.
-  Keep security and accessibility checks.
-- Cover the changed behavior, including authorization, Effect RPC success and
-  errors, D1 persistence, and authorized R2 access when those features exist.
-- Verify the single deployment serves frontend HTML, assets, `/rpc`, and any
-  required auth handlers on one origin. API requests must not receive frontend
-  fallback HTML.
-- Test bindings and schema validation with repeatable fixtures. Keep local test
-  resources separate from production resources.
-- When authentication changes, test OpenAuth login, callback state and PKCE,
-  invalid tokens, refresh persistence, logout, and denied RPC operations. Do not
-  change the live issuer or use production accounts for automated tests.
-- Test queue retries and duplicate delivery when job behavior changes.
-- Run relevant tests after each behavior change through Vite+ or its tasks.
-  Run format, lint, typecheck, and build checks before finishing implementation.
-- Save and inspect an E2E report, trace, or equivalent artifact. State setup and
-  inputs so the same test can run again.
-- If isolated Effect tests are required, define them before implementation and
-  use the Effect test integration compatible with the selected runner.
-- Documentation-only changes do not need source tests, but must be checked for
-  stale tool, runtime, infrastructure, and architecture references.
+- Use Playwriter directly in the browser to verify changed web user workflows.
+  Check observable results and browser errors.
+- Use `curl` to verify changed backend HTTP endpoints. Check response status,
+  headers, body, and expected side effects. Cover relevant success, validation,
+  and denied-access cases. Use the existing typed client for Effect RPC checks
+  that cannot use `curl` with the configured serialization and protocol.
+  Do not invent RPC envelopes.
+- Define expected results and relevant failure cases before implementation.
+  Select checks for the changed behavior; do not run unrelated test suites.
+- Verify permissions with anonymous, wrong-role, and cross-user requests when
+  relevant. Verify persistence by reading data through the application after
+  writes. For bug fixes, repeat the original failure scenario.
+- Check concurrency, duplicate requests, retries, timeouts, and recovery from
+  dependency failures when the changed behavior depends on them. Use isolated
+  local resources for failure checks.
+- Assert expected values and side effects, not only HTTP success. Use shell
+  assertions, existing Effect schemas, or platform assertion APIs. Use
+  `node:assert/strict` in local scripts only when pure logic needs a focused
+  check. Keep Node.js imports out of Worker and browser bundles.
+- Use Playwriter for browser CORS, cookie, and CSRF behavior. A successful
+  `curl` request does not verify browser enforcement.
+- Run the existing production build when changes affect bundling, runtime
+  boundaries, or build configuration. Do not run scripts that invoke prohibited
+  checks unless the user explicitly asks.
+- Do not create test files for routine changes or run automated test suites
+  by default. Do not install test libraries or runners.
+- Record prerequisites, repeatable inputs, commands or browser steps, and
+  expected results. Save sanitized results locally and inspect them before
+  claiming success. Keep credentials and private data out of saved evidence.
+- Use local development resources and data for browser and backend validation.
+  Do not use production accounts, change the live issuer, or change production
+  data.
+- Create or run a focused test only when Playwriter and `curl` cannot verify a
+  critical behavior, or when the user explicitly requests it. Explain the need.
+  Use existing tools or platform APIs; do not add test libraries or runners.
+- Keep any new test files, fixtures, and artifacts local and uncommitted. Add
+  their exact paths or a dedicated local directory to `.gitignore` before
+  creating them. Verify they are ignored before committing. Do not delete,
+  untrack, or change existing committed tests or CI without an explicit request.
+- CI owns check and typecheck execution. Never run `check`, `typecheck`,
+  `vp check`, `tsc --noEmit`, or equivalent commands unless the user explicitly
+  asks. Do not run them indirectly through scripts, hooks, or other tools.
+- For documentation-only changes, review the changed text for stale references
+  and conflicting instructions. No browser session or source tests are needed.
+- Report what you verified, what you could not verify, and any remaining risk.
 
 ## Generated, runtime, and protected files
 
@@ -795,7 +919,7 @@ Use the ownership table and growth rules above for file placement.
   or shared module. Check that cross-feature dependencies remain acyclic,
   business logic is not copied across entrypoints, and direct database calls
   meet the simple-operation rule in Architecture boundaries.
-- Run the relevant checks and inspect their results. Report unresolved
-  boundary violations and tooling gaps; do not treat written rules as proof
-  that the code follows them.
+- Follow the Validation workflow above. Inspect browser results, backend HTTP
+  responses, and any explicitly requested command output. Report unresolved boundary violations
+  and tooling gaps. Do not treat written rules as proof of enforcement.
 - Final response must state changed files, checks run, and any skipped check.
