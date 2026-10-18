@@ -112,7 +112,8 @@ export type ComposerAction = "draft" | "publish" | "schedule"
 
 export interface ComposerOperation {
   postId?: string
-  key?: string
+  saveKey?: string
+  publishKey?: string
   publishStarted: boolean
   uncertainSave: boolean
 }
@@ -209,6 +210,8 @@ export function savePostMutation({
                 })
               : null
 
+          if (newSave) current.saveKey ??= crypto.randomUUID()
+
           const saved =
             current.publishStarted && current.postId
               ? null
@@ -216,6 +219,7 @@ export function savePostMutation({
                   rpc.PostSave({
                     workspaceId,
                     postId: current.postId,
+                    idempotencyKey: newSave ? current.saveKey : undefined,
                     content,
                     scheduledAt,
                   }),
@@ -266,7 +270,9 @@ export function savePostMutation({
             )
 
           // Keep this key when the publish result is not known.
-          current.key ??= crypto.randomUUID()
+          const publishKey = current.publishKey ?? crypto.randomUUID()
+
+          current.publishKey = publishKey
           current.publishStarted = true
           onPublishStarted()
 
@@ -274,7 +280,7 @@ export function savePostMutation({
             rpc.PostPublish({
               workspaceId,
               postId,
-              idempotencyKey: current.key ?? "",
+              idempotencyKey: publishKey,
             }),
           )
         }).pipe(Effect.scoped),

@@ -52,6 +52,7 @@ function makePosts() {
       content,
       scheduledAt,
       postId,
+      idempotencyKey,
     }: typeof PostSaveInput.Type & { readonly userId: string }) {
       return gate
         .run(
@@ -60,47 +61,65 @@ function makePosts() {
           Effect.gen(function* () {
             yield* workspacesDb.workspaceAccess({ userId, workspaceId })
 
-            if (!content.text.trim() && content.mediaIds.length === 0) {
+            const parsed =
+              scheduledAt === null ? Option.none() : DateTime.make(scheduledAt)
+
+            if (scheduledAt !== null && Option.isNone(parsed))
+              return yield* Effect.fail(
+                new ApiError({
+                  code: "invalid-input",
+                  message: "Choose a future publication time.",
+                }),
+              )
+
+            const schedule = Option.isSome(parsed)
+              ? DateTime.formatIso(parsed.value)
+              : null
+
+            // A retry must not revalidate a committed schedule or removed targets.
+            if (!postId && idempotencyKey) {
+              const saved = yield* postsDb.findSavedPost({
+                userId,
+                workspaceId,
+                idempotencyKey,
+                content,
+                scheduledAt: schedule,
+              })
+
+              if (saved) return saved
+            }
+
+            if (!content.text.trim() && content.mediaIds.length === 0)
               return yield* Effect.fail(
                 new ApiError({
                   code: "invalid-input",
                   message: "Add text or media before saving.",
                 }),
               )
-            }
 
-            let schedule: string | null = null
-
-            if (scheduledAt !== null) {
-              const parsed = DateTime.make(scheduledAt)
+            if (Option.isSome(parsed)) {
               const now = yield* DateTime.now
 
-              if (
-                Option.isNone(parsed) ||
-                DateTime.toEpochMillis(parsed.value) <=
-                  DateTime.toEpochMillis(now)
-              ) {
+              if (!DateTime.isGreaterThan(parsed.value, now))
                 return yield* Effect.fail(
                   new ApiError({
                     code: "invalid-input",
                     message: "Choose a future publication time.",
                   }),
                 )
-              }
 
-              if (content.channelIds.length === 0) {
+              if (content.channelIds.length === 0)
                 return yield* Effect.fail(
                   new ApiError({
                     code: "invalid-input",
                     message: "Select a channel before scheduling.",
                   }),
                 )
-              }
-
-              schedule = DateTime.formatIso(parsed.value)
             }
 
             return yield* postsDb.savePost({
+              userId,
+              idempotencyKey,
               workspaceId,
               content,
               scheduledAt: schedule,

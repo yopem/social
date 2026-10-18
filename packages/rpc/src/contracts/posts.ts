@@ -151,6 +151,8 @@ export const PostListInput = Schema.Struct({
 export const PostSaveInput = Schema.Struct({
   workspaceId: Id,
   postId: Schema.optional(Id),
+  // Reuse this key when a new-post request is retried.
+  idempotencyKey: Schema.optional(Id),
   content: PostContent,
   scheduledAt: Schema.NullOr(Schema.String),
 })

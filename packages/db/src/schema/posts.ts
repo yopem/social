@@ -2,15 +2,18 @@ import { sql } from "drizzle-orm"
 import {
   check,
   index,
+  primaryKey,
   sqliteTable,
   text,
   unique,
 } from "drizzle-orm/sqlite-core"
 import { Schema } from "effect"
 
+import { users } from "db/schema/accounts"
 import { channels } from "db/schema/channels"
 import { workspaces } from "db/schema/workspaces"
 import { Delivery, PostContent, PostState } from "rpc/contracts/posts"
+import { Id } from "rpc/lib/schema"
 
 export const posts = sqliteTable(
   "posts",
@@ -48,6 +51,38 @@ export const posts = sqliteTable(
     ),
   ],
 )
+
+export const postSaveRequests = sqliteTable(
+  "post_save_requests",
+  {
+    workspace_id: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    user_id: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    request_key: text("request_key").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    // Keep the request after post deletion so a retry cannot recreate it.
+    post_id: text("post_id").notNull(),
+    created_at: text("created_at").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.workspace_id, table.user_id, table.request_key],
+    }),
+    index("post_save_requests_user").on(table.user_id),
+  ],
+)
+
+export const PostSaveRequestRow = Schema.Struct({
+  workspace_id: Id,
+  user_id: Id,
+  request_key: Id,
+  fingerprint: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
+  post_id: Id,
+  created_at: Schema.String,
+}) satisfies Schema.Codec<typeof postSaveRequests.$inferSelect>
 
 export const deliveries = sqliteTable(
   "deliveries",

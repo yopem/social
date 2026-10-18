@@ -11,15 +11,32 @@ import {
   or,
   gte,
 } from "drizzle-orm"
-import { Context, DateTime, Effect, Layer, Match, Option, Schema } from "effect"
+import {
+  Context,
+  DateTime,
+  Effect,
+  Layer,
+  Match,
+  Option,
+  Predicate,
+  Schema,
+} from "effect"
 
 import { channels } from "db/schema/channels"
 import { media, MediaRow } from "db/schema/media"
-import { posts, deliveries, DeliveryRow, PostRow } from "db/schema/posts"
+import {
+  posts,
+  deliveries,
+  postSaveRequests,
+  DeliveryRow,
+  PostRow,
+  PostsInsert,
+  PostSaveRequestRow,
+} from "db/schema/posts"
 import { ChannelsDb, type createChannelsRepository } from "db/services/channels"
 import { Database } from "db/services/client"
 import type { DatabaseContext } from "db/services/context"
-import { failure, now } from "db/services/context"
+import { failure, hash, now } from "db/services/context"
 import { validateOperation } from "db/services/validation"
 import { PostListPageInput, PostListPageResult } from "rpc/contracts/posts"
 import {
@@ -30,6 +47,44 @@ import {
   PostSaveInput,
   PostState,
 } from "rpc/contracts/posts"
+import type { JsonValue } from "rpc/lib/json"
+import { Id } from "rpc/lib/schema"
+
+const PostSaveDbInput = Schema.Struct({
+  ...PostSaveInput.fields,
+  userId: Schema.optional(Id),
+}).check(
+  Schema.makeFilter((value) => !value.idempotencyKey || Boolean(value.userId), {
+    message: "A keyed save requires a user.",
+  }),
+)
+
+const PostSaveRequestInput = Schema.Struct({
+  workspaceId: PostSaveInput.fields.workspaceId,
+  userId: Id,
+  idempotencyKey: Id,
+  content: PostContent,
+  scheduledAt: PostSaveInput.fields.scheduledAt,
+})
+
+function saveRequestFingerprint(input: typeof PostSaveRequestInput.Type) {
+  return hash(
+    JSON.stringify(
+      { content: input.content, scheduledAt: input.scheduledAt },
+      (_key: string, value: JsonValue | undefined) => {
+        if (!Predicate.isReadonlyObject(value)) return value
+
+        return Object.fromEntries(
+          Object.entries(value).sort(([left], [right]) => {
+            if (left === right) return 0
+
+            return left < right ? -1 : 1
+          }),
+        )
+      },
+    ),
+  )
+}
 
 const PostStateChangeInput = Schema.Struct({
   workspaceId: Schema.String,
@@ -82,7 +137,7 @@ export function createPostsRepository(
   context: DatabaseContext,
   channelsRepository: ReturnType<typeof createChannelsRepository>,
 ) {
-  const { client, query, write, required } = context
+  const { client, query, write, batch, required } = context
   const { channel } = channelsRepository
 
   const publicationOperation = Effect.fnUntraced(function* ({
@@ -140,8 +195,51 @@ export function createPostsRepository(
     }
   })
 
+  const findSavedPost = Effect.fn("posts.findSavedPost")(function* (
+    input: typeof PostSaveRequestInput.Type,
+  ) {
+    const fingerprint = yield* saveRequestFingerprint(input)
+
+    const requests = yield* query(PostSaveRequestRow, () =>
+      client
+        .select()
+        .from(postSaveRequests)
+        .where(
+          and(
+            eq(postSaveRequests.workspace_id, input.workspaceId),
+            eq(postSaveRequests.user_id, input.userId),
+            eq(postSaveRequests.request_key, input.idempotencyKey),
+          ),
+        ),
+    )
+
+    const saved = requests[0]
+
+    if (!saved) return null
+
+    if (saved.fingerprint !== fingerprint)
+      return yield* Effect.fail(
+        failure("conflict", "Save key belongs to another request."),
+      )
+
+    return yield* getPost({
+      workspaceId: input.workspaceId,
+      postId: saved.post_id,
+    }).pipe(
+      Effect.mapError((error) =>
+        error.code === "not-found"
+          ? failure(
+              "conflict",
+              "The original post was removed. Start a new post.",
+            )
+          : error,
+      ),
+    )
+  })
+
   const postOperations = {
     getPost,
+    findSavedPost,
     publicationOperation,
     listPosts(this: void, { workspaceId, filter }: typeof PostListInput.Type) {
       const states = Match.value(filter).pipe(
@@ -305,7 +403,9 @@ export function createPostsRepository(
       content,
       scheduledAt,
       postId,
-    }: typeof PostSaveInput.Type) {
+      userId,
+      idempotencyKey,
+    }: typeof PostSaveDbInput.Type) {
       const valid = yield* Schema.decodeUnknownEffect(PostContent)(
         content,
       ).pipe(
@@ -323,6 +423,17 @@ export function createPostsRepository(
         return yield* Effect.fail(
           failure("invalid-input", "Schedule must use UTC ISO time"),
         )
+
+      const request =
+        !postId && userId && idempotencyKey
+          ? { workspaceId, userId, idempotencyKey, content: valid, scheduledAt }
+          : null
+
+      if (request) {
+        const saved = yield* findSavedPost(request)
+
+        if (saved) return saved
+      }
 
       for (const id of valid.channelIds)
         yield* channel({ workspaceId, channelId: id })
@@ -374,18 +485,88 @@ export function createPostsRepository(
           return yield* Effect.fail(
             failure("conflict", "Post cannot be edited"),
           )
-      } else
-        yield* write(() =>
-          client.insert(posts).values({
-            id,
-            workspace_id: workspaceId,
-            content: JSON.stringify(valid),
-            state: scheduledAt ? "scheduled" : "draft",
-            scheduled_at: scheduledAt,
-            created_at: stamp,
-            updated_at: stamp,
-          }),
+      } else {
+        const row = yield* Schema.decodeUnknownEffect(PostsInsert)({
+          id,
+          workspace_id: workspaceId,
+          content: JSON.stringify(valid),
+          state: scheduledAt ? "scheduled" : "draft",
+          scheduled_at: scheduledAt,
+          created_at: stamp,
+          updated_at: stamp,
+        }).pipe(
+          Effect.mapError(() =>
+            failure("invalid-input", "Invalid post values"),
+          ),
         )
+
+        if (request) {
+          const fingerprint = yield* saveRequestFingerprint(request)
+
+          const receipt = yield* Schema.decodeUnknownEffect(PostSaveRequestRow)(
+            {
+              workspace_id: workspaceId,
+              user_id: request.userId,
+              request_key: request.idempotencyKey,
+              fingerprint,
+              post_id: id,
+              created_at: stamp,
+            },
+          ).pipe(
+            Effect.mapError(() =>
+              failure("invalid-input", "Invalid save request"),
+            ),
+          )
+
+          // Only the request that creates the receipt can insert its post.
+          yield* batch([
+            client
+              .insert(postSaveRequests)
+              .values(receipt)
+              .onConflictDoNothing(),
+            // Drizzle requires every post column in table order for INSERT SELECT.
+            client.insert(posts).select(
+              client
+                .select({
+                  id: postSaveRequests.post_id,
+                  workspace_id: postSaveRequests.workspace_id,
+                  content: sql<string>`${row.content}`.as("content"),
+                  state: sql<string>`${row.state}`.as("state"),
+                  scheduled_at: sql<string | null>`${scheduledAt}`.as(
+                    "scheduled_at",
+                  ),
+                  created_at: postSaveRequests.created_at,
+                  updated_at: postSaveRequests.created_at,
+                  review_reason: sql<null>`NULL`.as("review_reason"),
+                  operation_key: sql<null>`NULL`.as("operation_key"),
+                  lease_until: sql<null>`NULL`.as("lease_until"),
+                  dispatch_status: sql<null>`NULL`.as("dispatch_status"),
+                })
+                .from(postSaveRequests)
+                .where(
+                  and(
+                    eq(postSaveRequests.workspace_id, workspaceId),
+                    eq(postSaveRequests.user_id, request.userId),
+                    eq(postSaveRequests.request_key, request.idempotencyKey),
+                    eq(postSaveRequests.post_id, id),
+                    eq(postSaveRequests.fingerprint, fingerprint),
+                  ),
+                ),
+            ),
+          ])
+
+          const saved = yield* findSavedPost(request)
+
+          if (!saved)
+            return yield* Effect.fail(
+              failure("storage-failure", "Saved request is missing."),
+            )
+
+          return saved
+        }
+
+        yield* write(() => client.insert(posts).values(row))
+      }
 
       return yield* getPost({ workspaceId, postId: id })
     }),
@@ -682,7 +863,11 @@ export function createPostsRepository(
     ),
     savePost: validateOperation(
       postOperations.savePost,
-      Schema.Tuple([PostSaveInput]),
+      Schema.Tuple([PostSaveDbInput]),
+    ),
+    findSavedPost: validateOperation(
+      postOperations.findSavedPost,
+      Schema.Tuple([PostSaveRequestInput]),
     ),
     setPostState: validateOperation(
       postOperations.setPostState,
