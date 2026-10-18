@@ -23,9 +23,11 @@ export function usePostFilters({
   // Keep an empty date in search so reload does not select today again.
   const date =
     search.date ?? (view === "calendar" && !search.month ? today : "")
+
   const month = search.date
     ? search.date.slice(0, 7)
     : (search.month ?? today.slice(0, 7))
+
   const channelId = search.channelId ?? ""
 
   const bounds = date
@@ -35,7 +37,9 @@ export function usePostFilters({
       : undefined
 
   function setDate(value: string) {
-    onChange({ date: value, ...(value ? { month: value.slice(0, 7) } : {}) })
+    onChange(
+      value ? { date: value, month: value.slice(0, 7) } : { date: value },
+    )
   }
 
   function setMonth(value: string) {

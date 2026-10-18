@@ -8,7 +8,7 @@ import { Text } from "ui/components/text"
 import { PageHeading } from "@/components/desk-ui"
 
 export function RoutePending() {
-  return <Text role="status">Loading page…</Text>
+  return <output>Loading page…</output>
 }
 
 export function RouteFailure() {

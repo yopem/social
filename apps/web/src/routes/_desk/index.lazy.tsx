@@ -34,15 +34,14 @@ export function QueuePage() {
 
   const history = search.view === "history"
 
-  function selectView(view: "queue" | "history") {
-    void navigate({ search: (previous) => ({ ...previous, view }) })
-  }
-
   return (
     <Tabs
       value={history ? "history" : "queue"}
       onValueChange={(value) => {
-        if (value === "queue" || value === "history") selectView(value)
+        if (value === "queue" || value === "history")
+          void navigate({
+            search: (previous) => ({ ...previous, view: value }),
+          })
       }}
     >
       <Stack>
@@ -74,7 +73,9 @@ export function QueuePage() {
                 result &&
                 ["published", "partial", "failed"].includes(result.state)
               )
-                selectView("history")
+                void navigate({
+                  search: (previous) => ({ ...previous, view: "history" }),
+                })
               editor.closeEditor(result)
             }}
           />
