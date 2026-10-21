@@ -77,10 +77,11 @@
 
 - **Local runtime and package manager:** Node.js LTS, pnpm workspaces, and ESM.
   Use a Node.js version supported by Vite+, Alchemy, and the UI CLI. Keep pnpm
-  as the selected package manager when Vite+ manages package commands.
+  as the selected package manager. Use `vp` for all project commands.
 - **Production runtime:** Cloudflare Workers (`workerd`), not a Node.js server.
   Enable `nodejs_compat` only when a dependency needs supported Node.js APIs.
 - **Language:** TypeScript with `@yopem/typescript-config`.
+- **Typecheck runner:** `tsrs`. Never use `tsc` to run typechecks.
 - **Application foundation:** Effect v4 or the latest release with a major
   version of 4 or higher from https://effect.website. Never use Effect v3 or
   earlier. Use Effect for domain logic, typed errors, services, dependency
@@ -126,9 +127,9 @@
 - **Infrastructure as code:** Alchemy from https://alchemy.run. Define the
   complete deployment in TypeScript, not hand-written Worker configuration.
 
-Use Node.js and pnpm for local tools, scripts, and package management. Use Vite+
-for the local toolchain and preserve the required TanStack Start, StyleX, and
-Cloudflare build plugins. Node.js is not the deployed HTTP server. Do not use
+Use Node.js and Vite+ (`vp`) for local tools, scripts, and package management.
+Keep pnpm as the package manager used by Vite+. Preserve the required
+TanStack Start, StyleX, and Cloudflare build plugins. Node.js is not the deployed HTTP server. Do not use
 Bun or Bun-specific APIs. Select a Node.js-compatible `@yopem-ui/cli` release.
 
 Pin compatible Effect, Drizzle ORM, Drizzle Kit, and Alchemy versions. Read
@@ -800,8 +801,9 @@ Use the ownership table and growth rules above for file placement.
   Vite+. Move and verify required settings before removing old files.
 - `package.json` owns package scripts. `pnpm-workspace.yaml` defines workspace
   packages; `pnpm-lock.yaml` is the dependency lockfile. Do not create lockfiles
-  for other package managers. Use `pnpm exec` for installed CLIs and `pnpm dlx`
-  for one-time package execution.
+  for other package managers. Use `vp exec` for installed CLIs and `vp dlx`
+  for one-time package execution. Use `vp install`, `vp add`, and `vp update`
+  for dependencies. Do not call pnpm directly.
   Read existing scripts and Vite+ tasks before running commands. Do not assume
   project-specific script names. Use `vp run` for configured scripts and tasks;
   built-in commands do not run same-named scripts. Do not define the same task

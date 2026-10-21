@@ -6,6 +6,9 @@
     "./migrations/*.sql": "./src/migrations/*.sql",
     "./*": "./src/*.ts"
   },
+  "scripts": {
+    "typecheck": "tsrs --noEmit"
+  },
   "dependencies": {
     "drizzle-orm": "0.45.4",
     "effect": "4.0.3",

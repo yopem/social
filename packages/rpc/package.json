@@ -5,6 +5,9 @@
   "exports": {
     "./*": "./src/*.ts"
   },
+  "scripts": {
+    "typecheck": "tsrs --noEmit"
+  },
   "dependencies": {
     "effect": "4.0.3"
   }

@@ -1,6 +1,8 @@
 packages:
   - apps/*
   - packages/*
+catalog:
+  tsrs: 0.18.0-ts7.1.0-dev.20260929
 minimumReleaseAgeExclude:
   - "@tanstack/query-core@5.104.2"
   - "@tanstack/react-query@5.104.2"
@@ -8,6 +10,7 @@ minimumReleaseAgeExclude:
 overrides:
   vite: npm:@voidzero-dev/vite-plus-core@1.1.0
   effect: 4.0.3
+  zod: 4.6.7
   "@stylexjs/stylex": 0.19.1
   "@stylexjs/babel-plugin": 0.19.1
   "@stylexjs/postcss-plugin": 0.19.1

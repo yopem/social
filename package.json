@@ -28,6 +28,7 @@
     "effect": "4.0.3",
     "env": "workspace:*",
     "eslint": "10.12.0",
+    "tsrs": "catalog:",
     "typescript": "7.0.2",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.1.0",
     "vite-plus": "1.1.0"

@@ -278,19 +278,20 @@ export default defineConfig({
   run: {
     tasks: {
       "workspace-types": {
-        command: "pnpm exec tsc --noEmit && pnpm -r exec tsc --noEmit",
+        command:
+          "vp exec tsrs --noEmit && vp run --filter '!social-poster' --no-cache typecheck",
         cache: false,
       },
       "web-build": { command: "vp build", cwd: "apps/web" },
-      "deploy-app": { command: "pnpm exec alchemy deploy", cache: false },
+      "deploy-app": { command: "vp exec alchemy deploy", cache: false },
       "database-generate": {
         command:
-          "pnpm exec drizzle-kit generate --config packages/db/drizzle.config.ts",
+          "vp exec drizzle-kit generate --config packages/db/drizzle.config.ts",
         cache: false,
       },
       "database-studio": {
         command:
-          "pnpm exec drizzle-kit studio --config packages/db/drizzle.config.ts --host 127.0.0.1 --port 4983",
+          "vp exec drizzle-kit studio --config packages/db/drizzle.config.ts --host 127.0.0.1 --port 4983",
         cache: false,
       },
     },

@@ -140,9 +140,9 @@ export const web = await Effect.runPromise(
                       // Automatic spans include OAuth URL queries. Enable only with redaction.
                       traces: { enabled: false },
                     },
-                    build: "pnpm exec vp build",
+                    build: "vp build",
                     dev: {
-                      command: "pnpm exec vp dev",
+                      command: "vp dev",
                       domain: "localhost:3200",
                     },
                   }),

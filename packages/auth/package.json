@@ -5,6 +5,9 @@
   "exports": {
     "./*": "./src/*.ts"
   },
+  "scripts": {
+    "typecheck": "tsrs --noEmit"
+  },
   "dependencies": {
     "@openauthjs/openauth": "0.4.3",
     "effect": "4.0.3",

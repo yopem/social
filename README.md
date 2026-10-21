@@ -22,10 +22,11 @@ access determine which features are available.
 
 ## Local setup
 
-Use Node.js 24 LTS and pnpm 12.11.2.
+Use Node.js 24 LTS and the Vite+ CLI (`vp`). Vite+ uses pnpm 12.11.2
+for this workspace.
 
 ```sh
-pnpm install --frozen-lockfile
+vp install --frozen-lockfile
 cp .env.example .env
 ```
 
@@ -43,7 +44,7 @@ encryption key and Alchemy password stable. Use the `development` stage to
 keep local resources separate from production resources.
 
 ```sh
-pnpm exec vp run dev --stage development --env-file .env.local
+vp run dev --stage development --env-file .env.local
 ```
 
 The live sign-in flow uses the configured external issuer at
@@ -55,12 +56,12 @@ Build once after installation to generate the route tree. Do not edit the
 generated route tree.
 
 ```sh
-pnpm exec vp run build
+vp run build
 ```
 
 The project also provides `format` and `lint` scripts. CI runs `check` and
 `typecheck`; do not run these commands during local validation.
-Run project scripts through `pnpm exec vp run <script>`.
+Run project scripts through `vp run <script>`.
 
 ## Code layout
 
@@ -98,7 +99,7 @@ that boundary.
 After a table change, generate and review a migration:
 
 ```sh
-pnpm exec vp run db-generate
+vp run db-generate
 ```
 
 Keep generated migration metadata with the SQL. Do not rewrite applied
@@ -111,7 +112,7 @@ needs reviewed baseline adoption; do not replay its CREATE statements.
 To inspect a local database:
 
 ```sh
-pnpm exec vp run db-studio
+vp run db-studio
 ```
 
 Studio selects only this project's local D1 files. If more than one database
