@@ -141,8 +141,9 @@ export function useComposer({ workspace, post, onClose }: ComposerProps) {
     )
   }
 
-  function uploadFile(file: File) {
-    attachments.uploadFile(file, (uploaded) => {
+  function uploadFiles(files: readonly File[]) {
+    if (saving || publishStarted || uncertainSave) return
+    void attachments.uploadFiles(files, (uploaded) => {
       form.setFieldValue("mediaIds", (ids) => [...ids, uploaded.id])
       resetConsent()
     })
@@ -164,6 +165,9 @@ export function useComposer({ workspace, post, onClose }: ComposerProps) {
   }
 
   function submit() {
+    if (attachments.uploading || saving || uncertainSave)
+      return Promise.resolve()
+
     // Clear stale schema paths before TanStack checks field validity.
     return execute(
       Effect.promise(() => Promise.resolve(form.validate("submit"))).pipe(
@@ -193,7 +197,7 @@ export function useComposer({ workspace, post, onClose }: ComposerProps) {
     setScheduled,
     resetConsent,
     removeMedia,
-    uploadFile,
+    uploadFiles,
     rememberCreator,
     selectAction,
     changeOpen,

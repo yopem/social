@@ -16,6 +16,7 @@ import { Heading } from "ui/components/heading"
 import { HStack } from "ui/components/hstack"
 import { Stack } from "ui/components/stack"
 import { Text } from "ui/components/text"
+import { Wrap } from "ui/components/wrap"
 import { tokens } from "ui/styles/tokens.stylex"
 
 import { Brand } from "@/components/public-shell"
@@ -27,23 +28,11 @@ export const Route = createFileRoute("/sign-in/")({
 })
 
 const styles = stylex.create({
-  page: { minBlockSize: "100svh" },
-  header: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    flexWrap: "wrap",
-    gap: `calc(${tokens["--spacing"]} * 4)`,
-    padding: `calc(${tokens["--spacing"]} * 6)`,
-  },
-  main: {
-    display: "grid",
-    alignItems: "center",
-    flex: 1,
-    paddingInline: `calc(${tokens["--spacing"]} * 4)`,
-    paddingBlock: `calc(${tokens["--spacing"]} * 10)`,
-  },
-  panel: { inlineSize: "100%", maxInlineSize: "26rem" },
+  header: { margin: `calc(${tokens["--spacing"]} * 6)` },
+  back: { marginInlineStart: "auto" },
+  main: { marginInline: `calc(${tokens["--spacing"]} * 4)` },
+  center: { blockSize: "max(32rem, calc(100svh - 8rem))" },
+  panel: { inlineSize: "min(100%, 26rem)" },
   legalLink: { textDecoration: "underline", outlineOffset: 4 },
 })
 
@@ -52,22 +41,26 @@ export function SignInPage() {
   const signedIn = Boolean(session.data?.user)
 
   return (
-    <Stack xstyle={styles.page}>
+    <Stack>
       <Box render={<header />} xstyle={styles.header}>
-        <Brand />
-        <Button variant="ghost" render={<Link to="/" />}>
-          <ArrowLeftIcon size={16} aria-hidden="true" />
-          Back to home
-        </Button>
+        <Wrap>
+          <Brand />
+          <Button xstyle={styles.back} variant="ghost" render={<Link to="/" />}>
+            <ArrowLeftIcon size={16} aria-hidden="true" />
+            Back to home
+          </Button>
+        </Wrap>
       </Box>
       <Box render={<main />} xstyle={styles.main}>
-        <Center>
+        <Center xstyle={styles.center}>
           <Stack xstyle={styles.panel}>
             <Card>
               <CardHeader>
-                <Heading render={<h1 />}>
-                  {signedIn ? "You’re signed in" : "Welcome back"}
-                </Heading>
+                <Heading
+                  render={
+                    <h1>{signedIn ? "You’re signed in" : "Welcome back"}</h1>
+                  }
+                />
                 <CardDescription>
                   {signedIn
                     ? "Your publishing workspace is ready."
@@ -83,7 +76,14 @@ export function SignInPage() {
                   ) : (
                     <Button
                       size="lg"
-                      render={<a href="/auth/login?returnTo=%2Fqueue" />}
+                      render={
+                        <Link
+                          from={Route.fullPath}
+                          href="/auth/login?returnTo=%2Fqueue"
+                          reloadDocument
+                          aria-label="Continue with Google"
+                        />
+                      }
                     >
                       <LogInIcon size={18} aria-hidden="true" />
                       Continue with Google

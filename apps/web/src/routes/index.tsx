@@ -29,14 +29,13 @@ export const Route = createFileRoute("/")({
 })
 
 const styles = stylex.create({
-  features: {
-    display: "grid",
-    gridTemplateColumns: {
-      default: "repeat(3, minmax(0, 1fr))",
-      "@media (max-width: 700px)": "minmax(0, 1fr)",
+  features: { marginBlock: `calc(${tokens["--spacing"]} * 12)` },
+  feature: {
+    inlineSize: {
+      default: `calc((100% - ${tokens["--spacing"]} * 4) / 3)`,
+      "@media (max-width: 700px)": "100%",
     },
-    gap: `calc(${tokens["--spacing"]} * 10)`,
-    paddingBlock: `calc(${tokens["--spacing"]} * 12)`,
+    marginBlock: `calc(${tokens["--spacing"]} * 4)`,
   },
 })
 
@@ -50,11 +49,11 @@ export function LandingPage() {
         >
           <Stack xstyle={publicStyles.copy}>
             <Heading
-              render={<h1 id="landing-title" />}
+              render={
+                <h1 id="landing-title">Good ideas deserve to get posted.</h1>
+              }
               xstyle={publicStyles.title}
-            >
-              Good ideas deserve to get posted.
-            </Heading>
+            />
             <Text xstyle={publicStyles.lead}>
               A home for your drafts, a plan for your week, and one place to
               publish across your social channels.
@@ -66,7 +65,9 @@ export function LandingPage() {
               <Button
                 size="lg"
                 variant="outline"
-                render={<a href="#how-it-works" />}
+                render={
+                  <a href="#how-it-works" aria-label="See how it works" />
+                }
               >
                 See how it works
               </Button>
@@ -84,36 +85,38 @@ export function LandingPage() {
           }
           xstyle={styles.features}
         >
-          <Stack>
-            <HStack>
-              <FilePenLineIcon size={22} aria-hidden="true" />
-              <Heading render={<h2 />}>Keep the idea</Heading>
-            </HStack>
-            <Text>
-              Save a draft, add your media, and shape the post before it goes
-              out.
-            </Text>
-          </Stack>
-          <Stack>
-            <HStack>
-              <CalendarDaysIcon size={22} aria-hidden="true" />
-              <Heading render={<h2 />}>Give it a time</Heading>
-            </HStack>
-            <Text>
-              Build your publishing week in the calendar. See what is ready and
-              what comes next.
-            </Text>
-          </Stack>
-          <Stack>
-            <HStack>
-              <RadioIcon size={22} aria-hidden="true" />
-              <Heading render={<h2 />}>Get it out there</Heading>
-            </HStack>
-            <Text>
-              Connect your channels, publish your posts, and review the results
-              from your workspace.
-            </Text>
-          </Stack>
+          <Wrap>
+            <Stack xstyle={styles.feature}>
+              <HStack>
+                <FilePenLineIcon size={22} aria-hidden="true" />
+                <Heading render={<h2>Keep the idea</h2>} />
+              </HStack>
+              <Text>
+                Save a draft, add your media, and shape the post before it goes
+                out.
+              </Text>
+            </Stack>
+            <Stack xstyle={styles.feature}>
+              <HStack>
+                <CalendarDaysIcon size={22} aria-hidden="true" />
+                <Heading render={<h2>Give it a time</h2>} />
+              </HStack>
+              <Text>
+                Build your publishing week in the calendar. See what is ready
+                and what comes next.
+              </Text>
+            </Stack>
+            <Stack xstyle={styles.feature}>
+              <HStack>
+                <RadioIcon size={22} aria-hidden="true" />
+                <Heading render={<h2>Get it out there</h2>} />
+              </HStack>
+              <Text>
+                Connect your channels, publish your posts, and review the
+                results from your workspace.
+              </Text>
+            </Stack>
+          </Wrap>
         </Box>
       </Box>
     </PublicShell>

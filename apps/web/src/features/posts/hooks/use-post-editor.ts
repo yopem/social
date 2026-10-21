@@ -1,14 +1,19 @@
+import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
 
 import type { Post } from "rpc/contracts/posts"
 
 export function usePostEditor() {
+  const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [post, setPost] = useState<Post>()
   const [reviewOutcome, setReviewOutcome] = useState<Post | null>(null)
 
   function createPost() {
-    setOpen(true)
+    void navigate({
+      to: "/posts/new",
+      search: (previous) => ({ workspace: previous.workspace }),
+    })
   }
 
   function editPost(selected: Post) {

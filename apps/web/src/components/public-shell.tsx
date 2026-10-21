@@ -8,22 +8,17 @@ import { Box } from "ui/components/box"
 import { Button } from "ui/components/button"
 import { Container } from "ui/components/container"
 import { HStack } from "ui/components/hstack"
+import { Separator } from "ui/components/separator"
 import { Text } from "ui/components/text"
+import { Wrap } from "ui/components/wrap"
 import { tokens } from "ui/styles/tokens.stylex"
 
 import { LegalLinks } from "@/features/legal/components/legal-links"
 
 export const publicStyles = stylex.create({
-  page: { minBlockSize: "100svh" },
-  container: { maxInlineSize: "76rem" },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: `calc(${tokens["--spacing"]} * 4)`,
-    paddingBlock: `calc(${tokens["--spacing"]} * 6)`,
-  },
+  container: { inlineSize: "min(100%, 76rem)" },
+  header: { marginBlock: `calc(${tokens["--spacing"]} * 6)` },
+  trailing: { marginInlineStart: "auto" },
   brand: {
     display: "inline-flex",
     alignItems: "center",
@@ -74,15 +69,7 @@ export const publicStyles = stylex.create({
   },
   copy: { gap: `calc(${tokens["--spacing"]} * 7)` },
   note: { color: tokens["--muted-foreground"], maxInlineSize: "46ch" },
-  footer: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: `calc(${tokens["--spacing"]} * 4)`,
-    paddingBlock: `calc(${tokens["--spacing"]} * 7)`,
-    borderBlockStart: `1px solid ${tokens["--border"]}`,
-  },
+  footer: { marginBlock: `calc(${tokens["--spacing"]} * 7)` },
 })
 
 export function Brand() {
@@ -104,11 +91,11 @@ export function Brand() {
 
 export function PublicShell({ children }: { children: ReactNode }) {
   return (
-    <Box xstyle={publicStyles.page}>
-      <Container xstyle={publicStyles.container}>
-        <Box render={<header />} xstyle={publicStyles.header}>
+    <Container xstyle={publicStyles.container}>
+      <Box render={<header />} xstyle={publicStyles.header}>
+        <Wrap>
           <Brand />
-          <HStack>
+          <HStack xstyle={publicStyles.trailing}>
             <Button variant="ghost" render={<Link to="/sign-in" />}>
               Sign in
             </Button>
@@ -116,13 +103,18 @@ export function PublicShell({ children }: { children: ReactNode }) {
               Open workspace
             </Button>
           </HStack>
-        </Box>
-        {children}
-        <Box render={<footer />} xstyle={publicStyles.footer}>
+        </Wrap>
+      </Box>
+      {children}
+      <Separator />
+      <Box render={<footer />} xstyle={publicStyles.footer}>
+        <Wrap>
           <Text>Make room for your next idea.</Text>
-          <LegalLinks />
-        </Box>
-      </Container>
-    </Box>
+          <Box xstyle={publicStyles.trailing}>
+            <LegalLinks />
+          </Box>
+        </Wrap>
+      </Box>
+    </Container>
   )
 }

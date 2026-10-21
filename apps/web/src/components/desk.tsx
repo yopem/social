@@ -159,11 +159,16 @@ export function DeskAccess({
     <PublicShell>
       <Box render={<main />} xstyle={publicStyles.hero}>
         <Stack>
-          <Heading render={<h1 />} xstyle={publicStyles.title}>
-            {session.isError
-              ? "Let’s try that again."
-              : "Your workspace is waiting."}
-          </Heading>
+          <Heading
+            render={
+              <h1>
+                {session.isError
+                  ? "Let’s try that again."
+                  : "Your workspace is waiting."}
+              </h1>
+            }
+            xstyle={publicStyles.title}
+          />
           <Text role={session.isError ? "alert" : undefined}>
             {session.isError
               ? "We could not open your workspace. Check your connection and try again."
